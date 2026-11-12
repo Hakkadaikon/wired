@@ -16,7 +16,7 @@ static void test_onertt_roundtrip(void) {
   onertt_keys(&k, &hp);
 
   u8                pkt[64];
-  protect_keys      pk = {&k, &hp};
+  protect_keys      pk = {&k, &hp, 0};
   hspkt_onertt_desc d  = {wired_span_of(dcid, 5),
                           12,
                           wired_span_of(frames, sizeof(frames)),
@@ -46,7 +46,7 @@ static void test_onertt_byte0(void) {
   onertt_keys(&k, &hp);
 
   u8                pkt[64];
-  protect_keys      pk = {&k, &hp};
+  protect_keys      pk = {&k, &hp, 0};
   hspkt_onertt_desc d  = {wired_span_of(dcid, 4),
                           1,
                           wired_span_of(frames, sizeof(frames)),
@@ -67,7 +67,7 @@ static void test_onertt_tamper(void) {
   onertt_keys(&k, &hp);
 
   u8                pkt[64];
-  protect_keys      pk = {&k, &hp};
+  protect_keys      pk = {&k, &hp, 0};
   hspkt_onertt_desc d  = {wired_span_of(dcid, 4),
                           5,
                           wired_span_of(frames, sizeof(frames)),
@@ -131,7 +131,7 @@ static void test_onertt_truncated_pn(void) {
   u8           pkt[64];
   wired_span   out;
   usz          total;
-  protect_keys pk = {&k, &hp};
+  protect_keys pk = {&k, &hp, 0};
   onertt_keys(&k, &hp);
 
   total = seal_truncated(&k, &hp, dcid, 5, 300, 1, frames, sizeof frames, pkt);
@@ -165,7 +165,7 @@ static void test_onertt_min_length_short_pn(void) {
   u8           pkt[64];
   wired_span   out;
   usz          total;
-  protect_keys pk = {&k, &hp};
+  protect_keys pk = {&k, &hp, 0};
   onertt_keys(&k, &hp);
   total = seal_truncated(&k, &hp, dcid, 6, 42, 1, frames, sizeof frames, pkt);
   CHECK(total == 27); /* the exact shape Chrome sends */

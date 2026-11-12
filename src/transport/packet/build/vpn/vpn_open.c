@@ -96,7 +96,7 @@ static int remove_hp_suite(
  * 9001 5.3), not a precomputed nonce. */
 static int vpn_aead_open_suite(
     u16 suite, const initial_keys* keys, u8* pkt, const vpnopen_dims* v) {
-  aead_suite_op op = {suite, keys->key, keys->iv, v->pn, {pkt, v->hdr_len}};
+  aead_suite_op op = {suite, keys->key, keys->iv, v->pn, {pkt, v->hdr_len}, 0};
   return aead_suite_open(
              &op, wired_span_of(pkt + v->hdr_len, v->ct_len),
              pkt + v->hdr_len) != 0;

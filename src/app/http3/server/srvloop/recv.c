@@ -36,7 +36,7 @@ static int recv_handshake(
   if (!wired_srvloop_open_keys(s, LEVEL_HANDSHAKE, &dk)) {
     return 0;
   }
-  protect_keys pk = {dk.keys, &dk.hp};
+  protect_keys pk = {dk.keys, &dk.hp, 0};
   if (!hspkt_open_suite(
           s->sdrv.cipher_suite, &pk, in->dgram, in->hs_largest_pn,
           &out->payload)) {
@@ -76,7 +76,7 @@ static int recv_zerortt(
   }
   aes128_init(&hp, keys.hp);
   {
-    protect_keys pk = {&keys, &hp};
+    protect_keys pk = {&keys, &hp, 0};
     return hspkt_open_suite(
         s->sdrv.cipher_suite, &pk, in->dgram, in->largest_pn, payload);
   }

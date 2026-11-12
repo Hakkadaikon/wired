@@ -119,7 +119,7 @@ static int srvwire_initial_tx_lean_ver(
   }
   initpkt_derive_ver(in->dcid, version, &ck, &sk);
   aes128_init(&hp, sk.hp);
-  protect_keys k = {&sk, &hp};
+  protect_keys k = {&sk, &hp, 0};
   tx_desc      t = {
       byte0,
       in->hdr_dcid,

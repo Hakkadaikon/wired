@@ -42,7 +42,7 @@ int srvwire_open_initial(
   (void)in->pn;
   initpkt_derive(in->dcid, &ck, &sk);
   aes128_init(&hp, sk.hp);
-  protect_keys k = {&sk, &hp};
+  protect_keys k = {&sk, &hp, 0};
   rx_desc      d = {pkt, 1, 0};
   if (!rx_packet(&k, &d, &frames)) {
     return 0;

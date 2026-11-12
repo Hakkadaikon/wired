@@ -4,6 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 #include "tls/handshake/core/tls/initial.h"
+#include "tls/keys/xkeys/xkeys.h"
 
 /* RFC 9001 5.3/5.4 packet protection pipeline for AES-128-GCM Initial
  * packets: build the AEAD nonce from iv XOR packet number, seal the payload
@@ -14,6 +15,9 @@
 typedef struct {
   const initial_keys* keys;
   const aes128*       hp;
+  /** The generation's expanded AES-NI contexts (xkeys_usable), or 0: the
+   * suite paths then expand keys->key / keys->hp per packet. */
+  const xkeys* x;
 } protect_keys;
 
 /* Compute the 12-byte AEAD nonce: iv with the packet number XORed into its

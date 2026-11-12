@@ -30,6 +30,10 @@ typedef struct __attribute__((aligned(16))) {
  * 0 otherwise. Result is cached after the first call. */
 int gcmx86_supported(void);
 
+/** One AES-128 block under x's key (ECB): out = AES_K(in). For a QUIC
+ * header-protection mask (RFC 9001 5.4.3); x->h is not used. */
+void gcmx86_ecb(const gcmx86* x, const u8 in[16], u8 out[16]);
+
 /* Expand key into the round-key schedule and precompute H. Call only when
  * gcmx86_supported() returned 1. */
 void gcmx86_init(gcmx86* x, const u8 key[16]);

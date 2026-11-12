@@ -39,7 +39,7 @@ static void test_protect_roundtrip(void) {
   const u8 payload[] = {0x06, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'};
 
   u8              pkt[64];
-  protect_keys    k   = {&keys, &hp};
+  protect_keys    k   = {&keys, &hp, 0};
   protect_seal_io sio = {
       wired_span_of(hdr, 18),
       14,
@@ -71,7 +71,7 @@ static void test_protect_tamper(void) {
   u8       hdr[18] = {0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 2};
   const u8 payload[] = {1, 2, 3, 4};
   u8       pkt[64];
-  protect_keys    k   = {&keys, &hp};
+  protect_keys    k   = {&keys, &hp, 0};
   protect_seal_io sio = {
       wired_span_of(hdr, 18),
       14,
@@ -96,7 +96,7 @@ static void test_protect_seal_rejects_short_out_and_bad_suite(void) {
   aes128       hp;
   initial_derive(wired_span_of(dcid, 8), 0, VERSION_1, &keys);
   aes128_init(&hp, keys.hp);
-  protect_keys    k   = {&keys, &hp};
+  protect_keys    k   = {&keys, &hp, 0};
   protect_seal_io sio = {
       wired_span_of(hdr, 18),
       14,

@@ -6,6 +6,7 @@
 #include "tls/handshake/core/sdrv/sdrv.h"
 #include "tls/handshake/roles/srvfin/complete.h"
 #include "tls/keys/kuswitch/twogen.h"
+#include "tls/keys/xkeys/xkeys.h"
 #include "transport/conn/loop/crecv/collect.h"
 #include "transport/io/socket/io/udp.h"
 
@@ -89,6 +90,13 @@ typedef struct {
   initial_keys ku_next;
   /** The client_ap secret of ku_next, adopted when it rotates in. */
   u8 ku_next_secret[TLS_HASH_MAX];
+  /** The 1-RTT keys expanded for AES-NI, so no packet re-runs the AES key
+   * schedule: kx_send for ku_send.cur, kx_recv[0..2] for ku.cur, ku.old and
+   * ku_next. Brought in line with those keys before each use (xkeys_sync),
+   * which also covers every rotation. */
+  xkeys kx_send;
+  /** See kx_send. */
+  xkeys kx_recv[3];
   /** RFC 9001 6.5: lowest and highest packet number opened under ku.cur --
    * an old-phase packet below ku_cur_lo is a delayed one (old keys), above
    * ku_cur_hi a Key Update (ku_next). */

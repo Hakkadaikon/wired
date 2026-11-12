@@ -285,7 +285,7 @@ static usz client_seal_handshake_ver(
       0,
       0,
       version};
-  protect_keys pk = {k, &hp};
+  protect_keys pk = {k, &hp, 0};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
 }
@@ -317,7 +317,7 @@ static usz client_seal_handshake_pn(
       0,
       0,
       0};
-  protect_keys pk = {k, &hp};
+  protect_keys pk = {k, &hp, 0};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
 }
@@ -330,7 +330,7 @@ static usz client_seal_onertt(
   usz                 total = 0;
   CHECK(keysched_get(&f->s.sched, KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
-  protect_keys      pk = {k, &hp};
+  protect_keys      pk = {k, &hp, 0};
   hspkt_onertt_desc d  = {
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
       g_lp_cli_pn++,
@@ -416,7 +416,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
     CHECK(keysched_get(&f.s.sched, KS_SERVER_HS, &shs) == 1);
     aes128_init(&hp, shs->hp);
     {
-      protect_keys pk = {shs, &hp};
+      protect_keys pk = {shs, &hp, 0};
       CHECK(
           srvwire_open_handshake_suite(
               TLS_CHACHA20_POLY1305_SHA256, &pk, wired_mspan_of(hpkt, hob.len),
@@ -442,7 +442,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
      * ChaCha20, so seal the client Finished with it directly instead. */
     CHECK(keysched_get(&f.s.sched, KS_CLIENT_HS, &chs) == 1);
     {
-      protect_keys    cpk = {chs, 0};
+      protect_keys    cpk = {chs, 0, 0};
       srvwire_seal_in cin = {
           wired_span_of((const u8*)0, 0),
           wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
@@ -477,7 +477,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
       usz       np    = udploop_split(wired_span_of(opkt, oob.len), &plist);
       CHECK(np == 2);
       {
-        protect_keys           pk = {sap, &hp};
+        protect_keys           pk = {sap, &hp, 0};
         hspkt_onertt_open_desc d  = {
             wired_mspan_of(opkt + offs[1], lens[1]), 6, 0};
         CHECK(
@@ -512,7 +512,7 @@ static void test_srvloop_open_chacha(void) {
     lp_make_client_finished(&f);
     CHECK(keysched_get(&f.s.sched, KS_CLIENT_HS, &chs) == 1);
     {
-      protect_keys    pk = {chs, 0};
+      protect_keys    pk = {chs, 0, 0};
       srvwire_seal_in in = {
           wired_span_of((const u8*)0, 0),
           wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
@@ -549,7 +549,7 @@ static void test_srvloop_open_chacha(void) {
     rlen = rob.len;
     CHECK(keysched_get(&f.s.sched, KS_CLIENT_AP, &cap) == 1);
     {
-      protect_keys      pk = {cap, 0};
+      protect_keys      pk = {cap, 0, 0};
       hspkt_onertt_desc d  = {
           wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
           1,
@@ -638,7 +638,7 @@ static usz lp_seal_hs_suite(
   const initial_keys* chs;
   wired_obuf          cob = {pkt, cap, 0};
   CHECK(keysched_get(&f->s.sched, KS_CLIENT_HS, &chs) == 1);
-  protect_keys    pk = {chs, 0};
+  protect_keys    pk = {chs, 0, 0};
   srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
@@ -665,7 +665,7 @@ static usz lp_seal_onertt_suite(
     wired_span          pl,
     u8*                 pkt,
     usz                 cap) {
-  protect_keys      pk = {k, 0};
+  protect_keys      pk = {k, 0, 0};
   hspkt_onertt_desc d  = {
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn, pl, phase, 0, 0};
   wired_obuf rb = {pkt, cap, 0};
@@ -706,7 +706,7 @@ static void test_srvloop_aes256_only_roundtrip(void) {
   }
   CHECK(keysched_get(&f.s.sched, KS_SERVER_HS, &shs) == 1);
   {
-    protect_keys pk = {shs, 0};
+    protect_keys pk = {shs, 0, 0};
     CHECK(
         srvwire_open_handshake_suite(
             TLS_AES_256_GCM_SHA384, &pk, wired_mspan_of(hpkt, hob.len), &tls) ==
@@ -786,14 +786,14 @@ static void test_srvloop_wrong_direction_open_fails(void) {
   /* SERVER_HS (own / client-peer) opens it; CLIENT_HS (server-open) must NOT.
    */
   {
-    protect_keys ownpk = {own, &ownhp};
+    protect_keys ownpk = {own, &ownhp, 0};
     CHECK(
         srvwire_open_handshake(&ownpk, wired_mspan_of(pkt, ob.len), &tls) == 1);
   }
   CHECK(keysched_get(&f.s.sched, KS_CLIENT_HS, &peer) == 1);
   aes128_init(&peerhp, peer->hp);
   {
-    protect_keys peerpk = {peer, &peerhp};
+    protect_keys peerpk = {peer, &peerhp, 0};
     CHECK(
         srvwire_open_handshake(&peerpk, wired_mspan_of(pkt, ob.len), &tls) ==
         0);
@@ -853,7 +853,7 @@ static int client_open_onertt(
   aes128              hp;
   CHECK(keysched_get(&f->s.sched, KS_SERVER_AP, &k) == 1);
   aes128_init(&hp, k->hp);
-  protect_keys           pk = {k, &hp};
+  protect_keys           pk = {k, &hp, 0};
   hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
   wired_span             v;
   if (!hspkt_onertt_open(&pk, &d, &v)) {
@@ -1039,7 +1039,7 @@ static usz client_seal_onertt_pn(
   usz                 total = 0;
   CHECK(keysched_get(&f->s.sched, KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
-  protect_keys      pk = {k, &hp};
+  protect_keys      pk = {k, &hp, 0};
   hspkt_onertt_desc d  = {
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
       pn,
@@ -1235,7 +1235,7 @@ static int client_open_handshake(
   aes128              hp;
   k = lp_hs_key(f, KS_SERVER_HS);
   aes128_init(&hp, k->hp);
-  protect_keys pk = {k, &hp};
+  protect_keys pk = {k, &hp, 0};
   wired_span   v;
   if (!hspkt_open(&pk, wired_mspan_of((u8*)pkt, len), 0, &v)) {
     return 0;
@@ -5496,7 +5496,7 @@ static usz client_seal_onertt_pn_gen(
   }
   aes128_init(&hp, use->hp);
   {
-    protect_keys      pk = {use, &hp};
+    protect_keys      pk = {use, &hp, 0};
     hspkt_onertt_desc d  = {
         wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
         pn,
@@ -5593,7 +5593,7 @@ static int client_open_onertt_gen1(
   }
   aes128_init(&hp, next.hp);
   {
-    protect_keys           pk = {&next, &hp};
+    protect_keys           pk = {&next, &hp, 0};
     hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
     if (!hspkt_onertt_open(&pk, &d, &v)) {
       return 0;
@@ -5732,7 +5732,7 @@ static usz lp_client_onertt_bits(
   CHECK(keysched_get(&f->s.sched, KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
   {
-    protect_keys      pk = {k, &hp};
+    protect_keys      pk = {k, &hp, 0};
     hspkt_onertt_desc d  = {
         wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
         pn,
@@ -6070,7 +6070,7 @@ static usz lp_seal_ku(
   aes128          hp;
   aes128_init(&hp, k->hp);
   {
-    protect_keys      pk = {k, &hp};
+    protect_keys      pk = {k, &hp, 0};
     hspkt_onertt_desc d  = {
         wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
         pn,
@@ -6232,7 +6232,7 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
    * Handshake's type bits, and byte0 is covered by the AEAD's AAD, so the
    * type must be set before sealing, not patched into the output after. */
   {
-    protect_keys pk = {&s.sdrv.early_keys, &hp};
+    protect_keys pk = {&s.sdrv.early_keys, &hp, 0};
     tx_desc      d  = {
         0xd3,
         wired_span_of(g_cli_scid, 6),
@@ -6306,7 +6306,7 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
   f.s.sdrv.early_data_accepted = 1;
   aes128_init(&hp, f.s.sdrv.early_keys.hp);
   {
-    protect_keys pk = {&f.s.sdrv.early_keys, &hp};
+    protect_keys pk = {&f.s.sdrv.early_keys, &hp, 0};
     tx_desc      d  = {
         0xd3,
         wired_span_of(g_cli_scid, 6),
@@ -6355,7 +6355,7 @@ static usz lp_client_handshake_ver(
   k                      = lp_hs_key(f, KS_CLIENT_HS);
   aes128_init(&hp, k->hp);
   {
-    protect_keys    pk = {k, &hp};
+    protect_keys    pk = {k, &hp, 0};
     srvwire_seal_in in = {
         wired_span_of((const u8*)0, 0),
         wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
@@ -6450,7 +6450,7 @@ static usz lp_seal_v2_gen1(struct lp_fix* f, wired_span pl, u8* pkt, usz cap) {
   lp_v2_next_keys(f->s.ku_secret, f->s.ku.cur.hp, &k);
   aes128_init(&hp, k.hp);
   {
-    protect_keys      pk = {&k, &hp};
+    protect_keys      pk = {&k, &hp, 0};
     hspkt_onertt_desc d  = {
         wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 7, pl, 1, 0, 0};
     CHECK(hspkt_onertt_build(&pk, &d, &o));
@@ -6469,7 +6469,7 @@ static int lp_open_v2_gen1(struct lp_fix* f, u8* pkt, usz len, wired_span* v) {
   lp_v2_next_keys(secret, gen0->hp, &k);
   aes128_init(&hp, k.hp);
   {
-    protect_keys           pk = {&k, &hp};
+    protect_keys           pk = {&k, &hp, 0};
     hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
     return hspkt_onertt_open(&pk, &d, v);
   }
@@ -6541,7 +6541,7 @@ static void test_srvloop_recv_v1_zerortt_after_v2_switch(void) {
   lp_switch_v1_to_v2(&f);
   aes128_init(&hp, f.s.sdrv.early_keys.hp);
   {
-    protect_keys pk = {&f.s.sdrv.early_keys, &hp};
+    protect_keys pk = {&f.s.sdrv.early_keys, &hp, 0};
     tx_desc      d  = {
         0xd3,
         wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
@@ -6580,7 +6580,7 @@ static void test_sdrv_early_keys_use_original_version_labels(void) {
 static usz srvloop_zrtt_seal(
     struct lp_fix* f, u8 byte0, u64 pn, wired_span payload, wired_mspan pkt) {
   aes128       hp;
-  protect_keys pk = {&f->s.sdrv.early_keys, &hp};
+  protect_keys pk = {&f->s.sdrv.early_keys, &hp, 0};
   tx_desc      d  = {
       byte0,
       wired_span_of(g_cli_scid, 6),

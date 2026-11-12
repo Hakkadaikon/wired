@@ -37,7 +37,7 @@ static void roundtrip(usz pn_len, u64 pn) {
   const u8 payload[] = {0x06, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'};
 
   u8              pkt[80];
-  protect_keys    k   = {&keys, &hp};
+  protect_keys    k   = {&keys, &hp, 0};
   protect_seal_io sio = {
       wired_span_of(hdr, hdr_len),
       pn_off,
@@ -76,7 +76,7 @@ static void test_vpn_tamper(void) {
   u8 hdr[18] = {0xc1, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0x12, 0x34};
   const u8        payload[] = {1, 2, 3, 4};
   u8              pkt[64];
-  protect_keys    k   = {&keys, &hp};
+  protect_keys    k   = {&keys, &hp, 0};
   protect_seal_io sio = {
       wired_span_of(hdr, 18),
       16,
@@ -110,7 +110,7 @@ static void test_vpn_protect_compat(void) {
                              0xf0, 0x3e, 0x51, 0x57, 0x08, 0, 0,    0,    2};
   const u8        payload[] = {0x06, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'};
   u8              pkt[64];
-  protect_keys    k   = {&keys, &hp};
+  protect_keys    k   = {&keys, &hp, 0};
   protect_seal_io sio = {
       wired_span_of(hdr, 18),
       14,
@@ -146,7 +146,7 @@ static void test_vpn_truncated_pn_recovered(void) {
   pnum_encode(hdr + pn_off, 731, 1); /* one wire byte, full pn 731 */
   const u8        payload[] = {0x06, 0x00, 0x03, 'e', 'n', 'd'};
   u8              pkt[64];
-  protect_keys    k   = {&keys, &hp};
+  protect_keys    k   = {&keys, &hp, 0};
   protect_seal_io sio = {
       wired_span_of(hdr, pn_off + 1),
       pn_off,

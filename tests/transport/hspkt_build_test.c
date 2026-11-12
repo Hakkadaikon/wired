@@ -20,7 +20,7 @@ static void test_hspkt_build_roundtrip(void) {
   hspkt_keys(&k, &hp);
 
   u8           pkt[128];
-  protect_keys pk = {&k, &hp};
+  protect_keys pk = {&k, &hp, 0};
   hspkt_desc   d  = {
       wired_span_of(dcid, 5), wired_span_of(scid, 3), 9,
       wired_span_of(frames, sizeof(frames)), 0};
@@ -50,7 +50,7 @@ static void test_hspkt_build_byte0(void) {
   hspkt_keys(&k, &hp);
 
   u8           pkt[128];
-  protect_keys pk = {&k, &hp};
+  protect_keys pk = {&k, &hp, 0};
   hspkt_desc   d  = {
       wired_span_of(dcid, 4), wired_span_of((const u8*)0, 0), 1,
       wired_span_of(frames, sizeof(frames)), 0};
@@ -69,7 +69,7 @@ static void test_hspkt_build_tamper(void) {
   hspkt_keys(&k, &hp);
 
   u8           pkt[128];
-  protect_keys pk = {&k, &hp};
+  protect_keys pk = {&k, &hp, 0};
   hspkt_desc   d  = {
       wired_span_of(dcid, 4), wired_span_of((const u8*)0, 0), 3,
       wired_span_of(frames, sizeof(frames)), 0};

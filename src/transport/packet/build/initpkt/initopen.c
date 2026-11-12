@@ -16,7 +16,7 @@ int initpkt_open_ver(
   initpkt_derive_ver(dcid, version, &ck, &sk);
   aes128_init(&hp, ck.hp);
   (void)sk;
-  protect_keys k = {&ck, &hp};
+  protect_keys k = {&ck, &hp, 0};
   rx_desc      d = {pkt, 1, largest_pn};
   return rx_packet(&k, &d, crypto);
 }

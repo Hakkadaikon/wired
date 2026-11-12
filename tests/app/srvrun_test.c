@@ -1393,7 +1393,7 @@ static void sr_initial_close_wire_content(u64 code) {
   rx_desc      d = {wired_mspan_of(out, ob.len), 1, 0};
   initpkt_derive(wired_span_of(g_sr_odcid, 8), &ck, &sk);
   aes128_init(&hp, sk.hp);
-  k = (protect_keys){&sk, &hp};
+  k = (protect_keys){&sk, &hp, 0};
   CHECK(rx_packet(&k, &d, &frames) == 1);
 
   conn_close_frame cc;
@@ -4468,7 +4468,7 @@ static usz sr_seal_dcid(
   CHECK(keysched_get(&f->s.sched, KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
   {
-    protect_keys      pk = {k, &hp};
+    protect_keys      pk = {k, &hp, 0};
     hspkt_onertt_desc d  = {dcid, pn, pl, 0, g_sr_spin, 0};
     wired_obuf        o  = obuf_of(pkt, cap);
     CHECK(hspkt_onertt_build(&pk, &d, &o));

@@ -18,9 +18,9 @@ void test_aead_suite(void) {
   }
 
   /* RFC 9001 5.3 AES suite: matches the fixed GCM pipeline directly. */
-  aead_suite_op aes = {
-      TLS_AES_128_GCM_SHA256, key, iv, 2, wired_span_of(aad, 7)};
-  usz n = aead_suite_seal(&aes, wired_span_of(pt, 20), ct);
+  aead_suite_op aes = {TLS_AES_128_GCM_SHA256, key, iv, 2,
+                       wired_span_of(aad, 7),  0};
+  usz           n   = aead_suite_seal(&aes, wired_span_of(pt, 20), ct);
   CHECK(n == 20 + 16);
   aes128 a;
   aes128_init(&a, key);
@@ -44,9 +44,9 @@ void test_aead_suite(void) {
   /* RFC 9001 5.3 AES-256 suite (0x1302): matches AES-256-GCM directly and
    * round-trips. */
   {
-    aead_suite_op a256 = {
-        TLS_AES_256_GCM_SHA384, key, iv, 2, wired_span_of(aad, 7)};
-    aes256 k256;
+    aead_suite_op a256 = {TLS_AES_256_GCM_SHA384, key, iv, 2,
+                          wired_span_of(aad, 7),  0};
+    aes256        k256;
     aes256_init(&k256, key);
     gcm256_ctx g256 = {&k256, nonce, {aad, 7}};
     gcm256_seal(&g256, wired_span_of(pt, 20), want);
@@ -71,16 +71,16 @@ void test_aead_suite(void) {
         TLS_CHACHA20_POLY1305_SHA256};
     u8 mask[5];
     for (usz i = 0; i < 3; i++) {
-      aead_suite_op op = {suites[i], key, iv, 2, wired_span_of(aad, 7)};
+      aead_suite_op op = {suites[i], key, iv, 2, wired_span_of(aad, 7), 0};
       CHECK(aead_suite_seal(&op, wired_span_of(pt, 20), ct) == 36);
       CHECK(hp_suite_mask(suites[i], key, pt, mask) == 1);
     }
   }
 
   /* RFC 9001 5.3 ChaCha suite: seal -> open round-trips. */
-  aead_suite_op cha = {
-      TLS_CHACHA20_POLY1305_SHA256, key, iv, 5, wired_span_of(aad, 7)};
-  n = aead_suite_seal(&cha, wired_span_of(pt, 20), ct);
+  aead_suite_op cha = {TLS_CHACHA20_POLY1305_SHA256, key, iv, 5,
+                       wired_span_of(aad, 7),        0};
+  n                 = aead_suite_seal(&cha, wired_span_of(pt, 20), ct);
   CHECK(n == 20 + 16);
   CHECK(aead_suite_open(&cha, wired_span_of(ct, 20), out) == 20);
   for (usz i = 0; i < 20; i++) {
@@ -92,7 +92,7 @@ void test_aead_suite(void) {
   CHECK(aead_suite_open(&cha, wired_span_of(ct, 20), out) == 0);
 
   /* Unknown suite seals/opens nothing. */
-  aead_suite_op bad = {0x0000, key, iv, 2, wired_span_of(aad, 7)};
+  aead_suite_op bad = {0x0000, key, iv, 2, wired_span_of(aad, 7), 0};
   CHECK(aead_suite_seal(&bad, wired_span_of(pt, 20), ct) == 0);
   CHECK(aead_suite_open(&bad, wired_span_of(ct, 20), out) == 0);
 
@@ -115,10 +115,10 @@ static void test_aead_suite_nonce(void) {
     pt[i] = (u8)(0x55 + i);
   }
 
-  aead_suite_op op1 = {
-      TLS_AES_128_GCM_SHA256, key, iv, 1, wired_span_of((const u8*)"h", 1)};
-  aead_suite_op op2 = {
-      TLS_AES_128_GCM_SHA256, key, iv, 2, wired_span_of((const u8*)"h", 1)};
+  aead_suite_op op1 = {TLS_AES_128_GCM_SHA256,           key, iv, 1,
+                       wired_span_of((const u8*)"h", 1), 0};
+  aead_suite_op op2 = {TLS_AES_128_GCM_SHA256,           key, iv, 2,
+                       wired_span_of((const u8*)"h", 1), 0};
 
   CHECK(aead_suite_seal(&op1, wired_span_of(pt, 16), ct1) == 32);
   CHECK(aead_suite_seal(&op2, wired_span_of(pt, 16), ct2) == 32);

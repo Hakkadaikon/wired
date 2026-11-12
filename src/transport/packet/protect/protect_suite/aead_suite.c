@@ -103,8 +103,18 @@ usz aead_suite_seal(const aead_suite_op* op, wired_span pt, u8* out) {
     return 0;
   }
   suite_nonce(op->iv, op->pn, nonce);
+  if (op->x) {
+    return gcmx86_seal(op->x, nonce, op->aad, pt, out);
+  }
   aead_suite_io io = {op->key, nonce, op->aad, pt, out};
   return aead_suite_tab[r].seal(&io);
+}
+
+/* The expanded-key open applies: gcmx86_open returns the plaintext length,
+ * which cannot tell an authentic empty plaintext from a failed tag, so an
+ * empty one keeps the raw-key path (gcm_open settles it). */
+static int aead_suite_x_opens(const aead_suite_op* op, wired_span ct) {
+  return op->x && ct.n;
 }
 
 usz aead_suite_open(const aead_suite_op* op, wired_span ct, u8* pt) {
@@ -114,6 +124,10 @@ usz aead_suite_open(const aead_suite_op* op, wired_span ct, u8* pt) {
     return 0;
   }
   suite_nonce(op->iv, op->pn, nonce);
+  if (aead_suite_x_opens(op, ct)) {
+    return gcmx86_open(
+        op->x, nonce, op->aad, wired_span_of(ct.p, ct.n + GCMX86_TAG), pt);
+  }
   aead_suite_io io = {op->key, nonce, op->aad, ct, pt};
   return aead_suite_tab[r].open(&io);
 }

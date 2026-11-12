@@ -81,6 +81,7 @@ typedef struct {
   const initial_keys*         keys;
   const hspkt_unprotect_desc* d;
   u8                          mask[5];
+  const xkeys*                x; /* the keys' expanded contexts, or 0 */
 } hsunprot_suite_ctx;
 
 /* RFC 9001 5.3: AEAD-open ciphertext at pkt+hdr_len using header as AAD,
@@ -91,7 +92,8 @@ static int aead_open_suite(const hsunprot_suite_ctx* c, usz hdr_len, u64 pn) {
   usz           tag_len = aead_tag_len(c->suite);
   u8*           pkt     = c->d->pkt.p;
   usz           ct_len  = c->d->pkt.n - hdr_len - tag_len;
-  aead_suite_op op = {c->suite, c->keys->key, c->keys->iv, pn, {pkt, hdr_len}};
+  aead_suite_op op      = {c->suite, c->keys->key,   c->keys->iv,
+                           pn,       {pkt, hdr_len}, xkeys_aead(c->x)};
   return aead_suite_open(
              &op, wired_span_of(pkt + hdr_len, ct_len), pkt + hdr_len) != 0;
 }
@@ -138,12 +140,12 @@ int hspkt_unprotect_suite(
     const protect_keys*         k,
     const hspkt_unprotect_desc* d,
     wired_span*                 payload) {
-  hsunprot_suite_ctx c = {suite, k->keys, d, {0}};
+  hsunprot_suite_ctx c = {suite, k->keys, d, {0}, k->x};
   if (!hp_sample_ok(d->pkt.n, hp_sample_offset(d->pn_off))) {
     return 0;
   }
-  if (!hp_suite_mask(
-          suite, k->keys->hp, d->pkt.p + hp_sample_offset(d->pn_off), c.mask)) {
+  if (!hp_suite_mask_keys(
+          suite, k, d->pkt.p + hp_sample_offset(d->pn_off), c.mask)) {
     return 0;
   }
   d->pkt.p[0] ^= c.mask[0] & d->bits_mask;

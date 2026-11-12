@@ -126,7 +126,7 @@ static void test_srvwire_handshake_roundtrip(void) {
       0,
       0,
       0};
-  protect_keys pk = {&k, &hp};
+  protect_keys pk = {&k, &hp, 0};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   wired_span tls = {0, 0};
   CHECK(srvwire_open_handshake(&pk, wired_mspan_of(pkt, ob.len), &tls));
@@ -160,10 +160,10 @@ static void test_srvwire_handshake_wrong_key(void) {
       0,
       0,
       0};
-  protect_keys pk = {&k, &hp};
+  protect_keys pk = {&k, &hp, 0};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   wired_span   tls   = {0, 0};
-  protect_keys badpk = {&bad, &hp};
+  protect_keys badpk = {&bad, &hp, 0};
   CHECK(!srvwire_open_handshake(&badpk, wired_mspan_of(pkt, ob.len), &tls));
 }
 
@@ -212,7 +212,7 @@ static void test_srvwire_initial_acks_client(void) {
   CHECK(srvwire_seal_initial(&in, &ob));
   initpkt_derive(wired_span_of(dcid, 8), &ck, &sk);
   aes128_init(&hp, sk.hp);
-  protect_keys pk = {&sk, &hp};
+  protect_keys pk = {&sk, &hp, 0};
   rx_desc      rd = {wired_mspan_of(pkt, ob.len), 1, 0};
   wired_span   fv;
   CHECK(rx_packet(&pk, &rd, &fv));
@@ -250,9 +250,9 @@ static void test_srvwire_handshake_acks_client(void) {
       0,
       0,
       0};
-  protect_keys pk = {&k, &hp};
+  protect_keys pk = {&k, &hp, 0};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
-  protect_keys pk2 = {&k, &hp};
+  protect_keys pk2 = {&k, &hp, 0};
   rx_desc      rd2 = {wired_mspan_of(pkt, ob.len), 0, 0};
   wired_span   fv2;
   CHECK(rx_packet(&pk2, &rd2, &fv2));

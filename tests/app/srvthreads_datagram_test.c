@@ -730,7 +730,7 @@ static int sdt_open_onertt(
   }
   aes128_init(&hp, k->hp);
   {
-    protect_keys           pk = {k, &hp};
+    protect_keys           pk = {k, &hp, 0};
     hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
     if (!hspkt_onertt_open(&pk, &d, &v)) {
       return 0;
@@ -930,7 +930,7 @@ static usz sdt_seal_stream(
   }
   aes128_init(&hp, k->hp);
   {
-    protect_keys pk = {k, &hp};
+    protect_keys pk = {k, &hp, 0};
     if (!appdata_send(&pk, &tx, &ob)) {
       return 0;
     }
@@ -1087,7 +1087,7 @@ static int sdt_client_ap_key(struct sdt_client* cx, protect_keys* pk) {
     return 0;
   }
   aes128_init(&hp, k->hp);
-  *pk = (protect_keys){k, &hp};
+  *pk = (protect_keys){k, &hp, 0};
   return 1;
 }
 

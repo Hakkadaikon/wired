@@ -26,7 +26,7 @@ int srvrun_seal_hs_frames(srvrun_conn* c, wired_span fr, wired_obuf* out) {
   if (!wired_srvloop_seal_keys(&c->s, LEVEL_HANDSHAKE, &dk)) {
     return 0;
   }
-  pk   = (protect_keys){dk.keys, &dk.hp};
+  pk   = (protect_keys){dk.keys, &dk.hp, 0};
   d.pn = c->l.hs_tx_pn++;
   return hspkt_build_suite(c->s.sdrv.cipher_suite, &pk, &d, out);
 }

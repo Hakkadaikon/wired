@@ -14,7 +14,7 @@ static usz t_tx(
     wired_span          frames,
     u8*                 pkt,
     usz                 cap) {
-  protect_keys k    = {ik, hp};
+  protect_keys k    = {ik, hp, 0};
   wired_span   none = wired_span_of((const u8*)0, 0);
   tx_desc      d    = {0xc3, dcid, none, 1, none, pn, frames, 0};
   return tx_packet(&k, &d, wired_mspan_of(pkt, cap));
@@ -27,7 +27,7 @@ static int t_rx(
     u8*                 pkt,
     usz                 n,
     wired_span*         frames) {
-  protect_keys k = {ik, hp};
+  protect_keys k = {ik, hp, 0};
   rx_desc      d = {wired_mspan_of(pkt, n), 1, 0};
   return rx_packet(&k, &d, frames);
 }
@@ -86,7 +86,7 @@ static void test_txpacket_long_dcid_rejected(void) {
   aes128       hp;
   initial_derive(wired_span_of(dcid, 8), 0, VERSION_1, &ik);
   aes128_init(&hp, ik.hp);
-  protect_keys k    = {&ik, &hp};
+  protect_keys k    = {&ik, &hp, 0};
   wired_span   none = wired_span_of((const u8*)0, 0);
   tx_desc      d    = {
       0xc3,

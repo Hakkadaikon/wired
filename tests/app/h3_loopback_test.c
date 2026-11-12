@@ -152,7 +152,7 @@ static usz lb_seal_handshake(
       0,
       0,
       0};
-  protect_keys pk = {k, &hp};
+  protect_keys pk = {k, &hp, 0};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
 }
@@ -165,7 +165,7 @@ static usz lb_seal_onertt(
   usz                 total = 0;
   CHECK(keysched_get(&f->s.sched, KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
-  protect_keys      pk = {k, &hp};
+  protect_keys      pk = {k, &hp, 0};
   hspkt_onertt_desc d  = {
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
       0,
@@ -186,7 +186,7 @@ static int lb_open_onertt(
   aes128              hp;
   CHECK(keysched_get(&f->s.sched, KS_SERVER_AP, &k) == 1);
   aes128_init(&hp, k->hp);
-  protect_keys           pk = {k, &hp};
+  protect_keys           pk = {k, &hp, 0};
   hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
   wired_span             v;
   if (!hspkt_onertt_open(&pk, &d, &v)) {
@@ -1227,7 +1227,7 @@ static void test_srvboot_refusal_closes_unservable(void) {
     rx_desc      d = {wired_mspan_of(ref, nr), 1, 0};
     initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
     aes128_init(&hp, sk.hp);
-    k = (protect_keys){&sk, &hp};
+    k = (protect_keys){&sk, &hp, 0};
     CHECK(rx_packet(&k, &d, &frames) == 1);
     /* CONNECTION_CLOSE (transport): type 1c, code 0x128 (varint 41 28),
      * frame type 0, empty reason */
@@ -1452,7 +1452,7 @@ static void test_srvboot_initial_ack_carries_ecn_counts(void) {
     int            seen = 0;
     initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
     aes128_init(&hp, sk.hp);
-    k = (protect_keys){&sk, &hp};
+    k = (protect_keys){&sk, &hp, 0};
     CHECK(rx_packet(&k, &d, &frames) == 1);
     /* walk the frames in order to the ACK: the CRYPTO frame ahead of it
      * carries the ServerHello, whose legacy_version 0x0303 and random bytes
@@ -1542,7 +1542,7 @@ static void test_srvboot_refusal_reports_missing_tp_ext(void) {
     rx_desc      d = {wired_mspan_of(ref, nr), 1, 0};
     initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
     aes128_init(&hp, sk.hp);
-    k = (protect_keys){&sk, &hp};
+    k = (protect_keys){&sk, &hp, 0};
     CHECK(rx_packet(&k, &d, &frames) == 1);
     /* CONNECTION_CLOSE (transport): type 1c, code 0x016d (varint 41 6d) */
     CHECK(frames.p[0] == 0x1c);
@@ -1673,7 +1673,7 @@ static void sb_split_collect(struct sb_split_fix* f, int reverse, crecv* cr) {
   usz                 offs[WIRED_SRVBOOT_FLIGHT_MAX], off = 0;
   CHECK(keysched_get(&f->s.sched, KS_SERVER_HS, &shs) == 1);
   aes128_init(&hp, shs->hp);
-  protect_keys pk = {shs, &hp};
+  protect_keys pk = {shs, &hp, 0};
   for (usz i = 0; i < f->out.dgram_count; i++) {
     offs[i] = off;
     off += f->out.dgram_len[i];

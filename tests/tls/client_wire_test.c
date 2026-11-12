@@ -107,7 +107,7 @@ static void test_cw_handshake_roundtrip(void) {
   aes128_init(&hp, chs->hp);
   {
     wired_span   sp;
-    protect_keys pk = {chs, &hp};
+    protect_keys pk = {chs, &hp, 0};
     CHECK(srvwire_open_handshake(&pk, wired_mspan_of(pkt, total), &sp) == 1);
     CHECK(sp.n == sizeof(fin));
   }
@@ -129,7 +129,7 @@ static void test_cw_handshake_roundtrip(void) {
         0,
         0,
         0};
-    protect_keys pk = {shs, &hp};
+    protect_keys pk = {shs, &hp, 0};
     CHECK(srvwire_seal_handshake(&pk, &in, &ob2) == 1);
     total = ob2.len;
   }

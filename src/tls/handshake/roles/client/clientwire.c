@@ -80,7 +80,7 @@ int client_seal_handshake_wire(
   if (!cw_dir_key(c, KS_CLIENT_HS, &dk)) {
     return 0;
   }
-  pk = (protect_keys){dk.k, &dk.hp};
+  pk = (protect_keys){dk.k, &dk.hp, 0};
   return srvwire_seal_handshake(&pk, &si, out);
 }
 
@@ -94,6 +94,6 @@ int client_open_handshake_wire(
   if (!cw_dir_key(c, KS_SERVER_HS, &dk)) {
     return 0;
   }
-  pk = (protect_keys){dk.k, &dk.hp};
+  pk = (protect_keys){dk.k, &dk.hp, 0};
   return srvwire_open_handshake(&pk, in->pkt, tls);
 }

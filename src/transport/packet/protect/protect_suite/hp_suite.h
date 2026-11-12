@@ -2,6 +2,7 @@
 #define PROTECT_SUITE_HP_SUITE_H
 
 #include "common/platform/sys/syscall.h"
+#include "transport/packet/protect/protect/protect.h"
 
 /* RFC 9001 5.4: derive the 5-byte header-protection mask for the given
  * cipher suite. AES suites use AES-ECB over the sample (AES-128 for 0x1301,
@@ -9,5 +10,10 @@
  * block. hp_key is 16 bytes for AES-128, 32 for AES-256 and ChaCha.
  * Returns 1 on a known suite, 0 otherwise (mask untouched). */
 int hp_suite_mask(u16 suite, const u8* hp_key, const u8 sample[16], u8 mask[5]);
+
+/* hp_suite_mask for k's header-protection key, through k's expanded AES-NI
+ * context (k->x) when it carries one. */
+int hp_suite_mask_keys(
+    u16 suite, const protect_keys* k, const u8 sample[16], u8 mask[5]);
 
 #endif

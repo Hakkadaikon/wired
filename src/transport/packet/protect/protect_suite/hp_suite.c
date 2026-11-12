@@ -47,3 +47,12 @@ int hp_suite_mask(
   }
   return 0;
 }
+
+int hp_suite_mask_keys(
+    u16 suite, const protect_keys* k, const u8 sample[16], u8 mask[5]) {
+  if (k->x) {
+    xkeys_hp_mask(k->x, sample, mask);
+    return 1;
+  }
+  return hp_suite_mask(suite, k->keys->hp, sample, mask);
+}

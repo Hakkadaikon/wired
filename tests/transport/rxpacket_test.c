@@ -12,7 +12,7 @@ static int r_rx(
     u8*                 pkt,
     usz                 n,
     wired_span*         frames) {
-  protect_keys k = {ik, hp};
+  protect_keys k = {ik, hp, 0};
   rx_desc      d = {wired_mspan_of(pkt, n), 1, 0};
   return rx_packet(&k, &d, frames);
 }
@@ -33,7 +33,7 @@ static void test_rxpacket_payload_view(void) {
   CHECK(fl == 3);
 
   u8           pkt[256];
-  protect_keys k    = {&ik, &hp};
+  protect_keys k    = {&ik, &hp, 0};
   wired_span   none = wired_span_of((const u8*)0, 0);
   tx_desc      td   = {0xc3, wired_span_of(dcid, 8),    none, 1, none,
                        5,    wired_span_of(frames, fl), 0};
@@ -65,7 +65,7 @@ static usz build_pkt(initial_keys* ik, aes128* hp, u8* pkt, usz cap) {
   initial_derive(wired_span_of(dcid, 8), 1, VERSION_1, ik);
   aes128_init(hp, ik->hp);
   fl += frame_put_simple(frames + fl, sizeof(frames), FRAME_PING);
-  protect_keys k    = {ik, hp};
+  protect_keys k    = {ik, hp, 0};
   wired_span   none = wired_span_of((const u8*)0, 0);
   tx_desc      td   = {0xc3, wired_span_of(dcid, 8),    none, 1, none,
                        5,    wired_span_of(frames, fl), 0};

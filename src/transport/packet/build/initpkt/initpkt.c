@@ -54,7 +54,7 @@ static int initpkt_seal(
   aes128 hp;
   usz    total;
   aes128_init(&hp, ck->hp);
-  protect_keys k = {ck, &hp};
+  protect_keys k = {ck, &hp, 0};
   tx_desc      t = {byte0, d->dcid, d->scid, 1, wired_span_of((const u8*)0, 0),
                     d->pn, payload, version};
   total          = tx_packet(&k, &t, wired_mspan_of(out->p, out->cap));

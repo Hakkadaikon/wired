@@ -654,7 +654,7 @@ static usz mtls_onertt_ping(const mtls_fix* f, u8* pkt, usz cap) {
   CHECK(keysched_get(&ks, KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
   {
-    protect_keys      pk = {k, &hp};
+    protect_keys      pk = {k, &hp, 0};
     hspkt_onertt_desc d  = {
         wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
         0,

@@ -27,16 +27,26 @@ typedef struct {
   u64 pn;
 } kurx_hdr;
 
+/* The header-protection mask of in's short-header packet (the sample
+ * starts 4 bytes past pn_off), 0 when the datagram is too short for one. */
+static int kurx_peek_mask(
+    const wired_server*          s,
+    const wired_srvloop_recv_in* in,
+    usz                          pn_off,
+    u8                           mask[5]) {
+  protect_keys pk = {&s->ku.cur, 0, xkeys_usable(&s->kx_recv[KURX_CUR])};
+  if (!hp_sample_ok(in->dgram.n, hp_sample_offset(pn_off))) {
+    return 0;
+  }
+  return hp_suite_mask_keys(
+      s->sdrv.cipher_suite, &pk, in->dgram.p + hp_sample_offset(pn_off), mask);
+}
+
 static int kurx_peek(
     const wired_server* s, const wired_srvloop_recv_in* in, kurx_hdr* h) {
   usz pn_off = 1u + (usz)s->sdrv.iscid_len;
   u8  mask[5], pnb[4], b0;
-  if (!hp_sample_ok(in->dgram.n, hp_sample_offset(pn_off))) {
-    return 0;
-  }
-  if (!hp_suite_mask(
-          s->sdrv.cipher_suite, s->ku.cur.hp,
-          in->dgram.p + hp_sample_offset(pn_off), mask)) {
+  if (!kurx_peek_mask(s, in, pn_off, mask)) {
     return 0;
   }
   b0 = (u8)(in->dgram.p[0] ^ (mask[0] & HP_SHORT_MASK));
@@ -69,18 +79,23 @@ static const initial_keys* kurx_keys(const wired_server* s, int pick) {
   return keys[pick];
 }
 
+/* Opens under generation `pick` (KURX_*). The suite open reads the raw
+ * header-protection key or kx_recv[pick], never an aes128 schedule. */
 static int kurx_open(
     wired_server*                s,
     const wired_srvloop_recv_in* in,
-    const initial_keys*          keys,
+    int                          pick,
     wired_srvloop_recv_out*      out) {
-  aes128 hp;
-  aes128_init(&hp, keys->hp);
-  {
-    protect_keys           pk = {keys, &hp};
-    hspkt_onertt_open_desc d  = {in->dgram, s->sdrv.iscid_len, in->largest_pn};
-    return hspkt_onertt_open_suite(
-        s->sdrv.cipher_suite, &pk, &d, &out->payload);
+  protect_keys pk = {kurx_keys(s, pick), 0, xkeys_usable(&s->kx_recv[pick])};
+  hspkt_onertt_open_desc d = {in->dgram, s->sdrv.iscid_len, in->largest_pn};
+  return hspkt_onertt_open_suite(s->sdrv.cipher_suite, &pk, &d, &out->payload);
+}
+
+/* kx_recv[] follows ku.cur, ku.old and ku_next, whatever rotated them since
+ * the last packet. */
+static void kurx_sync_keys(wired_server* s) {
+  for (int pick = KURX_CUR; pick <= KURX_NEXT; pick++) {
+    xkeys_sync(&s->kx_recv[pick], s->sdrv.cipher_suite, kurx_keys(s, pick));
   }
 }
 
@@ -143,11 +158,12 @@ static int kurx_open_picked(
     wired_srvloop_recv_out*      out) {
   kurx_hdr h;
   int      pick;
+  kurx_sync_keys(s);
   if (!kurx_peek(s, in, &h)) {
     return 0;
   }
   pick = kurx_pick(s, &h);
-  if (!kurx_open(s, in, kurx_keys(s, pick), out)) {
+  if (!kurx_open(s, in, pick, out)) {
     s->ku_auth_fail++; /* RFC 9001 6.6 integrity limit */
     return 0;
   }

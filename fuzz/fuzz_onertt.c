@@ -148,6 +148,7 @@
 #include "tls/keys/kuswitch/twogen.c"
 #include "tls/keys/schedule_drive/keyschedule.c"
 #include "tls/keys/ticket/ticket.c"
+#include "tls/keys/xkeys/xkeys.c"
 #include "transport/conn/cid/spin/spin.c"
 #include "transport/conn/lifecycle/idledrive/idlenego.c"
 #include "transport/conn/loop/connrunner/level.c"

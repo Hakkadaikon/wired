@@ -442,6 +442,7 @@
 #include "app/http3/request/h3reqdrive/request_drive_trailer.c"
 #include "tls/keys/kuswitch/derive.c"
 #include "tls/keys/kuswitch/twogen.c"
+#include "tls/keys/xkeys/xkeys.c"
 #include "app/http3/request/h3reqenc/pseudo_encode.c"
 #include "app/http3/request/h3reqenc/header_encode.c"
 #include "app/http3/request/h3reqenc/request_headers.c"
@@ -1199,6 +1200,7 @@
 #include "app/h3reqdrive_check_test.c"
 #include "app/h3cancel_test.c"
 #include "tls/kuswitch_derive_test.c"
+#include "tls/xkeys_test.c"
 #include "app/pseudo_encode_test.c"
 #include "app/header_encode_test.c"
 #include "crypto/fields_test.c"
@@ -1702,6 +1704,7 @@ int main(void) {
   test_kuswitch_derive_suite_aes_matches_plain();
   test_kuswitch_derive_suite_v2_labels();
   test_kuswitch_twogen();
+  test_xkeys();
   test_pseudo_encode();
   test_header_encode();
   test_fields();

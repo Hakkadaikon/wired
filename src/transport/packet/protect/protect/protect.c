@@ -93,7 +93,7 @@ static usz seal_into_suite(
   protect_copy_hdr(out, io->hdr);
   /* aead_suite_seal derives the nonce itself (iv XOR pn); op.iv is the
    * raw key IV, not a precomputed nonce (RFC 9001 5.3). */
-  op = (aead_suite_op){suite, keys->key, keys->iv, io->pn, io->hdr};
+  op = (aead_suite_op){suite, keys->key, keys->iv, io->pn, io->hdr, 0};
   return aead_suite_seal(&op, io->payload, out + io->hdr.n) ? need : 0;
 }
 

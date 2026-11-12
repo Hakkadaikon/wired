@@ -94,7 +94,8 @@ static int onertt_seal_suite(
   if (need > out->cap) {
     return 0;
   }
-  op = (aead_suite_op){suite, k->keys->key, k->keys->iv, d->pn, {o, hdr_len}};
+  op = (aead_suite_op){suite, k->keys->key, k->keys->iv,
+                       d->pn, {o, hdr_len}, xkeys_aead(k->x)};
   return aead_suite_seal(&op, d->payload, o + hdr_len) != 0;
 }
 
@@ -114,7 +115,7 @@ int hspkt_onertt_build_suite(
   if (!onertt_seal_suite(suite, k, d, o, hdr_len, need, out)) {
     return 0;
   }
-  if (!hp_suite_mask(suite, k->keys->hp, o + pn_off + 4, mask)) {
+  if (!hp_suite_mask_keys(suite, k, o + pn_off + 4, mask)) {
     return 0;
   }
   hp_apply(mask, &hf);

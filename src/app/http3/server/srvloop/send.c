@@ -66,7 +66,7 @@ int wired_srvloop_send_handshake(
   if (!wired_srvloop_seal_keys(s, LEVEL_HANDSHAKE, &dk)) {
     return 0;
   }
-  k = (protect_keys){dk.keys, &dk.hp};
+  k = (protect_keys){dk.keys, &dk.hp, 0};
   return srvwire_seal_handshake_suite(s->sdrv.cipher_suite, &k, &wi, out);
 }
 
@@ -81,19 +81,17 @@ int wired_srvloop_send_handshake(
  * instead of taking it as a local would leave *out pointing at a returned
  * stack frame. */
 static int send_onertt_keys(
-    const wired_server*    s,
-    wired_srvloop_dirkeys* dk,
-    aes128*                hp,
-    protect_keys*          out) {
+    const wired_server* s, wired_srvloop_dirkeys* dk, protect_keys* out) {
   if (s->ku_seeded) {
-    aes128_init(hp, s->ku_send.cur.hp);
-    *out = (protect_keys){&s->ku_send.cur, hp};
+    /* the suite build reads the raw header-protection key or kx_send,
+     * never an aes128 schedule */
+    *out = (protect_keys){&s->ku_send.cur, 0, xkeys_usable(&s->kx_send)};
     return 1;
   }
   if (!wired_srvloop_seal_keys(s, LEVEL_ONERTT, dk)) {
     return 0;
   }
-  *out = (protect_keys){dk->keys, &dk->hp};
+  *out = (protect_keys){dk->keys, &dk->hp, 0};
   return 1;
 }
 
@@ -195,7 +193,6 @@ static int send_onertt_spin(const wired_server* s) {
 static int send_onertt_seal(
     const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
-  aes128                hp;
   protect_keys          pk;
   u8                    buf[SEND_PAD_MAX];
   hspkt_onertt_desc     d = {
@@ -205,10 +202,18 @@ static int send_onertt_seal(
       send_onertt_phase(s),
       send_onertt_spin(s),
       send_onertt_clear_bit(s, in->pn)};
-  if (!send_onertt_keys(s, &dk, &hp, &pk)) {
+  if (!send_onertt_keys(s, &dk, &pk)) {
     return 0;
   }
   return hspkt_onertt_build_suite(s->sdrv.cipher_suite, &pk, &d, out);
+}
+
+/* After ku_limit_gate (which may have rotated the send keys): kx_send
+ * follows ku_send.cur. Before the keys are seeded it stays off. */
+static void send_onertt_sync_keys(wired_server* s) {
+  if (s->ku_seeded) {
+    xkeys_sync(&s->kx_send, s->sdrv.cipher_suite, &s->ku_send.cur);
+  }
 }
 
 int wired_srvloop_send_onertt(
@@ -216,6 +221,7 @@ int wired_srvloop_send_onertt(
   if (!ku_limit_gate(s)) {
     return 0;
   }
+  send_onertt_sync_keys(s);
   if (!send_onertt_seal(s, in, out)) {
     return 0;
   }

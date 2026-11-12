@@ -2,6 +2,7 @@
 #define PROTECT_SUITE_AEAD_SUITE_H
 
 #include "common/bytes/span/span.h"
+#include "crypto/symmetric/aead/gcmx86/gcmx86.h"
 
 /* RFC 9001 5.3: per-suite AEAD seal/open for QUIC packet protection. The
  * 12-byte nonce is iv XOR pn (left-padded). 0x1301 uses AES-128-GCM,
@@ -17,6 +18,9 @@ typedef struct {
   const u8*  iv;
   u64        pn;
   wired_span aad;
+  /** key already expanded for AES-NI (xkeys_aead), or 0. Set only for
+   * TLS_AES_128_GCM_SHA256; the call then skips the AES key schedule. */
+  const gcmx86* x;
 } aead_suite_op;
 
 /* Seal pt into out as ciphertext followed by the 16-byte tag. Returns the

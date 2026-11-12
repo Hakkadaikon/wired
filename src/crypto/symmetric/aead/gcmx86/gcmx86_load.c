@@ -9,3 +9,7 @@ void gcmx86_ctr_tail(const gcmx86* x, u8 j[16], wired_span in, u8* out) {
     out[i] = in.p[i] ^ ks[i];
   }
 }
+
+void gcmx86_ecb(const gcmx86* x, const u8 in[16], u8 out[16]) {
+  gcmx86_store(out, gcmx86_aes(x, gcmx86_load(in)));
+}
