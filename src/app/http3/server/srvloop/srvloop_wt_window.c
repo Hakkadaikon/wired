@@ -9,6 +9,7 @@ static usz  wt_window_avail_at(u64 lo, usz cap);
 static void wt_buf_shift_left(u8* buf, usz cap, usz shift);
 static void wt_window_mark(wired_srvloop_wt_window* win, u64 lo, usz n);
 static void wt_window_advance(wired_srvloop_wt_window* win);
+static void wt_window_reclaim(wired_srvloop_wt_window* win, u8* buf, usz shift);
 static int  wt_window_slide_not_due(
     const wired_srvloop_wt_window* win, u64 delivered_to);
 
@@ -62,6 +63,9 @@ void wired_srvloop_wt_window_accept(
 static void wt_window_mark(wired_srvloop_wt_window* win, u64 lo, usz n) {
   /* a frame past the window (n == 0) must not form a pointer past have[] */
   bits_fill(win->have, (usz)u64_min(lo, WIRED_SRVLOOP_WT_BUF_CAP), n);
+  if (n) {
+    win->hi = (usz)u64_max(win->hi, lo + n);
+  }
   wt_window_advance(win);
 }
 
@@ -83,6 +87,19 @@ static void wt_buf_shift_left(u8* buf, usz cap, usz shift) {
   }
 }
 
+/* Drop the delivered prefix [0, shift): the bytes received past it move
+ * down and the bitmap shifts with them. Only [0, hi) holds anything, so
+ * in-order data (hi == shift, nothing past the prefix) moves no byte and
+ * shifts hi / 8 bitmap bytes -- this runs once per delivered frame. hi is
+ * taken no lower than the frontier it can never be below. */
+static void wt_window_reclaim(
+    wired_srvloop_wt_window* win, u8* buf, usz shift) {
+  usz hi = (usz)u64_max(win->hi, win->frontier);
+  wt_buf_shift_left(buf, hi, shift);
+  bits_shift_down(win->have, (hi + 7) / 8 * 8, shift);
+  win->hi = hi - shift;
+}
+
 /* 1 if delivered_to has not yet consumed the whole current frontier -- slide
  * has nothing to reclaim room for yet. */
 static int wt_window_slide_not_due(
@@ -96,8 +113,8 @@ void wired_srvloop_wt_window_slide(
   if (wt_window_slide_not_due(win, delivered_to) || shift == 0) {
     return;
   }
-  wt_buf_shift_left(buf, cap, shift);
-  bits_shift_down(win->have, WIRED_SRVLOOP_WT_BUF_CAP, shift);
+  (void)cap; /* the window never holds more than hi <= cap bytes */
+  wt_window_reclaim(win, buf, shift);
   win->base += shift;
   win->frontier = 0;
   wt_window_advance(win);

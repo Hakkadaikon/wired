@@ -300,6 +300,10 @@ typedef struct {
   /** bit i: buf[i] (relative to base) was received */
   u8  have[WIRED_SRVLOOP_WT_BUF_CAP / 8];
   usz frontier; /**< contiguous received bytes from base */
+  /** One past the highest received byte, relative to base (0: none). No
+   * have[] bit is set at or past it, so a slide moves and shifts only
+   * [0, hi) instead of the whole buffer and bitmap. */
+  usz hi;
   /** Cumulative bytes dropped at accept time because they landed past the
    * granted window (receive-buffer overflow). Diagnostic only, never reset;
    * stale below-base duplicates are NOT counted (they were already

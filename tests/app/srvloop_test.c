@@ -2554,6 +2554,98 @@ static void test_srvloop_wt_window_slide_keeps_island(void) {
   CHECK(w.frontier == 100);
 }
 
+/* The slide as it was before it learned to move only the received part:
+ * the whole buffer and the whole bitmap shift down, and the frontier is
+ * recounted bit by bit. Kept as the oracle for the test below. */
+static void wtwin_ref_slide(
+    wired_srvloop_wt_window* w, u8* buf, u64 delivered_to) {
+  usz shift = w->frontier;
+  if (delivered_to < w->base + w->frontier || shift == 0) {
+    return;
+  }
+  for (usz i = 0; i + shift < WIRED_SRVLOOP_WT_BUF_CAP; i++) {
+    buf[i] = buf[i + shift];
+  }
+  bits_shift_down(w->have, WIRED_SRVLOOP_WT_BUF_CAP, shift);
+  w->base += shift;
+  w->frontier = 0;
+  while (w->frontier < WIRED_SRVLOOP_WT_BUF_CAP &&
+         bits_get(w->have, w->frontier)) {
+    w->frontier++;
+  }
+}
+
+static u32 wtwin_rng;
+
+static u32 wtwin_rand(u32 n) {
+  wtwin_rng = wtwin_rng * 1664525u + 1013904223u;
+  return (wtwin_rng >> 8) % n;
+}
+
+/* The byte the peer sends at absolute stream offset off. */
+static u8 wtwin_byte(u64 off) { return (u8)(off * 31 + (off >> 8)); }
+
+/* Land [abs_off, abs_off+n) in w/buf the way the dispatcher does. */
+static void wtwin_land(
+    wired_srvloop_wt_window* w, u8* buf, u64 abs_off, usz n) {
+  usz rel_off, accepted;
+  wired_srvloop_wt_window_accept(w, abs_off, n, &rel_off, &accepted);
+  for (usz i = 0; i < accepted; i++) {
+    buf[rel_off + i] = wtwin_byte(w->base + rel_off + i);
+  }
+}
+
+/* The new and the reference window agree on everything a caller reads. */
+static int wtwin_same(
+    const wired_srvloop_wt_window* a,
+    const u8*                      abuf,
+    const wired_srvloop_wt_window* b,
+    const u8*                      bbuf) {
+  int same = a->base == b->base && a->frontier == b->frontier &&
+             a->dropped_bytes == b->dropped_bytes;
+  for (usz i = 0; i < sizeof a->have; i++) {
+    same &= a->have[i] == b->have[i];
+  }
+  for (usz i = 0; i < a->frontier; i++) {
+    same &= abuf[i] == bbuf[i] && abuf[i] == wtwin_byte(a->base + i);
+  }
+  return same;
+}
+
+/* 1,000 random arrivals -- in order, reordered, duplicated, stale, past
+ * the window, with holes left across a delivery -- leave the window in the
+ * state the full-shift slide leaves it in, after every arrival and after
+ * every delivery. */
+static void test_srvloop_wt_window_slide_matches_full_shift(void) {
+  static wired_srvloop_wt_window a, b;
+  static u8 abuf[WIRED_SRVLOOP_WT_BUF_CAP], bbuf[WIRED_SRVLOOP_WT_BUF_CAP];
+  a         = (wired_srvloop_wt_window){0};
+  b         = (wired_srvloop_wt_window){0};
+  wtwin_rng = 0x77747769;
+  for (usz step = 0; step < 1000; step++) {
+    /* mostly near the frontier, sometimes behind the base or far ahead */
+    u64 near = a.base + a.frontier;
+    u64 off  = near + wtwin_rand(6000) - (near < 2000 ? 0 : wtwin_rand(2000));
+    usz n    = 1 + wtwin_rand(1500);
+    if (wtwin_rand(20) == 0) {
+      off = near + WIRED_SRVLOOP_WT_BUF_CAP - wtwin_rand(900);
+    }
+    if (wtwin_rand(3) == 0) {
+      off = near; /* the in-order case, a third of the time */
+    }
+    wtwin_land(&a, abuf, off, n);
+    wtwin_land(&b, bbuf, off, n);
+    CHECK(wtwin_same(&a, abuf, &b, bbuf));
+    CHECK(a.hi >= a.frontier);
+    if (wtwin_rand(2)) {
+      wired_srvloop_wt_window_slide(&a, abuf, sizeof abuf, a.base + a.frontier);
+      wtwin_ref_slide(&b, bbuf, b.base + b.frontier);
+      CHECK(wtwin_same(&a, abuf, &b, bbuf));
+    }
+  }
+  CHECK(a.base > 100000); /* the run really moved through many windows */
+}
+
 /* A write entirely below win.base (already delivered and slid past) is
  * dropped -- proves the stale-prefix guard, not just the forward-window
  * boundary above. */
@@ -7900,6 +7992,7 @@ void test_srvloop(void) {
   test_srvloop_fin_truncated_headers_marks_incomplete();
   test_srvloop_complete_get_not_marked_incomplete();
   test_srvloop_wt_window_starts_empty();
+  test_srvloop_wt_window_slide_matches_full_shift();
   test_srvloop_wt_window_many_gaps_then_fill();
   test_srvloop_wt_window_in_order_advances_frontier();
   test_srvloop_wt_window_gap_then_fill_advances_frontier();
