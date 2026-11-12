@@ -46,6 +46,9 @@ ip link set "$SRV_IF" up
 ip -n "$NS" addr add "$CLI_IP/24" dev "$CLI_IF"
 ip -n "$NS" link set "$CLI_IF" up
 ip -n "$NS" link set lo up
+# veth offloads the UDP checksum, so the frame reaching XDP carries only a
+# partial one and the server's RFC 768 check drops it. Fill it in on send.
+ip netns exec "$NS" ethtool -K "$CLI_IF" tx off >/dev/null
 IFINDEX="$(cat "/sys/class/net/$SRV_IF/ifindex")"
 
 "$SERVER" --ifindex "$IFINDEX" --ip "$SRV_IP" --port "$PORT" --skb-mode \
