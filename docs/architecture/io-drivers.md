@@ -89,6 +89,7 @@ flowchart TD
 
 - WORKERS と THREADS が `--pin-core` を拒否するのは、それぞれ専用の固定用フラグ(`--pin-cores` と `--control-core`)を持つからである。
 - THREADS に `--ifindex` を付けると AF_XDP のマルチキューモードになり、ワーカースレッド *i* が NIC のキュー *i* を担当する。
+- CI の `xdp.yml` は、veth のペアの片側を XDP ドライバーの汎用モード(`--skb-mode`)で動かし、もう片側のネットワーク名前空間から quic-go のクライアントで HTTP/3 を送って確かめる(`scripts/xdp_smoke.sh`)。NIC のドライバーモード(ゼロコピー)は試さない。
 
 ### 2.1 WORKERS の既知の制限
 

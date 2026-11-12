@@ -1,0 +1,44 @@
+name: AF_XDP
+
+# The AF_XDP driver needs a NIC and root, so no other job runs it. This
+# one emulates both: a veth pair, the server's end driven by AF_XDP in
+# generic (SKB/copy) mode, and the guide's quic-go probe sending HTTP/3
+# from a network namespace on the other end (scripts/xdp_smoke.sh).
+# Zero-copy driver mode (XDP_DRV) needs real hardware and stays untested.
+on:
+  push:
+    paths:
+      - "src/**"
+      - "examples/word_list/**"
+      - "guide/probe/**"
+      - "scripts/xdp_smoke.sh"
+      - ".github/workflows/xdp.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "examples/word_list/**"
+      - "guide/probe/**"
+      - "scripts/xdp_smoke.sh"
+      - ".github/workflows/xdp.yml"
+  workflow_dispatch:
+
+jobs:
+  veth-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: build server
+        run: nix develop -c just ninja examples/word_list/wired_server
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: guide/go.mod
+
+      - name: build probe
+        run: (cd guide && go build -o ../build/probe ./probe)
+
+      - name: HTTP/3 over AF_XDP on a veth pair
+        run: sudo sh scripts/xdp_smoke.sh ./examples/word_list/wired_server ./build/probe

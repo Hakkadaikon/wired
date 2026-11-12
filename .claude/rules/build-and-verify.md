@@ -46,9 +46,11 @@ As of writing, the jobs are:
 | `guide.yml`| site (`pnpm lint/check/test/build/test:dist`) | any `guide/**` | `cd guide && pnpm lint && pnpm check && pnpm test && pnpm build && pnpm test:dist` |
 | `guide.yml`| snippets (runner vs `golden.txt`) | any `src/**`, `guide/**`, `scripts/gen_ninja.sh` | `just guide-verify` (an SDK log/behavior change that alters a page's output fails here; update the golden with `node runner/run.ts --update <id>` and review the diff) |
 
-(`examples.yml`, `interop-image.yml`, `fuzz.yml`, `coverage.yml`, and
-`comparison.yml` also exist — run `find .github/workflows -type f` and match
-your diff rather than trusting this table to stay complete.)
+(`examples.yml`, `interop-image.yml`, `fuzz.yml`, `coverage.yml`,
+`comparison.yml`, and `xdp.yml` (AF_XDP over a veth pair, `sudo sh
+scripts/xdp_smoke.sh`; root only, not runnable in a sandbox) also exist —
+run `find .github/workflows -type f` and match your diff rather than
+trusting this table to stay complete.)
 
 If your diff touches `src/**/*.h` (adding/renaming a struct or union member,
 a public function, an enum) or any `.c`/`.h` formatting, do not stop at the
