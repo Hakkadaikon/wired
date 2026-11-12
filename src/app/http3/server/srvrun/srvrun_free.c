@@ -212,7 +212,7 @@ int srvrun_close_reap_due(const srvrun_conn* c, u64 now_ms) {
  * frame" -- reaped silently like an idle one, or once its closing period
  * is over. */
 static int srvrun_silent_due(const srvrun_conn* c, u64 now_ms) {
-  return srvrun_close_reap_due(c, now_ms) || c->l.tx_pn >= (1ull << 62) - 1;
+  return srvrun_close_reap_due(c, now_ms) || c->l.tx_pn >= PN_LIMIT;
 }
 
 int srvrun_reap_due(const srvrun_conn* c, u64 now_ms) {

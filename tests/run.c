@@ -182,7 +182,6 @@
 #include "crypto/symmetric/aead/chacha/poly1305_poly.c"
 #include "transport/conn/lifecycle/closelife/idlefloor.c"
 #include "transport/conn/lifecycle/conn/demux.c"
-#include "transport/conn/lifecycle/conn/pnspace.c"
 #include "transport/conn/lifecycle/conntable/conntable.c"
 #include "transport/conn/lifecycle/conntable/conntable_hash.c"
 #include "app/datagram/datagram/datagram.c"
@@ -996,7 +995,6 @@
 #include "transport/permit_test.c"
 #include "transport/persistent_test.c"
 #include "transport/pmtu_test.c"
-#include "transport/pnspace_test.c"
 #include "transport/probe_test.c"
 #include "app/pseudoheader_test.c"
 #include "transport/pto_test.c"
@@ -1457,7 +1455,6 @@ int main(void) {
   test_permit();
   test_persistent();
   test_pmtu();
-  test_pnspace();
   test_probe();
   test_pseudoheader();
   test_pto();
