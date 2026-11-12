@@ -1,4 +1,5 @@
 #include "app/moqt/run/moqtrun_impl.h"
+#include "common/bytes/util/bits.h"
 
 static int moqtrun_disc_heir_at(
     const wired_moqt_hub* hub, usz k, const wired_moqtrun_req* q);
@@ -8,7 +9,8 @@ static void moqtrun_disc_retire(
     wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i);
 static void moqtrun_disc_sync_one(
     wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i);
-static void moqtrun_disc_sync_sub(wired_moqt_hub* hub, wired_moqtrun_req* sub);
+static void moqtrun_disc_sync_sub(
+    wired_moqt_hub* hub, wired_moqtrun_req* sub, const u64* pub_mask);
 static int  moqtrun_disc_owes(const wired_moqtrun_req* q, usz i);
 static void moqtrun_disc_forget_one(
     wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i);
@@ -69,19 +71,46 @@ static void moqtrun_disc_sync_one(
   }
 }
 
-static void moqtrun_disc_sync_sub(wired_moqt_hub* hub, wired_moqtrun_req* sub) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
-    moqtrun_disc_sync_one(hub, sub, i);
+/* Only two kinds of slot can need work for sub: a live PUBLISH_NAMESPACE
+ * (pub_mask; a new announcement) and one sub was already told of
+ * (ns_seen; a withdrawal). Every other slot is a no-op in
+ * moqtrun_disc_sync_one, so the walk skips it. */
+static void moqtrun_disc_sync_sub(
+    wired_moqt_hub* hub, wired_moqtrun_req* sub, const u64* pub_mask) {
+  for (usz w = 0; w < WIRED_MOQTRUN_REQ_WORDS; w++) {
+    for (u64 m = pub_mask[w] | sub->ns_seen[w]; m; m &= m - 1) {
+      moqtrun_disc_sync_one(hub, sub, w * 64 + bits_ctz64(m));
+    }
   }
 }
 
-/* Every live SUBSCRIBE_NAMESPACE catches up with the published set.
- * ponytail: O(reqs^2) scan per event; index by prefix if the pool grows. */
-void moqtrun_disc_sync(wired_moqt_hub* hub) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
-    if (moqtrun_disc_is(&hub->reqs[i], MOQNS_T_SUBSCRIBE_NAMESPACE)) {
-      moqtrun_disc_sync_sub(hub, &hub->reqs[i]);
+/* reqs[i] was a live SUBSCRIBE_NAMESPACE when the pass began; re-checked,
+ * since an earlier subscription's sync may have ended it. */
+static void moqtrun_disc_sync_at(
+    wired_moqt_hub* hub, usz i, const u64* pub_mask) {
+  if (moqtrun_disc_is(&hub->reqs[i], MOQNS_T_SUBSCRIBE_NAMESPACE)) {
+    moqtrun_disc_sync_sub(hub, &hub->reqs[i], pub_mask);
+  }
+}
+
+static void moqtrun_disc_sync_subs(
+    wired_moqt_hub* hub, const u64* sub_mask, const u64* pub_mask) {
+  for (usz w = 0; w < WIRED_MOQTRUN_REQ_WORDS; w++) {
+    for (u64 m = sub_mask[w]; m; m &= m - 1) {
+      moqtrun_disc_sync_at(hub, w * 64 + bits_ctz64(m), pub_mask);
     }
+  }
+}
+
+/* Every live SUBSCRIBE_NAMESPACE catches up with the published set. Runs
+ * every tick, so it walks bitmaps of the live subscriptions and publishers
+ * (two passes over reqs[]) rather than reqs[] squared. */
+void moqtrun_disc_sync(wired_moqt_hub* hub) {
+  u64 sub_mask[WIRED_MOQTRUN_REQ_WORDS] = {0};
+  u64 pub_mask[WIRED_MOQTRUN_REQ_WORDS] = {0};
+  if (moqtrun_disc_live_mask(hub, MOQNS_T_SUBSCRIBE_NAMESPACE, sub_mask)) {
+    moqtrun_disc_live_mask(hub, MOQNS_T_PUBLISH_NAMESPACE, pub_mask);
+    moqtrun_disc_sync_subs(hub, sub_mask, pub_mask);
   }
 }
 

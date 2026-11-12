@@ -1,4 +1,5 @@
 #include "app/moqt/run/moqtrun_impl.h"
+#include "common/bytes/util/bits.h"
 
 static void moqtrun_subtracks_send_skipped(
     int ver, wired_moqtrun_req* st, const wired_moqtrun_track* t);
@@ -32,8 +33,9 @@ static void moqtrun_subtracks_sync_one(
     usz                  pub_idx,
     usz                  slot);
 static void moqtrun_subtracks_sync_track(
-    wired_moqt_hub* hub, usz pub_idx, usz track_idx);
-static void moqtrun_subtracks_sync_peer(wired_moqt_hub* hub, usz pub_idx);
+    wired_moqt_hub* hub, usz pub_idx, usz track_idx, const u64* st_mask);
+static void moqtrun_subtracks_sync_peer(
+    wired_moqt_hub* hub, usz pub_idx, const u64* st_mask);
 
 static void moqtrun_subtracks_send_skipped(
     int ver, wired_moqtrun_req* st, const wired_moqtrun_track* t) {
@@ -139,30 +141,43 @@ static void moqtrun_subtracks_sync_one(
   }
 }
 
-/* Every live SUBSCRIBE_TRACKS against every in-use track of peer pub_idx:
- * a hub-wide O(sessions*tracks*reqs) scan, the same shape as
- * moqtrun_disc_sync's (ponytail: fine at this hub's fixed small
- * capacities). */
+/* Every live SUBSCRIBE_TRACKS (st_mask, moqtrun_disc_live_mask) against one
+ * track of peer pub_idx. moqtrun_subtracks_sync_one re-checks each request,
+ * so one an earlier offer in this pass ended is skipped. */
 static void moqtrun_subtracks_sync_track(
-    wired_moqt_hub* hub, usz pub_idx, usz track_idx) {
+    wired_moqt_hub* hub, usz pub_idx, usz track_idx, const u64* st_mask) {
   wired_moqtrun_track* t    = &hub->peers[pub_idx].tracks[track_idx];
   usz                  slot = moqtrun_subtracks_slot(pub_idx, track_idx);
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
-    moqtrun_subtracks_sync_one(hub, &hub->reqs[i], t, pub_idx, slot);
+  for (usz w = 0; w < WIRED_MOQTRUN_REQ_WORDS; w++) {
+    for (u64 m = st_mask[w]; m; m &= m - 1) {
+      moqtrun_subtracks_sync_one(
+          hub, &hub->reqs[w * 64 + bits_ctz64(m)], t, pub_idx, slot);
+    }
   }
 }
 
-static void moqtrun_subtracks_sync_peer(wired_moqt_hub* hub, usz pub_idx) {
+static void moqtrun_subtracks_sync_peer(
+    wired_moqt_hub* hub, usz pub_idx, const u64* st_mask) {
   for (usz ti = 0; ti < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; ti++) {
-    moqtrun_subtracks_sync_track(hub, pub_idx, ti);
+    moqtrun_subtracks_sync_track(hub, pub_idx, ti, st_mask);
   }
 }
 
-void moqtrun_subtracks_sync(wired_moqt_hub* hub) {
+static void moqtrun_subtracks_sync_peers(
+    wired_moqt_hub* hub, const u64* st_mask) {
   for (usz pi = 0; pi < WIRED_MOQTRUN_MAX_SESSIONS; pi++) {
     if (hub->peers[pi].in_use) {
-      moqtrun_subtracks_sync_peer(hub, pi);
+      moqtrun_subtracks_sync_peer(hub, pi, st_mask);
     }
+  }
+}
+
+/* Runs every tick: with no SUBSCRIBE_TRACKS open (the common case) it costs
+ * one pass over reqs[], not sessions * tracks * reqs. */
+void moqtrun_subtracks_sync(wired_moqt_hub* hub) {
+  u64 st_mask[WIRED_MOQTRUN_REQ_WORDS] = {0};
+  if (moqtrun_disc_live_mask(hub, MOQCTL_T_SUBSCRIBE_TRACKS, st_mask)) {
+    moqtrun_subtracks_sync_peers(hub, st_mask);
   }
 }
 

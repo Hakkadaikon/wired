@@ -533,7 +533,35 @@ static void mtall_ns(void) {
   test_moqtrun_ns_backpressure();
 }
 
+/* moqtrun_disc_live_mask agrees with moqtrun_disc_is slot by slot, across
+ * both bitmap words and for slots that are in use but not that kind. */
+static void test_moqtrun_disc_live_mask_matches_scan(void) {
+  static wired_moqt_hub hub;
+  u64                   mask[WIRED_MOQTRUN_REQ_WORDS] = {0};
+  static const usz      subs[]                        = {0, 63, 64, 127};
+  bytes_memset(&hub, 0, sizeof hub);
+  CHECK(!moqtrun_disc_live_mask(&hub, MOQNS_T_SUBSCRIBE_NAMESPACE, mask));
+  for (usz i = 0; i < sizeof subs / sizeof *subs; i++) {
+    hub.reqs[subs[i]].in_use = 1;
+    hub.reqs[subs[i]].live   = 1;
+    hub.reqs[subs[i]].kind   = MOQNS_T_SUBSCRIBE_NAMESPACE;
+  }
+  hub.reqs[5].in_use = 1; /* another kind */
+  hub.reqs[5].live   = 1;
+  hub.reqs[5].kind   = MOQNS_T_PUBLISH_NAMESPACE;
+  hub.reqs[6].in_use = 1; /* right kind, not live yet */
+  hub.reqs[6].kind   = MOQNS_T_SUBSCRIBE_NAMESPACE;
+  CHECK(moqtrun_disc_live_mask(&hub, MOQNS_T_SUBSCRIBE_NAMESPACE, mask));
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    int bit = (int)((mask[i / 64] >> (i % 64)) & 1);
+    CHECK(bit == moqtrun_disc_is(&hub.reqs[i], MOQNS_T_SUBSCRIBE_NAMESPACE));
+  }
+  CHECK(bits_ctz64(mask[0]) == 0 && bits_ctz64(mask[1]) == 0);
+  CHECK(bits_ctz64(mask[0] & (mask[0] - 1)) == 63);
+}
+
 void test_moqtrun_ns(void) {
+  test_moqtrun_disc_live_mask_matches_scan();
   test_moqtrun_ns_fin_cancels_d18();
   test_moqtrun_ns_fin_half_closes_d19_d22();
   test_moqtrun_ns_pub_fin_is_not_withdrawal_d22();

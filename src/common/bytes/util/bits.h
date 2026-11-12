@@ -35,6 +35,9 @@ static inline void bits_fill(u8* m, usz lo, usz n) {
   bits_set_run(m, b, hi);
 }
 
+/* Index of the lowest set bit of m; m must not be 0. */
+static inline usz bits_ctz64(u64 m) { return (usz)__builtin_ctzll(m); }
+
 /* m[i], 0 past the nb-byte bitmap. */
 static inline u8 bits_byte_at(const u8* m, usz nb, usz i) {
   return i < nb ? m[i] : 0;

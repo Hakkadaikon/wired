@@ -619,6 +619,8 @@ typedef struct {
  * per-session quarter (32) above 24 with headroom for a fill or FETCH.
  * ponytail: room-sized; raise when rooms grow. */
 #define WIRED_MOQTRUN_MAX_REQS 128
+/** u64 words of a bitmap holding one bit per reqs[] slot. */
+#define WIRED_MOQTRUN_REQ_WORDS ((WIRED_MOQTRUN_MAX_REQS + 63) / 64)
 
 /** Bytes of a SUBSCRIBE_TRACKS's FILL_PARAMETERS value the hub keeps to
  * copy into each PUBLISH it causes (draft-23 3.4.1, 9.19.15): Number of
@@ -725,7 +727,7 @@ typedef struct {
    * gone out with no NAMESPACE_DONE after it (10.18). reqs[i] is not
    * reused while any live subscription holds its bit, so its namespace
    * stays readable for the NAMESPACE_DONE still owed. */
-  u64 ns_seen[(WIRED_MOQTRUN_MAX_REQS + 63) / 64];
+  u64 ns_seen[WIRED_MOQTRUN_REQ_WORDS];
   /** SUBSCRIBE_TRACKS only (10.19-10.20): per hub track slot (flat index
    * session*WIRED_MOQTRUN_MAX_TRACKS_PER_PEER+track), the cache_tag of the
    * track incarnation this SUBSCRIBE_TRACKS already tried a PUBLISH or
