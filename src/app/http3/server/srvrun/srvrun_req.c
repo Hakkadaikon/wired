@@ -128,7 +128,12 @@ void srvrun_grant_conn_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   if (!srvrun_conn_credit_moving(c, slack)) {
     return;
   }
-  if (!srvrun_wt_credit_stream_due(ceiling, c->rx_max_data_advertised)) {
+  /* the limit the peer already holds is the larger of the initial_max_data
+   * transport parameter and the last MAX_DATA (c->l.rx_max_data,
+   * srvrun_note_rx_limit); a value at or below it is one the peer must
+   * ignore (RFC 9000 4.1) */
+  if (!srvrun_wt_credit_stream_due(
+          ceiling, u64_max(c->l.rx_max_data, c->rx_max_data_advertised))) {
     return;
   }
   srvrun_send_max_data(cfg, c, ceiling);

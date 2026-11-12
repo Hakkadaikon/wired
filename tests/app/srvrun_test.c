@@ -22879,9 +22879,23 @@ static void test_srvrun_wt_credit_advances_with_delivery(void) {
   first_conn_credit   = c->rx_max_data_advertised;
   CHECK(first_stream_credit == 100 + WIRED_SRVLOOP_WT_BUF_CAP);
   CHECK(first_conn_credit == 100 + WIRED_SRVLOOP_WT_BUF_CAP);
-  /* more bytes delivered -- both ceilings rise, never fall. */
+  /* a little more delivered, less than SRVRUN_CREDIT_STEP: the peer still
+   * holds almost a whole buffer of credit, nothing is announced. */
   sr_wt_slot_set_frontier(&c->l.wt_streams[0], 500);
   c->l.wt_streams[0].delivered_len = 500;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_test_reset_send_count();
+    srvrun_grant_wt_credit(&cfg, c);
+    CHECK(srvrun_test_send_count() == 0);
+  }
+  CHECK(c->l.wt_streams[0].credit_advertised == first_stream_credit);
+  CHECK(c->rx_max_data_advertised == first_conn_credit);
+  /* a whole step delivered -- both ceilings rise, never fall. */
+  sr_wt_slot_set_frontier(&c->l.wt_streams[0], 100 + SRVRUN_CREDIT_STEP);
+  c->l.wt_streams[0].delivered_len = 100 + SRVRUN_CREDIT_STEP;
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -22988,14 +23002,16 @@ static void test_srvrun_wt_stream_hold_freezes_bidi_credit(void) {
   srvrun_grant_wt_credit(&cfg, c); /* the first grant lifts the stream */
   CHECK(c->l.wt_streams[0].credit_advertised == 100 + WIRED_SRVLOOP_WT_BUF_CAP);
   /* delivery keeps advancing while held -- no further raise. */
-  sr_wt_slot_set_frontier(&c->l.wt_streams[0], 500);
-  c->l.wt_streams[0].delivered_len = 500;
+  sr_wt_slot_set_frontier(&c->l.wt_streams[0], 100 + SRVRUN_CREDIT_STEP);
+  c->l.wt_streams[0].delivered_len = 100 + SRVRUN_CREDIT_STEP;
   srvrun_grant_wt_credit(&cfg, c);
   CHECK(c->l.wt_streams[0].credit_advertised == 100 + WIRED_SRVLOOP_WT_BUF_CAP);
   /* release: the next grant announces the full current ceiling. */
   CHECK(wired_server_wt_stream_hold(&c->wt, 4, 0) == 1);
   srvrun_grant_wt_credit(&cfg, c);
-  CHECK(c->l.wt_streams[0].credit_advertised == 500 + WIRED_SRVLOOP_WT_BUF_CAP);
+  CHECK(
+      c->l.wt_streams[0].credit_advertised ==
+      100 + SRVRUN_CREDIT_STEP + WIRED_SRVLOOP_WT_BUF_CAP);
 }
 
 /* Same freeze/resume for a UNI slot -- its grant runs through the separate
@@ -26037,16 +26053,21 @@ static void test_srvrun_early_413_also_stops_sending(void) {
  * client honoring both the stream and the connection credit. */
 static void test_srvrun_on_body_past_initial_max_data(void) {
   enum { INIT = 65536, BODY = 3 * INIT };
-  static u8       head[64];
-  srvrun_conn*    c = sr_body_fixture(0);
-  usz             hn, sent = 0, total;
-  u8              fields[64];
-  wired_obuf      fob = obuf_of(fields, sizeof fields);
-  wired_obuf      hob = obuf_of(head, sizeof head);
-  h3req_pseudo_in pin = {
+  static u8               head[64];
+  static wired_srvboot_id id; /* the initial_max_data this server sent */
+  srvrun_conn*            c = sr_body_fixture(0);
+  usz                     hn, sent = 0, total;
+  u8                      fields[64];
+  wired_obuf              fob = obuf_of(fields, sizeof fields);
+  wired_obuf              hob = obuf_of(head, sizeof head);
+  h3req_pseudo_in         pin = {
       wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
       SR_AUTH, wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)"", 0)};
+  /* MAX_DATA is announced only past the limit the peer already holds, so
+   * the server has to know it sent INIT, not the 10 MB default */
+  id.max_data = INIT;
+  g_sl_cfg.id = &id;
   CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
   CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
   hn = hob.len;
@@ -26073,6 +26094,7 @@ static void test_srvrun_on_body_past_initial_max_data(void) {
     sr_sl_step(c, pl, sob.len);
     sent += k;
   }
+  g_sl_cfg.id = 0;
   CHECK(sent == total);
   CHECK(g_sr_body.fins == 1 && g_sr_body.total == BODY);
   CHECK(g_sr_wt_handler_calls == 1);

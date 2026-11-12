@@ -126,8 +126,14 @@ void srvrun_offer_and_deliver_wt_uni_slot(
 void srvrun_grant_wt_uni(const srvrun_cfg* cfg, srvrun_conn* c);
 void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c);
 u64  srvrun_wt_slot_credit_ceiling(u64 delivered_len);
-int  srvrun_wt_credit_stream_due(u64 ceiling, u64 credit_advertised);
-int  srvrun_seal_max_stream_data(
+/* How far a receive limit must move past its last advertisement before it
+ * is announced again (srvrun_wt_credit_stream_due): an eighth of a WT
+ * receive buffer, about five full packets. The peer then always holds at
+ * least seven eighths of a buffer of credit, and seven further
+ * announcements would have to be lost in a row before it ran out. */
+#define SRVRUN_CREDIT_STEP (WIRED_SRVLOOP_WT_BUF_CAP / 8)
+int srvrun_wt_credit_stream_due(u64 ceiling, u64 credit_advertised);
+int srvrun_seal_max_stream_data(
     srvrun_conn* c, u64 stream_id, u64 value, wired_obuf* out);
 void srvrun_send_max_stream_data(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 value);

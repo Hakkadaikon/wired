@@ -36,12 +36,19 @@ u64 srvrun_wt_slot_credit_ceiling(u64 delivered_len) {
   return delivered_len + WIRED_SRVLOOP_WT_BUF_CAP;
 }
 
-/* RFC 9000 4.1/19.10: whether stream_id's MAX_STREAM_DATA is worth
- * re-announcing right now -- the window has advanced enough that the new
- * ceiling exceeds what was last advertised. An advertisement MUST NOT
- * decrease, so a ceiling at or below credit_advertised is never sent. */
+/* RFC 9000 4.1/19.10: whether a receive limit is worth re-announcing right
+ * now. An advertisement MUST NOT decrease, so a ceiling at or below
+ * credit_advertised is never sent. The first one (nothing advertised yet)
+ * goes out at once; after that the ceiling must have moved
+ * SRVRUN_CREDIT_STEP past the last advertisement. Every advertisement
+ * leaves the peer a full buffer of credit beyond what was delivered, so
+ * holding the next one back by a step costs the peer at most that slice of
+ * its window, while announcing every delivered byte cost a sealed packet
+ * and a send for each received STREAM packet. */
 int srvrun_wt_credit_stream_due(u64 ceiling, u64 credit_advertised) {
-  return ceiling > credit_advertised;
+  return ceiling > credit_advertised &&
+         (!credit_advertised ||
+          ceiling - credit_advertised >= SRVRUN_CREDIT_STEP);
 }
 
 /* Seal one MAX_STREAM_DATA frame (RFC 9000 19.10) naming stream_id/value as
