@@ -221,3 +221,14 @@ int framewalk_non_probing(wired_span pl) {
   }
   return np;
 }
+
+u32 framewalk_kinds(wired_span pl) {
+  framewalk      it;
+  framewalk_item fr;
+  u32            kinds = 0;
+  framewalk_init(&it, pl.p, pl.n);
+  while (framewalk_next(&it, &fr)) {
+    kinds |= 1u << frame_classify(fr.type);
+  }
+  return kinds;
+}

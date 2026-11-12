@@ -22,6 +22,24 @@ static void test_dispatch_classify(void) {
 }
 
 /* ACK, PADDING, CONNECTION_CLOSE are not ack-eliciting; others are. */
+/* Every type value: the defined ones map to their kind, each gap in the
+ * table, the first value past it and a value far beyond it are unknown. */
+static void test_dispatch_classify_gaps_and_end(void) {
+  static const u8 gaps[] = {0x1f, 0x20, 0x23, 0x25, 0x2f};
+  for (usz i = 0; i < sizeof gaps; i++) {
+    CHECK(frame_classify(gaps[i]) == FK_UNKNOWN);
+  }
+  CHECK(frame_classify(0x31) == FK_DATAGRAM); /* the last entry */
+  CHECK(frame_classify(0x32) == FK_UNKNOWN);  /* one past it */
+  CHECK(frame_classify(0x100) == FK_UNKNOWN);
+  CHECK(frame_classify(~(u64)0) == FK_UNKNOWN);
+  for (u64 t = 0x08; t <= 0x0f; t++) {
+    CHECK(frame_classify(t) == FK_STREAM);
+  }
+  CHECK(frame_classify(0x1e) == FK_HANDSHAKE_DONE);
+  CHECK(frame_classify(0x24) == FK_RESET_STREAM_AT);
+}
+
 static void test_dispatch_ack_eliciting(void) {
   CHECK(frame_ack_eliciting(FK_PADDING) == 0);
   CHECK(frame_ack_eliciting(FK_ACK) == 0);
@@ -50,6 +68,7 @@ static void test_dispatch_frame_type_shortest_varint(void) {
 }
 
 void test_dispatch(void) {
+  test_dispatch_classify_gaps_and_end();
   test_dispatch_classify();
   test_dispatch_ack_eliciting();
   test_dispatch_frame_type_shortest_varint();

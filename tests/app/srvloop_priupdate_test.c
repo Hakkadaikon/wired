@@ -2,6 +2,7 @@
 #include "app/http3/core/h3/priority.h"
 #include "app/http3/core/h3/priupdate.h"
 #include "app/http3/server/srvloop/dispatch.h"
+#include "app/http3/server/srvloop/dispatch_impl.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "test.h"
 #include "transport/packet/frame/frame/frame.h"
@@ -483,7 +484,56 @@ static void test_srvloop_ctrl_stream_overflow_latched(void) {
   CHECK(l.ctrl_overflow == 1);
 }
 
+/* dispatch_gather_side_channels skips a gatherer whose frame kinds the
+ * payload lacks. Every kind a gatherer reacts to must still reach it: one
+ * frame of each such kind, alone in a payload, is reported as gathered,
+ * and a payload of none of them (PING, PADDING, ACK) is not. */
+static int kinds_gathered(const u8* frame, usz len) {
+  static wired_srvloop l;
+  bytes_memset(&l, 0, sizeof l);
+  return dispatch_gather_side_channels(
+      &(wired_srvloop_dispatch_ctx){0, 0, 0, &l}, wired_span_of(frame, len));
+}
+
+static void test_dispatch_kind_gate_keeps_every_gathered_kind(void) {
+  static const u8 reset[]   = {0x04, 0x00, 0x00, 0x00};
+  static const u8 stop[]    = {0x05, 0x00, 0x00};
+  static const u8 stream[]  = {0x0a, 0x00, 0x01, 0xaa};
+  static const u8 maxdata[] = {0x10, 0x40, 0x64};
+  static const u8 maxsd[]   = {0x11, 0x00, 0x40, 0x64};
+  static const u8 maxsuni[] = {0x13, 0x08};
+  static const u8 blocked[] = {0x17, 0x08};
+  static const u8 ncid[]    = {0x18, 0x01, 0x00, 0x04, 1,  2,  3,  4,
+                               0,    1,    2,    3,    4,  5,  6,  7,
+                               8,    9,    10,   11,   12, 13, 14, 15};
+  static const u8 retire[]  = {0x19, 0x00};
+  static const u8 pchal[]   = {0x1a, 1, 2, 3, 4, 5, 6, 7, 8};
+  static const u8 presp[]   = {0x1b, 1, 2, 3, 4, 5, 6, 7, 8};
+  static const u8 dgram[]   = {0x30, 0x00, 0x01};
+  static const u8 quiet[]   = {0x01, 0x00, 0x02, 0x05, 0x00, 0x00, 0x00};
+  CHECK(kinds_gathered(reset, sizeof reset));
+  CHECK(kinds_gathered(stop, sizeof stop));
+  CHECK(kinds_gathered(stream, sizeof stream));
+  CHECK(kinds_gathered(maxdata, sizeof maxdata));
+  CHECK(kinds_gathered(maxsd, sizeof maxsd));
+  CHECK(kinds_gathered(maxsuni, sizeof maxsuni));
+  CHECK(kinds_gathered(blocked, sizeof blocked));
+  CHECK(kinds_gathered(ncid, sizeof ncid));
+  CHECK(kinds_gathered(retire, sizeof retire));
+  CHECK(kinds_gathered(pchal, sizeof pchal));
+  CHECK(kinds_gathered(presp, sizeof presp));
+  CHECK(kinds_gathered(dgram, sizeof dgram));
+  /* RESET_STREAM_AT (draft-ietf-quic-reliable-stream-reset) reaches the
+   * WT reset gatherer: it latches a peer reset even though no gatherer
+   * reports it as seen. */
+  CHECK(
+      framewalk_kinds(wired_span_of((const u8[]){0x24, 0, 0, 0, 0}, 5)) ==
+      1u << FK_RESET_STREAM_AT);
+  CHECK(!kinds_gathered(quiet, sizeof quiet));
+}
+
 void test_srvloop_priupdate(void) {
+  test_dispatch_kind_gate_keeps_every_gathered_kind();
   test_srvloop_priupdate_applies_to_open_stream();
   test_srvloop_priupdate_bad_value_defaults();
   test_srvloop_priupdate_buffers_for_unopened_stream();

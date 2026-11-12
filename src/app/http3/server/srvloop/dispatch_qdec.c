@@ -164,15 +164,57 @@ static int dispatch_gather_req_priupdate(
 /* Gather this payload's WT bidi, uni, DATAGRAM, stream-close, and
  * PRIORITY_UPDATE-relevant frames (each independent of the others, see
  * wired_srvloop_dispatch's doc); 1 if any kind was present. */
+/* Each gatherer below walks the whole payload and reacts to a few frame
+ * kinds only. One walk first collects the kinds present
+ * (framewalk_kinds), and a gatherer whose kinds are all absent is skipped:
+ * an ACK-only packet, the bulk of what a sending server receives, then
+ * costs one walk here instead of fifteen. */
+#define DISPATCH_K(kind) (1u << (kind))
+/* STREAM and the frames that end a stream. */
+#define DISPATCH_KINDS_STREAM                            \
+  (DISPATCH_K(FK_STREAM) | DISPATCH_K(FK_RESET_STREAM) | \
+   DISPATCH_K(FK_STOP_SENDING) | DISPATCH_K(FK_RESET_STREAM_AT))
+#define DISPATCH_KINDS_DATAGRAM DISPATCH_K(FK_DATAGRAM)
+/* What dispatch_gather_flowctl's eight walks look for. */
+#define DISPATCH_KINDS_FLOWCTL                                    \
+  (DISPATCH_K(FK_MAX_DATA) | DISPATCH_K(FK_MAX_STREAM_DATA) |     \
+   DISPATCH_K(FK_MAX_STREAMS) | DISPATCH_K(FK_STREAMS_BLOCKED) |  \
+   DISPATCH_K(FK_PATH_RESPONSE) | DISPATCH_K(FK_PATH_CHALLENGE) | \
+   DISPATCH_K(FK_NEW_CONNECTION_ID) | DISPATCH_K(FK_RETIRE_CONNECTION_ID))
+
+typedef int (*dispatch_gather_fn)(
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload);
+
+typedef struct {
+  const wired_srvloop_dispatch_ctx* ctx;
+  wired_span                        payload;
+  u32                               kinds; /* framewalk_kinds(payload) */
+} dispatch_gather_in;
+
+/* fn's walk of the payload, skipped (0: nothing gathered) when the payload
+ * carries none of the kinds fn reacts to. */
+static int dispatch_gather_if(
+    const dispatch_gather_in* in, u32 want, dispatch_gather_fn fn) {
+  return (in->kinds & want) ? fn(in->ctx, in->payload) : 0;
+}
+
 int dispatch_gather_side_channels(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
-  int got_wt       = dispatch_gather_wt(ctx, payload);
-  int got_uni      = dispatch_gather_uni(ctx, payload);
-  int got_dg       = dispatch_gather_datagrams(ctx, payload);
-  int got_closes   = dispatch_gather_closes(ctx, payload);
-  int got_flowctl  = dispatch_gather_flowctl(ctx, payload);
-  int got_ctrl_pri = dispatch_gather_ctrl_priupdate(ctx, payload);
-  int got_req_pri  = dispatch_gather_req_priupdate(ctx, payload);
+  dispatch_gather_in in = {ctx, payload, framewalk_kinds(payload)};
+  int                got_wt =
+      dispatch_gather_if(&in, DISPATCH_KINDS_STREAM, dispatch_gather_wt);
+  int got_uni =
+      dispatch_gather_if(&in, DISPATCH_KINDS_STREAM, dispatch_gather_uni);
+  int got_dg = dispatch_gather_if(
+      &in, DISPATCH_KINDS_DATAGRAM, dispatch_gather_datagrams);
+  int got_closes =
+      dispatch_gather_if(&in, DISPATCH_KINDS_STREAM, dispatch_gather_closes);
+  int got_flowctl =
+      dispatch_gather_if(&in, DISPATCH_KINDS_FLOWCTL, dispatch_gather_flowctl);
+  int got_ctrl_pri = dispatch_gather_if(
+      &in, DISPATCH_KINDS_STREAM, dispatch_gather_ctrl_priupdate);
+  int got_req_pri = dispatch_gather_if(
+      &in, DISPATCH_KINDS_STREAM, dispatch_gather_req_priupdate);
   return got_wt | got_uni | got_dg | got_closes | got_flowctl | got_ctrl_pri |
          got_req_pri;
 }

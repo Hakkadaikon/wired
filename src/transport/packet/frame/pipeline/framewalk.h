@@ -38,4 +38,10 @@ int framewalk_ack_eliciting(wired_span pl);
  * (PADDING, NEW_CONNECTION_ID, PATH_CHALLENGE, PATH_RESPONSE). */
 int framewalk_non_probing(wired_span pl);
 
+/** The frame kinds in pl, one bit per kind: bit (1u << k) is set when a
+ * frame of frame_kind k is present. Stops where every other walk stops (the
+ * first frame that does not parse), so a caller can skip a kind-filtered
+ * walk of the same payload when its kinds are not in the result. */
+u32 framewalk_kinds(wired_span pl);
+
 #endif

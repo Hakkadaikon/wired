@@ -325,7 +325,25 @@ static void test_framewalk_cut_type_varint(void) {
   CHECK(framewalk_next(&it, &fr) == 0);
 }
 
+/* framewalk_kinds sets exactly the bits of the kinds present, however many
+ * frames of a kind there are, and nothing for an empty payload. */
+static void test_framewalk_kinds_bits(void) {
+  /* PADDING, PING, MAX_DATA(5), PING, RETIRE_CONNECTION_ID(1),
+   * PATH_CHALLENGE(8 bytes) */
+  static const u8 pl[] = {0x00, 0x01, 0x10, 0x05, 0x01, 0x19, 0x01, 0x1a,
+                          1,    2,    3,    4,    5,    6,    7,    8};
+  u32 want = 1u << FK_PADDING | 1u << FK_PING | 1u << FK_MAX_DATA |
+             1u << FK_RETIRE_CONNECTION_ID | 1u << FK_PATH_CHALLENGE;
+  CHECK(framewalk_kinds(wired_span_of(pl, sizeof pl)) == want);
+  CHECK(framewalk_kinds(wired_span_of(pl, 0)) == 0);
+  /* a DATAGRAM without a length runs to the end of the payload */
+  CHECK(
+      framewalk_kinds(wired_span_of((const u8[]){0x01, 0x30, 9, 9}, 4)) ==
+      (1u << FK_PING | 1u << FK_DATAGRAM));
+}
+
 void test_framewalk(void) {
+  test_framewalk_kinds_bits();
   test_framewalk_cut_type_varint();
   test_framewalk_sequence();
   test_framewalk_unmeasurable();
