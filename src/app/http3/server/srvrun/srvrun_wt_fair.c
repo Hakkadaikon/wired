@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "common/bytes/util/bits.h"
 
 /* srvrun_wt_open_share_ok splits the send slots plumbing leaves (2 QPACK
  * streams + one CONNECT-stream capsule slot per session) among the
@@ -34,8 +35,10 @@ static u32  srvrun_wt_sess_ready(const srvrun_conn* c, u64 mask, int s);
 static u32  srvrun_wt_min_nz(u32 q, u32 n);
 static u32  srvrun_wt_fair_quota(const srvrun_conn* c, u64 mask);
 static void srvrun_wt_fair_visit(srvrun_wt_fair_scan* f, usz i);
-static u64  srvrun_wt_fair_keep(srvrun_conn* c, u64 mask, int s, u32 quota);
-static int  srvrun_wt_held(const srvrun_conn* c, int s);
+static void srvrun_wt_fair_run(
+    const srvrun_conn* c, srvrun_wt_fair_scan* f, u64 bits, int s);
+static u64 srvrun_wt_fair_keep(srvrun_conn* c, u64 mask, int s, u32 quota);
+static int srvrun_wt_held(const srvrun_conn* c, int s);
 
 /* Slot i is live, in the pass, and belongs to session slot s (the class
  * mask also marks free slots: pumping one is a no-op, but a zeroed free
@@ -47,7 +50,8 @@ static int srvrun_wt_fair_sess(const srvrun_wtsend* w, u64 mask, usz i, int s) {
 /* Session s's slots in the pass. */
 static u32 srvrun_wt_sess_ready(const srvrun_conn* c, u64 mask, int s) {
   u32 n = 0;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+  for (u64 b = mask; b; b &= b - 1) {
+    usz i = bits_ctz64(b);
     n += (u32)srvrun_wt_fair_sess(&c->wtsend[i], mask, i, s);
   }
   return n;
@@ -81,15 +85,24 @@ static void srvrun_wt_fair_visit(srvrun_wt_fair_scan* f, usz i) {
 
 /* Keep `quota` of session s's pass slots, scanning from its cursor; the
  * cursor moves past the last one kept so the rest go first next pass. */
-static u64 srvrun_wt_fair_keep(srvrun_conn* c, u64 mask, int s, u32 quota) {
-  usz                 start = c->wtx.fair_next[s];
-  srvrun_wt_fair_scan f = {mask, 0, quota, start + SRVRUN_WT_SEND_SLOTS - 1};
-  for (usz k = 0; k < SRVRUN_WT_SEND_SLOTS; k++) {
-    usz i = (start + k) % SRVRUN_WT_SEND_SLOTS;
-    if (srvrun_wt_fair_sess(&c->wtsend[i], mask, i, s)) {
-      srvrun_wt_fair_visit(&f, i);
+/* Session s's slots among bits (a part of the pass mask), in slot order. */
+static void srvrun_wt_fair_run(
+    const srvrun_conn* c, srvrun_wt_fair_scan* f, u64 bits, int s) {
+  for (u64 b = bits; b; b &= b - 1) {
+    usz i = bits_ctz64(b);
+    if (srvrun_wt_fair_sess(&c->wtsend[i], bits, i, s)) {
+      srvrun_wt_fair_visit(f, i);
     }
   }
+}
+
+static u64 srvrun_wt_fair_keep(srvrun_conn* c, u64 mask, int s, u32 quota) {
+  usz                 start = c->wtx.fair_next[s];
+  u64                 below = ((u64)1 << start) - 1;
+  srvrun_wt_fair_scan f = {mask, 0, quota, start + SRVRUN_WT_SEND_SLOTS - 1};
+  /* the rotation: slots from start up, then the ones below it */
+  srvrun_wt_fair_run(c, &f, mask & ~below, s);
+  srvrun_wt_fair_run(c, &f, mask & below, s);
   c->wtx.fair_next[s] = (u8)((f.last + 1) % SRVRUN_WT_SEND_SLOTS);
   return f.mask;
 }

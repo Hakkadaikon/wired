@@ -64,10 +64,12 @@ int  srvrun_pump_one_wt(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w);
 u8   srvrun_wtsend_urgency(const srvrun_wtsend* w);
 u32  srvrun_wtsend_key(const srvrun_wtsend* w);
-u32  srvrun_wt_pass_key(const srvrun_conn* c);
+u32  srvrun_wt_pass_key(const srvrun_conn* c, u64 live);
+u64  srvrun_wtsend_live(const srvrun_conn* c);
+int  srvrun_wtsend_wants_pump(const srvrun_wtsend* w);
 u64  srvrun_wt_fair_mask(srvrun_conn* c, u64 mask);
 int  srvrun_wt_open_share_ok(const srvrun_conn* c, int sidx);
-int  srvrun_wt_flow_ok(const srvrun_conn* c, const srvrun_wtsend* w);
+int  srvrun_wt_flow_ok(const srvrun_conn* c, const srvrun_wtsend* w, u64 live);
 void srvrun_prio_refresh(srvrun_conn* c);
 int  srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c);
 int  srvrun_any_resp_requeued(const srvrun_conn* c);

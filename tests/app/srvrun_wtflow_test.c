@@ -399,7 +399,27 @@ static void test_srvrun_wt_replies_leave_relay_slots(void) {
   CHECK(wtf_opens_until_refused(&c->wt) >= 15);
 }
 
+/* srvrun_wtsend_live marks exactly the in-use send slots, first and last
+ * included. */
+static void test_srvrun_wtsend_live_matches_in_use(void) {
+  srvrun_conn* c = sr_sl_fixture();
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    c->wtsend[i].in_use = 0;
+  }
+  CHECK(srvrun_wtsend_live(c) == 0);
+  c->wtsend[0].in_use                        = 1;
+  c->wtsend[7].in_use                        = 1;
+  c->wtsend[SRVRUN_WT_SEND_SLOTS - 1].in_use = 1;
+  CHECK(
+      srvrun_wtsend_live(c) ==
+      ((u64)1 | (u64)1 << 7 | (u64)1 << (SRVRUN_WT_SEND_SLOTS - 1)));
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    c->wtsend[i].in_use = 0;
+  }
+}
+
 void test_srvrun_wtflow(void) {
+  test_srvrun_wtsend_live_matches_in_use();
   test_srvrun_wt_replies_leave_relay_slots();
   test_srvrun_wt_fair_pass_equal_per_session();
   test_srvrun_wt_open_capped_per_session();

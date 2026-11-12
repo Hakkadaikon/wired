@@ -1,9 +1,14 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "common/bytes/util/bits.h"
 
 static int srvrun_wt_in_class(
-    const srvrun_conn* c, const srvrun_wtsend* w, u32 key);
-static u64 srvrun_wt_pass_mask(srvrun_conn* c);
-static int srvrun_wt_in_pass(
+    const srvrun_conn* c, const srvrun_wtsend* w, u32 key, u64 live);
+static u64  srvrun_wt_pass_mask(srvrun_conn* c, u64 live);
+static u64  srvrun_wt_work_mask(const srvrun_conn* c, u64 mask);
+static int  srvrun_any_resp_in_use(const srvrun_conn* c);
+static void srvrun_prio_identity(srvrun_conn* c);
+static void srvrun_prio_build(srvrun_conn* c);
+static int  srvrun_wt_in_pass(
     const srvrun_wtsend* w, int keep_open, u64 mask, usz i);
 static int srvrun_pump_wt_round_matching(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open, u64 mask);
@@ -16,20 +21,50 @@ static int srvrun_live_requeued(int in_use, const wired_sendsess* sess);
  * better than it cannot send this pass anyway; visiting it only promotes
  * a deferred FIN) and first in its flow. */
 static int srvrun_wt_in_class(
-    const srvrun_conn* c, const srvrun_wtsend* w, u32 key) {
-  return srvrun_wtsend_key(w) <= key && srvrun_wt_flow_ok(c, w);
+    const srvrun_conn* c, const srvrun_wtsend* w, u32 key, u64 live) {
+  return srvrun_wtsend_key(w) <= key && srvrun_wt_flow_ok(c, w, live);
+}
+
+/* The in-use WT send slots, one bit per slot. A pump round walks only
+ * these: a free slot never sends (srvrun_pump_one_wt), is never ready and
+ * never counts toward a session's share, so skipping it changes nothing
+ * but the cost of a round that has little or nothing to send. */
+u64 srvrun_wtsend_live(const srvrun_conn* c) {
+  u64 live = 0;
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    live |= (u64)(c->wtsend[i].in_use != 0) << i;
+  }
+  return live;
 }
 
 /* The slots taking part in this pass, one bit per slot, fixed before any
  * slot sends so each sends at most one slice per pass, then evened out
  * across sessions (srvrun_wt_fair_mask, draft-ietf-webtrans-http3-16 8). */
-static u64 srvrun_wt_pass_mask(srvrun_conn* c) {
-  u32 key  = srvrun_wt_pass_key(c);
+static u64 srvrun_wt_pass_mask(srvrun_conn* c, u64 live) {
+  u32 key  = srvrun_wt_pass_key(c, live);
   u64 mask = 0;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    mask |= (u64)srvrun_wt_in_class(c, &c->wtsend[i], key) << i;
+  for (u64 b = live; b; b &= b - 1) {
+    usz i = bits_ctz64(b);
+    mask |= (u64)srvrun_wt_in_class(c, &c->wtsend[i], key, live) << i;
   }
   return srvrun_wt_fair_mask(c, mask);
+}
+
+/* The slots of mask a pump visit can do anything for. Visiting a slot with
+ * nothing to send, resend or FIN only re-reads its gates, and the one
+ * effect that can have is DATA_BLOCKED (srvrun_notify_conn_blocked) -- so
+ * such slots are skipped while the connection credit has room, and every
+ * slot is still visited once it has none. */
+static u64 srvrun_wt_work_mask(const srvrun_conn* c, u64 mask) {
+  u64 work = 0;
+  if (!srvrun_conn_credit_has_room(c)) {
+    return mask;
+  }
+  for (u64 b = mask; b; b &= b - 1) {
+    usz i = bits_ctz64(b);
+    work |= (u64)srvrun_wtsend_wants_pump(&c->wtsend[i]) << i;
+  }
+  return work;
 }
 
 /* w takes part in this pass: it is in the pass's mask and matches
@@ -46,7 +81,8 @@ static int srvrun_wt_in_pass(
 static int srvrun_pump_wt_round_matching(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open, u64 mask) {
   int sent = 0;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+  for (u64 b = mask; b; b &= b - 1) {
+    usz i = bits_ctz64(b);
     if (srvrun_wt_in_pass(&c->wtsend[i], keep_open, mask, i)) {
       sent |= srvrun_pump_one_wt(ctx, c, &c->wtsend[i]);
     }
@@ -73,8 +109,17 @@ static int srvrun_pump_wt_round_matching(
  * host, so the pass-frequency side of the problem (pacing/poll cadence
  * under contention) remains open. */
 static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  u64 mask = srvrun_wt_pass_mask(c);
-  int sent = srvrun_pump_wt_round_matching(ctx, c, 1, mask);
+  u64 live = srvrun_wtsend_live(c);
+  u64 mask;
+  int sent;
+  /* nothing to send, resend or FIN on any slot: the pass would pick a
+   * class and share it out only to visit no one */
+  if (!srvrun_wt_work_mask(c, live)) {
+    return 0;
+  }
+  mask = srvrun_wt_pass_mask(c, live);
+  mask &= srvrun_wt_work_mask(c, mask);
+  sent = srvrun_pump_wt_round_matching(ctx, c, 1, mask);
   return sent | srvrun_pump_wt_round_matching(ctx, c, 0, mask);
 }
 
@@ -108,12 +153,39 @@ static h3prio_candidate srvrun_resp_candidate(const srvrun_conn* c, usz i) {
  * PRIORITY_UPDATEs all land between passes (reap/start/receive run before
  * srvrun_pump_sess in the step), so one build per pass sees exactly what a
  * per-round build used to. */
-void srvrun_prio_refresh(srvrun_conn* c) {
+static void srvrun_prio_build(srvrun_conn* c) {
   h3prio_candidate cand[SRVRUN_RESP_SLOTS];
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
     cand[i] = srvrun_resp_candidate(c, i);
   }
   h3prio_order(cand, SRVRUN_RESP_SLOTS, c->prio_order);
+}
+
+static int srvrun_any_resp_in_use(const srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    if (c->resp[i].in_use) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* With no response in flight the order decides nothing (srvrun_pump_one
+ * skips a free slot), so the pass keeps a valid visiting order without
+ * sorting SRVRUN_RESP_SLOTS candidates -- the usual state of a connection
+ * that only carries WebTransport. */
+static void srvrun_prio_identity(srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    c->prio_order[i] = i;
+  }
+}
+
+void srvrun_prio_refresh(srvrun_conn* c) {
+  if (srvrun_any_resp_in_use(c)) {
+    srvrun_prio_build(c);
+    return;
+  }
+  srvrun_prio_identity(c);
 }
 
 static int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {

@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "common/bytes/util/bits.h"
 
 static int srvrun_pump_one_wt_slice(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w);
@@ -12,7 +13,8 @@ static int srvrun_wt_ranks_before(
     const srvrun_wtsend* v, const srvrun_wtsend* w);
 static int srvrun_wt_goes_before(
     const srvrun_conn* c, const srvrun_wtsend* v, const srvrun_wtsend* w);
-static int srvrun_wt_flow_beaten(const srvrun_conn* c, const srvrun_wtsend* w);
+static int srvrun_wt_flow_beaten(
+    const srvrun_conn* c, const srvrun_wtsend* w, u64 live);
 
 /* Send one slice from WT send slot w under the same gates -- or, once its
  * own sess has nothing left to give (wired_sendsess_take), a bare-FIN
@@ -68,6 +70,13 @@ static int srvrun_wtsend_has_work(const srvrun_wtsend* w) {
 }
 
 /* w could send a slice right now. */
+/* 1 while a pump visit of in-use slot w could do anything: a slice to send
+ * or resend, a bare FIN to send, or a deferred FIN to promote
+ * (srvrun_wtsend_promote_fin_if_ready). */
+int srvrun_wtsend_wants_pump(const srvrun_wtsend* w) {
+  return w->fin_requested || srvrun_wtsend_has_work(w);
+}
+
 static int srvrun_wtsend_ready(const srvrun_conn* c, const srvrun_wtsend* w) {
   return w->in_use && srvrun_wtsend_has_work(w) &&
          srvrun_pump_gate_ok(c, &w->sess, w->stream_credit);
@@ -89,13 +98,13 @@ static u32 srvrun_wtsend_ready_key(
 }
 
 /* The best class among the slots that can send this pass, the idle
- * sentinel when none can (every slot is then visited, as before classes
- * existed, so the blocked-path signals still fire). One O(slots) pass, no
- * sort. */
-u32 srvrun_wt_pass_key(const srvrun_conn* c) {
+ * sentinel when none can (every in-use slot is then visited, as before
+ * classes existed, so the blocked-path signals still fire). One pass over
+ * the in-use slots (live, srvrun_wtsend_live), no sort. */
+u32 srvrun_wt_pass_key(const srvrun_conn* c, u64 live) {
   u32 m = SRVRUN_WT_KEY_IDLE;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    u32 k = srvrun_wtsend_ready_key(c, &c->wtsend[i]);
+  for (u64 b = live; b; b &= b - 1) {
+    u32 k = srvrun_wtsend_ready_key(c, &c->wtsend[bits_ctz64(b)]);
     if (k < m) {
       m = k;
     }
@@ -125,9 +134,10 @@ static int srvrun_wt_goes_before(
 /* Some ready slot of w's flow and class ranks before w
  * (draft-ietf-moq-transport-22 7.2 rules 3-4: group order, then fill
  * before subscription, then Subgroup ID). */
-static int srvrun_wt_flow_beaten(const srvrun_conn* c, const srvrun_wtsend* w) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    if (srvrun_wt_goes_before(c, &c->wtsend[i], w)) {
+static int srvrun_wt_flow_beaten(
+    const srvrun_conn* c, const srvrun_wtsend* w, u64 live) {
+  for (u64 b = live; b; b &= b - 1) {
+    if (srvrun_wt_goes_before(c, &c->wtsend[bits_ctz64(b)], w)) {
       return 1;
     }
   }
@@ -136,6 +146,6 @@ static int srvrun_wt_flow_beaten(const srvrun_conn* c, const srvrun_wtsend* w) {
 
 /* w may send this pass as far as its flow goes: flow 0 (control, request
  * and plain streams) is never ordered against anything. */
-int srvrun_wt_flow_ok(const srvrun_conn* c, const srvrun_wtsend* w) {
-  return !w->flow || !srvrun_wt_flow_beaten(c, w);
+int srvrun_wt_flow_ok(const srvrun_conn* c, const srvrun_wtsend* w, u64 live) {
+  return !w->flow || !srvrun_wt_flow_beaten(c, w, live);
 }
