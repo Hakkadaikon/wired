@@ -70,6 +70,11 @@ int bodywin_fin_gap(const bodywin* w) {
 }
 
 void bodywin_consume(bodywin* w, u8* buf, usz n) {
+  /* a pass that parsed nothing must not slide BODYWIN_CAP bytes onto
+   * themselves: this runs once per received packet */
+  if (n == 0) {
+    return;
+  }
   for (usz i = 0; i + n < BODYWIN_CAP; i++) {
     buf[i] = buf[i + n];
   }

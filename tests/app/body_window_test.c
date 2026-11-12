@@ -579,7 +579,25 @@ static void test_bodywin_capsule_reject(void) {
   CHECK(r.calls == 1);
 }
 
+/* A zero-byte consume (a pump pass that parsed nothing) leaves the buffer,
+ * the have[] map and base as they were. */
+static void test_bodywin_consume_zero_is_noop(void) {
+  static u8 buf[BODYWIN_CAP];
+  bodywin   w = {0};
+  u8        s[8]; /* indexed by stream offset (bw_land) */
+  for (usz i = 0; i < sizeof s; i++) {
+    s[i] = (u8)(0x9d + i);
+  }
+  bw_land(&w, buf, s, 3, 5, 0); /* gap at 0..2: nothing parseable */
+  bodywin_consume(&w, buf, 0);
+  CHECK(w.base == 0);
+  CHECK(!bits_get(w.have, 2) && bits_get(w.have, 3) && bits_get(w.have, 7));
+  CHECK(!bits_get(w.have, 8));
+  CHECK(buf[3] == 0xa0 && buf[7] == 0xa4);
+}
+
 void test_body_window(void) {
+  test_bodywin_consume_zero_is_noop();
   test_bodywin_cap_holds_largest_header();
   test_bodywin_gap_not_parsed();
   test_bodywin_retransmit_keeps_first_bytes();
