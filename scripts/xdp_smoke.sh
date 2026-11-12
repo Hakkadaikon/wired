@@ -27,6 +27,7 @@ cleanup() {
   fi
   ip netns del "$NS" 2>/dev/null || true
   ip link del "$SRV_IF" 2>/dev/null || true
+  rm -rf "/etc/netns/$NS"
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -49,6 +50,11 @@ ip -n "$NS" link set lo up
 # veth offloads the UDP checksum, so the frame reaching XDP carries only a
 # partial one and the server's RFC 768 check drops it. Fill it in on send.
 ip netns exec "$NS" ethtool -K "$CLI_IF" tx off >/dev/null
+# The demo certificate names only localhost and 127.0.0.1, so a request to
+# the bare server IP gets 421. Inside the namespace (ip netns exec binds
+# /etc/netns/$NS/hosts over /etc/hosts), localhost is the server.
+mkdir -p "/etc/netns/$NS"
+echo "$SRV_IP localhost" >"/etc/netns/$NS/hosts"
 IFINDEX="$(cat "/sys/class/net/$SRV_IF/ifindex")"
 
 "$SERVER" --ifindex "$IFINDEX" --ip "$SRV_IP" --port "$PORT" --skb-mode \
@@ -62,7 +68,7 @@ if ! kill -0 "$SRV_PID" 2>/dev/null; then
 fi
 
 printf 'hello over af_xdp' >"$WORK/body"
-if ! ip netns exec "$NS" timeout 20 "$PROBE" h3req "$SRV_IP:$PORT" \
+if ! ip netns exec "$NS" timeout 20 "$PROBE" h3req "localhost:$PORT" \
   POST / --body-file "$WORK/body" >"$WORK/out" 2>&1; then
   echo "::error::HTTP/3 request over the AF_XDP path failed"
   cat "$WORK/out"
