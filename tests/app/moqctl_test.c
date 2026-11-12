@@ -2016,18 +2016,46 @@ static void test_moqctl_grease_pattern(void) {
   CHECK(!moqctl_is_grease(0x9E));
 }
 
+/* Known means defined by the sender's own draft (draft-23 13): codes
+ * only other drafts define are INTERNAL_ERROR too. Rows: draft, code,
+ * kept as-is. */
 static void test_moqctl_unknown_error_normalizes_to_internal(void) {
-  CHECK(
-      moqctl_known_request_error(MOQCTL_ERR_NOT_SUPPORTED) ==
-      MOQCTL_ERR_NOT_SUPPORTED);
-  CHECK(moqctl_known_request_error(0x7FFF) == MOQCTL_ERR_INTERNAL_ERROR);
-  CHECK(
-      moqctl_known_publish_done(MOQCTL_DONE_TRACK_ENDED) ==
-      MOQCTL_DONE_TRACK_ENDED);
-  CHECK(moqctl_known_publish_done(0x7FFF) == MOQCTL_DONE_INTERNAL_ERROR);
-  CHECK(
-      moqctl_known_publish_done(MOQCTL_DONE_UPDATE_FAILED) ==
-      MOQCTL_DONE_UPDATE_FAILED);
+  static const struct {
+    int ver;
+    u64 code;
+    int kept;
+  } errs[] =
+      {
+          {MOQVER_D23, MOQCTL_ERR_NOT_SUPPORTED, 1},
+          {MOQVER_D23, 0x7FFF, 0},
+          {MOQVER_D18, MOQCTL_ERR_INVALID_FILTER, 0},
+          {MOQVER_D19, MOQCTL_ERR_INVALID_FILTER, 1},
+          {MOQVER_D18, MOQCTL_ERR_DUPLICATE_SUBSCRIPTION, 1},
+          {MOQVER_D19, MOQCTL_ERR_DUPLICATE_SUBSCRIPTION, 0},
+          {MOQVER_D22, MOQCTL_ERR_PREFIX_OVERLAP, 1},
+          {MOQVER_D23, MOQCTL_ERR_PREFIX_OVERLAP, 0},
+          {MOQVER_D19, MOQCTL_ERR_INVALID_JOINING_REQUEST_ID, 1},
+          {MOQVER_D22, MOQCTL_ERR_INVALID_JOINING_REQUEST_ID, 0},
+          {MOQVER_D22, MOQCTL_ERR_UNAVAILABLE, 0},
+      },
+    dones[] = {
+        {MOQVER_D23, MOQCTL_DONE_TRACK_ENDED, 1},
+        {MOQVER_D23, 0x7FFF, 0},
+        {MOQVER_D18, MOQCTL_DONE_UPDATE_FAILED, 1},
+        {MOQVER_D19, MOQCTL_DONE_SUBSCRIPTION_ENDED, 1},
+        {MOQVER_D22, MOQCTL_DONE_SUBSCRIPTION_ENDED, 0},
+        {MOQVER_D22, MOQCTL_DONE_EXPIRED_AUTH_TOKEN, 0},
+    };
+  for (usz i = 0; i < sizeof errs / sizeof errs[0]; i++) {
+    CHECK(
+        moqctl_known_request_error(errs[i].ver, errs[i].code) ==
+        (errs[i].kept ? errs[i].code : MOQCTL_ERR_INTERNAL_ERROR));
+  }
+  for (usz i = 0; i < sizeof dones / sizeof dones[0]; i++) {
+    CHECK(
+        moqctl_known_publish_done(dones[i].ver, dones[i].code) ==
+        (dones[i].kept ? dones[i].code : MOQCTL_DONE_INTERNAL_ERROR));
+  }
 }
 
 /* Send side: a REQUEST_ERROR code the session's draft does not define is
@@ -2070,8 +2098,10 @@ static void test_moqctl_codes_d23(void) {
     CHECK(moqctl_request_error_for(v, MOQCTL_ERR_PREFIX_OVERLAP) == overlap[v]);
   }
   CHECK(moqctl_publish_done_for(MOQVER_D23, 0x7) == 0x7);
-  CHECK(moqctl_known_publish_done(0x7) == MOQCTL_DONE_EXPIRED_AUTH_TOKEN);
-  CHECK(moqctl_known_request_error(0xA) == MOQCTL_ERR_UNAVAILABLE);
+  CHECK(
+      moqctl_known_publish_done(MOQVER_D23, 0x7) ==
+      MOQCTL_DONE_EXPIRED_AUTH_TOKEN);
+  CHECK(moqctl_known_request_error(MOQVER_D23, 0xA) == MOQCTL_ERR_UNAVAILABLE);
 }
 
 /* draft-22 SS12.4 drops SUBSCRIPTION_ENDED (0x3). */

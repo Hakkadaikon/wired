@@ -493,7 +493,11 @@
 - [x] MQ18-089 エンドポイントが認識できない REQUEST_ERROR のコードを受信した場合、実装はセッションを閉じず、それを INTERNAL_ERROR として扱わなければならない。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
-  - note: draft-18 は REQUEST_ERROR のコード 0x35(CONFLICTING_FILTERS)と 0x36(draft-19 での INVALID_FILTER のコード。draft-18 は Range Filter のレジストリに従って INVALID_FILTER を別の数値で使っているが、そのレジストリは draft-18 にはない。「対象外」を参照)を定義していない。どちらもこの同じ規則により未知のコードとして許容する。
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_unknown_error_is_internal`
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_later_draft_code_is_internal_d18`
+  - note: 既知かどうかは送信したピアのドラフトのレジストリで判定します(`moqctl_known_request_error`)。draft-18 は REQUEST_ERROR のコード 0x35(CONFLICTING_FILTERS)と 0x36(draft-19 での INVALID_FILTER のコード。draft-18 は Range Filter のレジストリに従って INVALID_FILTER を別の数値で使っているが、そのレジストリは draft-18 にはない。「対象外」を参照)を定義していないので、draft-18 のピアから届いたこれらのコードは INTERNAL_ERROR として扱います。
 
 ## SS10.7 SUBSCRIBE / SS10.8 SUBSCRIBE_OK
 
@@ -602,6 +606,10 @@
     `test_moqctl_unknown_error_normalizes_to_internal`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_setup_unknown_options_ignored`
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_unknown_error_is_internal`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_unknown_status_is_internal`
 ## SS11.1 Track Alias
 
 - [x] MQ18-112 パブリッシャーは、同じセッションの中で、同じ Track Alias を同時に 2 つの異なる Track を指すために使ってはならない。

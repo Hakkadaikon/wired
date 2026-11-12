@@ -419,12 +419,14 @@
 /** grease pattern (SS17.6): 0x7f*N + 0x9D. */
 int moqctl_is_grease(u64 v);
 
-/** Unknown-error-code-is-INTERNAL_ERROR normalization (SS17.6). Pass any
- * decoded error/status code through this before acting on it. */
-u64 moqctl_known_request_error(u64 code);
+/** Unknown-error-code-is-INTERNAL_ERROR normalization (draft-23 13): a
+ * REQUEST_ERROR code the sender's draft ver (MOQVER_*) does not define
+ * becomes MOQCTL_ERR_INTERNAL_ERROR. Pass a received code through this
+ * before acting on it. */
+u64 moqctl_known_request_error(int ver, u64 code);
 /** PUBLISH_DONE counterpart of moqctl_known_request_error: a status code
- * this subset does not act on becomes MOQCTL_DONE_INTERNAL_ERROR. */
-u64 moqctl_known_publish_done(u64 code);
+ * ver does not define becomes MOQCTL_DONE_INTERNAL_ERROR. */
+u64 moqctl_known_publish_done(int ver, u64 code);
 
 /** Send-side code for draft ver (MOQVER_*): a REQUEST_ERROR / PUBLISH_DONE
  * code that ver does not define becomes ver's nearest defined code; any

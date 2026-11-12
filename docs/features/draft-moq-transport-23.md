@@ -583,6 +583,9 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-088 エンドポイントが認識できない REQUEST_ERROR のコードを受信した場合、実装はセッションを閉じずに、それを INTERNAL_ERROR として扱わなければならない。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_unknown_error_is_internal`
+  - note: 既知かどうかは送信したピアのドラフトのレジストリで判定します(`moqctl_known_request_error`)。draft-23 が定義しない 0x19(DUPLICATE_SUBSCRIPTION)、0x30(PREFIX_OVERLAP)、0x32 も、draft-23 のピアから届けば INTERNAL_ERROR として扱います。
 - [x] MQ23-259 (SS9.4.2, SS13) 実装は、未知の Error Detail の型と、その Error Code のために定義されていない既知の型を無視しなければならない。未知の型の重複も許す。REDIRECT が 2 つあれば最初のものを使う。
   - test: `tests/app/moqctl_errdet_test.c` — `test_mced_ignored`
 - [~] MQ23-260 (SS9.4.2) 送信者は、定義が許す場合を除き、同じ Error Detail の型を繰り返してはならない。
@@ -670,6 +673,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-102 実装は、自身が使う PUBLISH_DONE のステータスコードを認識しなければならない: INTERNAL_ERROR、TRACK_ENDED、GOING_AWAY。Location Filter の終わりがもはや購読を終了させないので(MQ23-137a を参照)、draft-22 は SUBSCRIPTION_ENDED (0x3。未割り当て)を削除している。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_unknown_status_is_internal`
   - note: いずれにせよ未知の PUBLISH_DONE のコードは INTERNAL_ERROR に正規化するので、この削除はワイヤー上は安全です。
 - [~] MQ23-103 パブリッシャーが購読のためにデータストリームを 1 本も開かなかった場合、PUBLISH_DONE の Stream Count を 0 にしなければならない。
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_relay_table_full_counts`
@@ -731,6 +736,10 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
     `test_moqtrun_setup_unknown_options_ignored`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_unknown_error_is_internal`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_unknown_status_is_internal`
 
 ## SS3.1.3 Track Alias
 

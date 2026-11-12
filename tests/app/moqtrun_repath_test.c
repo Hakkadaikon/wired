@@ -238,16 +238,16 @@ static void test_moqtrun_repath_hub_closes(void) {
 }
 
 /* Every other PUBLISH_DONE status goes downstream at once, spelled for
- * the subscriber's draft; B is not asked. */
+ * the subscriber's draft; B is not asked. SUBSCRIPTION_ENDED only on the
+ * drafts that define it (elsewhere it is unknown: INTERNAL_ERROR). */
 static void test_moqtrun_repath_final_status(void) {
   static const u64 st[] = {
-      MOQCTL_DONE_TRACK_ENDED,
-      0x1 /* UNAUTHORIZED */,
-      0x6 /* EXPIRED */,
-      0x5 /* TOO_FAR_BEHIND */,
-      MOQCTL_DONE_SUBSCRIPTION_ENDED,
-      0x9 /* EXCESSIVE_LOAD */};
-  for (usz i = 0; i < sizeof st / sizeof st[0]; i++) {
+      MOQCTL_DONE_TRACK_ENDED,  0x1 /* UNAUTHORIZED */,
+      0x6 /* EXPIRED */,        0x5 /* TOO_FAR_BEHIND */,
+      0x9 /* EXCESSIVE_LOAD */, MOQCTL_DONE_SUBSCRIPTION_ENDED};
+  usz n = sizeof st / sizeof st[0] -
+          !(moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_SUBSCRIPTION_ENDED);
+  for (usz i = 0; i < n; i++) {
     int fails = wired_test_fails;
     mrp_init();
     mrp_announce(SESS_B);

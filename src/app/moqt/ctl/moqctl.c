@@ -28,30 +28,81 @@ int moqctl_u64_in(const u64* list, usz n, u64 v) {
   return 0;
 }
 
-static const u64 MOQCTL_KNOWN_ERRS[] = {
-    MOQCTL_ERR_INTERNAL_ERROR, MOQCTL_ERR_UNAUTHORIZED,
-    MOQCTL_ERR_NOT_SUPPORTED,  MOQCTL_ERR_GOING_AWAY,
-    MOQCTL_ERR_DOES_NOT_EXIST, MOQCTL_ERR_INVALID_RANGE,
-    MOQCTL_ERR_UNINTERESTED,   MOQCTL_ERR_INVALID_FILTER,
-    MOQCTL_ERR_REDIRECT,       MOQCTL_ERR_MALFORMED_AUTH_TOKEN,
-    MOQCTL_ERR_UNAVAILABLE};
+/* Drafts (bit MOQVER_*) whose registry defines a code. */
+#define MOQCTL_IN_ALL 0xFu
+#define MOQCTL_IN_D23 (1u << MOQVER_D23)
+#define MOQCTL_IN_D19_UP \
+  ((1u << MOQVER_D23) | (1u << MOQVER_D22) | (1u << MOQVER_D19))
+#define MOQCTL_IN_D18_19 ((1u << MOQVER_D19) | (1u << MOQVER_D18))
+#define MOQCTL_IN_D18_22 (MOQCTL_IN_D18_19 | (1u << MOQVER_D22))
 
-u64 moqctl_known_request_error(u64 code) {
-  if (moqctl_u64_in(MOQCTL_KNOWN_ERRS, MOQCTL_KNOWN_ERRS_N, code)) {
-    return code;
-  }
-  return MOQCTL_ERR_INTERNAL_ERROR;
+/* REQUEST_ERROR codes per draft: 23 16.12.2, 22 16.11.2, 19 15.11.2, 18
+ * 15.10.2 (0x2 TIMEOUT, 0x31 NAMESPACE_TOO_LARGE). */
+static const moqctl_known_row MOQCTL_KNOWN_ERRS[] = {
+    {MOQCTL_ERR_INTERNAL_ERROR, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_UNAUTHORIZED, MOQCTL_IN_ALL},
+    {0x2, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_NOT_SUPPORTED, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_MALFORMED_AUTH_TOKEN, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_EXPIRED_AUTH_TOKEN, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_GOING_AWAY, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_EXCESSIVE_LOAD, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_UNAVAILABLE, MOQCTL_IN_D23},
+    {MOQCTL_ERR_DOES_NOT_EXIST, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_INVALID_RANGE, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_MALFORMED_TRACK, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_DUPLICATE_SUBSCRIPTION, 1u << MOQVER_D18},
+    {MOQCTL_ERR_UNINTERESTED, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_PREFIX_OVERLAP, MOQCTL_IN_D18_22},
+    {0x31, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_INVALID_JOINING_REQUEST_ID, MOQCTL_IN_D18_19},
+    {MOQCTL_ERR_UNSUPPORTED_EXTENSION, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_REDIRECT, MOQCTL_IN_ALL},
+    {MOQCTL_ERR_CONFLICTING_FILTERS, MOQCTL_IN_D19_UP},
+    {MOQCTL_ERR_INVALID_FILTER, MOQCTL_IN_D19_UP},
+};
+
+/* PUBLISH_DONE codes per draft: 23 16.12.3, 22 16.11.3, 19 15.11.3, 18
+ * 15.10.3 (0x5 TOO_FAR_BEHIND, 0x6 EXPIRED). */
+static const moqctl_known_row MOQCTL_KNOWN_DONE[] = {
+    {MOQCTL_DONE_INTERNAL_ERROR, MOQCTL_IN_ALL},
+    {MOQCTL_DONE_UNAUTHORIZED, MOQCTL_IN_ALL},
+    {MOQCTL_DONE_TRACK_ENDED, MOQCTL_IN_ALL},
+    {MOQCTL_DONE_SUBSCRIPTION_ENDED, MOQCTL_IN_D18_19},
+    {MOQCTL_DONE_GOING_AWAY, MOQCTL_IN_ALL},
+    {0x5, MOQCTL_IN_ALL},
+    {0x6, MOQCTL_IN_ALL},
+    {MOQCTL_DONE_EXPIRED_AUTH_TOKEN, MOQCTL_IN_D23},
+    {MOQCTL_DONE_UPDATE_FAILED, MOQCTL_IN_ALL},
+    {MOQCTL_DONE_EXCESSIVE_LOAD, MOQCTL_IN_ALL},
+    {MOQCTL_DONE_MALFORMED_TRACK, MOQCTL_IN_ALL},
+};
+
+static int moqctl_known_hit(const moqctl_known_row* r, int ver, u64 code) {
+  return r->code == code && ((r->vers >> ver) & 1u);
 }
 
-static const u64 MOQCTL_KNOWN_DONE[] = {
-    MOQCTL_DONE_INTERNAL_ERROR, MOQCTL_DONE_TRACK_ENDED, MOQCTL_DONE_GOING_AWAY,
-    MOQCTL_DONE_UPDATE_FAILED, MOQCTL_DONE_EXPIRED_AUTH_TOKEN};
-
-u64 moqctl_known_publish_done(u64 code) {
-  if (moqctl_u64_in(MOQCTL_KNOWN_DONE, MOQCTL_KNOWN_DONE_N, code)) {
-    return code;
+/* code, when ver's registry defines it; else fallback. */
+static u64 moqctl_known_or(
+    const moqctl_known_row* rows, usz n, int ver, u64 code, u64 fallback) {
+  for (usz i = 0; i < n; i++) {
+    if (moqctl_known_hit(&rows[i], ver, code)) {
+      return code;
+    }
   }
-  return MOQCTL_DONE_INTERNAL_ERROR;
+  return fallback;
+}
+
+u64 moqctl_known_request_error(int ver, u64 code) {
+  return moqctl_known_or(
+      MOQCTL_KNOWN_ERRS, sizeof MOQCTL_KNOWN_ERRS / sizeof MOQCTL_KNOWN_ERRS[0],
+      ver, code, MOQCTL_ERR_INTERNAL_ERROR);
+}
+
+u64 moqctl_known_publish_done(int ver, u64 code) {
+  return moqctl_known_or(
+      MOQCTL_KNOWN_DONE, sizeof MOQCTL_KNOWN_DONE / sizeof MOQCTL_KNOWN_DONE[0],
+      ver, code, MOQCTL_DONE_INTERNAL_ERROR);
 }
 
 static const moqctl_code_row MOQCTL_ERR_ROWS[] = {

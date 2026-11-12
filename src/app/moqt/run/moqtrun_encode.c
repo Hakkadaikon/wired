@@ -37,7 +37,7 @@ void moqtrun_pubdone_arm(
     return;
   }
   t->pubdone_pending  = 1;
-  t->pubdone_status   = d.status_code;
+  t->pubdone_status   = moqctl_known_publish_done(p->ver, d.status_code);
   t->pubdone_streams  = d.stream_count;
   t->pubdone_deadline = hub->live.last_now_ms + WIRED_MOQTRUN_PUBDONE_WAIT_MS;
   moqtrun_pubdone_try(hub, p, t);

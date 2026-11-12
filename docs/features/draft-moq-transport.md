@@ -467,6 +467,9 @@
 - [x] MOQT-088 エンドポイントが認識できない REQUEST_ERROR のコードを受信した場合、実装はセッションを閉じずに、それを INTERNAL_ERROR として扱わなければならない。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_unknown_error_is_internal`
+  - note: 既知かどうかは送信したピアのドラフトのレジストリで判定します(`moqctl_known_request_error`)。draft-19 が定義しない 0x19(DUPLICATE_SUBSCRIPTION)と 0xA(UNAVAILABLE)も、draft-19 のピアから届けば INTERNAL_ERROR として扱います。
 
 ## SS10.7 SUBSCRIBE / SS10.8 SUBSCRIBE_OK
 
@@ -521,6 +524,8 @@
 - [x] MOQT-102 実装は自分が使う PUBLISH_DONE のステータスコード、INTERNAL_ERROR、TRACK_ENDED、GOING_AWAY を認識しなければならない。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_unknown_status_is_internal`
 - [x] MOQT-103 (SS10.11) パブリッシャーが購読のためにデータストリームを 1 本も開かなかった場合、パブリッシャーは PUBLISH_DONE の Stream Count を 0 にしなければならない。
   - test: `tests/app/moqtrun_done_test.c` —
     `test_moqtrun_pubdone_datagram_only`
@@ -575,6 +580,10 @@
     `test_moqtrun_setup_unknown_options_ignored`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_unknown_error_is_internal`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_unknown_status_is_internal`
 
 ## SS11.1 Track Alias
 

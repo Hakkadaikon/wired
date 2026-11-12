@@ -350,6 +350,31 @@ static void test_moqtrun_upsub_error_relayed(void) {
   CHECK(mrdv_used() == 0);
 }
 
+/* draft-23 13 (draft-18/19 14, draft-22 13): an unknown REQUEST_ERROR
+ * code is INTERNAL_ERROR and does not close the session: B gets
+ * INTERNAL_ERROR, never 0x3f00, and the upstream ends as for any error. */
+static void test_moqtrun_upsub_unknown_error_is_internal(void) {
+  u64 sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  mtst_pub_err(SESS_A, sid, 0x3f00);
+  CHECK(moqtrun_test_close_code() == ~(u64)0);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
+  CHECK(mups_up_is(sid, "FIN|"));
+  CHECK(mups_used() == 0);
+}
+
+/* draft-18 15.10.2 has no 0x36 (INVALID_FILTER from draft-19 15.11.2): from a
+ * draft-18 publisher it is unknown, so INTERNAL_ERROR (draft-18 14). */
+static void test_moqtrun_upsub_later_draft_code_is_internal_d18(void) {
+  mups_init_v(MOQVER_D18, MOQVER_D18);
+  mups_sub(SESS_B, MRDV_S1);
+  mtst_pub_err(SESS_A, (u64)mups_up_sid(), MOQCTL_ERR_INVALID_FILTER);
+  CHECK(moqtrun_test_close_code() == ~(u64)0);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
+}
+
 /* draft-19 3.3.2: A FINs its side with no SUBSCRIBE_OK -- the request
  * failed: B is refused as for a REQUEST_ERROR and the hub FINs and
  * forgets the entry. A FIN after SUBSCRIBE_OK ends nothing. */
@@ -769,6 +794,7 @@ static void mtall_upsub(void) {
   test_moqtrun_upsub_early_torn_header();
   test_moqtrun_upsub_two_share_one();
   test_moqtrun_upsub_error_relayed();
+  test_moqtrun_upsub_unknown_error_is_internal();
   test_moqtrun_upsub_fin_unanswered_fails();
   test_moqtrun_upsub_publish_crosses();
   test_moqtrun_upsub_ngr_in_subscribe();
@@ -789,9 +815,13 @@ static void mtall_upsub(void) {
 
 /* Cross-draft: A's reply decoded in A's draft, B's answer spelled in B's
  * (a d19/22 CONFLICTING_FILTERS reaches a d18 subscriber as d18's
- * EXCESSIVE_LOAD, moqctl_request_error_for). */
+ * EXCESSIVE_LOAD, moqctl_request_error_for); from a d18 A, which has no
+ * 0x35, it is unknown: INTERNAL_ERROR. */
 static void mups_xver(int pv, int sv) {
   u64 sid;
+  int cf   = (moqver_caps(pv) & MOQVER_CAP_RANGE_FILTERS) != 0;
+  u64 want = cf ? moqctl_request_error_for(sv, MOQCTL_ERR_CONFLICTING_FILTERS)
+                : MOQCTL_ERR_INTERNAL_ERROR;
   mups_init_v(pv, sv);
   mups_sub(SESS_B, MRDV_S1);
   mups_ok((u64)mups_up_sid());
@@ -800,9 +830,7 @@ static void mups_xver(int pv, int sv) {
   mups_sub(SESS_B, MRDV_S1);
   sid = (u64)mups_up_sid();
   mtst_pub_err(SESS_A, sid, MOQCTL_ERR_CONFLICTING_FILTERS);
-  CHECK(
-      mrdv_err(SESS_B, MRDV_S1).error_code ==
-      moqctl_request_error_for(sv, MOQCTL_ERR_CONFLICTING_FILTERS));
+  CHECK(mrdv_err(SESS_B, MRDV_S1).error_code == want);
 }
 
 static void test_moqtrun_upsub_cross_draft(void) {
@@ -1286,6 +1314,7 @@ void test_moqtrun_upsub(void) {
   test_moqtrun_upsub_done_before_ok();
   test_moqtrun_upsub_redirect_uri_closes();
   moqtrun_test_allver(mtall_upsub);
+  test_moqtrun_upsub_later_draft_code_is_internal_d18();
   test_moqtrun_upsub_cross_draft();
   test_moqtrun_upsub_publish_resumed();
   test_moqtrun_upsub_publish_resumed_d23();

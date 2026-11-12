@@ -191,19 +191,36 @@ static void test_moqtrun_pubdone_wait_bounded(void) {
   CHECK(count == 1);
 }
 
-/* The publisher's Status Code passes through, spelled for the
- * subscriber's draft. */
+/* The publisher's Status Code passes through; SUBSCRIPTION_ENDED (0x3)
+ * only where its draft defines it (draft-18/19), else it is unknown:
+ * INTERNAL_ERROR (draft-22 13). */
 static void test_moqtrun_pubdone_status_passthrough(void) {
   u64 count = 0;
+  int ended =
+      (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_SUBSCRIPTION_ENDED) != 0;
   mtdn_setup();
   mtdn_done(MOQCTL_DONE_SUBSCRIPTION_ENDED, 0);
   CHECK(
       mtdr_done_on(MTRQ_S1, &count) ==
-      moqctl_publish_done_for(
-          g_moqtrun_test_ver, MOQCTL_DONE_SUBSCRIPTION_ENDED));
+      (ended ? MOQCTL_DONE_SUBSCRIPTION_ENDED : MOQCTL_DONE_INTERNAL_ERROR));
   mtdn_setup();
   mtdn_done(MOQCTL_DONE_GOING_AWAY, 0);
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_GOING_AWAY);
+}
+
+/* draft-23 13 (draft-18/19 14, draft-22 13): an unknown PUBLISH_DONE
+ * code is INTERNAL_ERROR and does not close the session; registry codes
+ * of any supported draft (EXCESSIVE_LOAD, MALFORMED_TRACK) still pass. */
+static void test_moqtrun_pubdone_unknown_status_is_internal(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_done(0x3f00, 0);
+  CHECK(moqtrun_test_close_code() == ~(u64)0);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_INTERNAL_ERROR);
+  CHECK(mtrq_fin_on(MTRQ_S1) == 1);
+  mtdn_setup();
+  mtdn_done(MOQCTL_DONE_EXCESSIVE_LOAD, 0);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_EXCESSIVE_LOAD);
 }
 
 /* Group g of A on stream sid, FINed: n Normal Objects (IDs 0..n-1), then
@@ -520,6 +537,7 @@ static void mtall_pubdone(void) {
   test_moqtrun_pubdone_waits_open_stream();
   test_moqtrun_pubdone_wait_bounded();
   test_moqtrun_pubdone_status_passthrough();
+  test_moqtrun_pubdone_unknown_status_is_internal();
   test_moqtrun_pubdone_malformed_after_end_of_track();
   test_moqtrun_pubdone_malformed_after_end_of_group();
   test_moqtrun_pubdone_malformed_mandatory_obj_prop();
@@ -535,17 +553,20 @@ static void mtall_pubdone(void) {
 }
 
 /* Publisher and subscriber on different drafts: B's PUBLISH_DONE decodes
- * in B's draft, its status spelled for B. */
+ * in B's draft, its status spelled for B; SUBSCRIPTION_ENDED from a
+ * publisher whose draft lacks it is unknown: INTERNAL_ERROR. */
 static void test_moqtrun_pubdone_xver(void) {
   for (int pv = 0; pv < MOQVER_COUNT; pv++) {
     for (int sv = 0; sv < MOQVER_COUNT; sv++) {
       u64 count = 0;
+      int ended = (moqver_caps(pv) & MOQVER_CAP_SUBSCRIPTION_ENDED) != 0;
       mtdn_setup_v(pv, sv);
       mtdn_group(2002, 1);
       mtdn_done(MOQCTL_DONE_SUBSCRIPTION_ENDED, 1);
       CHECK(
           mtdr_done_on(MTRQ_S1, &count) ==
-          moqctl_publish_done_for(sv, MOQCTL_DONE_SUBSCRIPTION_ENDED));
+          (ended ? moqctl_publish_done_for(sv, MOQCTL_DONE_SUBSCRIPTION_ENDED)
+                 : MOQCTL_DONE_INTERNAL_ERROR));
       CHECK(count == 1);
     }
   }

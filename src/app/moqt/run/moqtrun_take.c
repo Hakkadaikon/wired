@@ -198,6 +198,8 @@ int moqtrun_reqerr_take(
           hub, p, moqctl_request_error_take_v(p->ver, body, &off, e))) {
     return 0;
   }
+  /* draft-23 13: an unknown code is INTERNAL_ERROR, the session stays */
+  e->error_code = moqctl_known_request_error(p->ver, e->error_code);
   return moqtrun_take_or_close(hub, p, moqtrun_redirect_r(p->ver, e));
 }
 

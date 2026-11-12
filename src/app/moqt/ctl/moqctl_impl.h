@@ -15,9 +15,12 @@
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/num.h"
 
-#define MOQCTL_KNOWN_ERRS_N (sizeof MOQCTL_KNOWN_ERRS / sizeof(u64))
-
-#define MOQCTL_KNOWN_DONE_N (sizeof MOQCTL_KNOWN_DONE / sizeof(u64))
+/* Receive-side code rows: code is in the registry of every draft whose
+ * bit (1 << MOQVER_*) is set in vers. */
+typedef struct {
+  u64 code;
+  u32 vers;
+} moqctl_known_row;
 
 /* Send-side code rows: code exists in a draft whose caps include cap;
  * elsewhere alt, that draft's nearest defined code, is sent. */
