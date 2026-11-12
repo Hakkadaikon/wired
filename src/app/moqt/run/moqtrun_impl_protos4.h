@@ -116,9 +116,8 @@ u64 moqtrun_upd_run(
     wired_moqtrun_peer* p,
     usz                 peer_idx,
     moqtstat_update*    m);
-u64 moqtrun_upd_credits(const wired_moqtrun_req* q, u64 k);
-int moqtrun_disc_is(const wired_moqtrun_req* q, u64 kind);
-int moqtrun_disc_live_mask(const wired_moqt_hub* hub, u64 kind, u64* mask);
+u64        moqtrun_upd_credits(const wired_moqtrun_req* q, u64 k);
+int        moqtrun_disc_is(const wired_moqtrun_req* q, u64 kind);
 wired_span moqtrun_disc_fields_of(wired_span enc, u64* count);
 wired_span moqtrun_disc_fields(const wired_moqtrun_req* q, u64* count);
 int        moqtrun_disc_starts(wired_span pre, wired_span all);

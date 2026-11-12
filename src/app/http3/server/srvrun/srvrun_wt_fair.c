@@ -38,7 +38,6 @@ static void srvrun_wt_fair_visit(srvrun_wt_fair_scan* f, usz i);
 static void srvrun_wt_fair_run(
     const srvrun_conn* c, srvrun_wt_fair_scan* f, u64 bits, int s);
 static u64 srvrun_wt_fair_keep(srvrun_conn* c, u64 mask, int s, u32 quota);
-static int srvrun_wt_held(const srvrun_conn* c, int s);
 
 /* Slot i is live, in the pass, and belongs to session slot s (the class
  * mask also marks free slots: pumping one is a no-op, but a zeroed free
@@ -113,27 +112,4 @@ u64 srvrun_wt_fair_mask(srvrun_conn* c, u64 mask) {
     mask = srvrun_wt_fair_keep(c, mask, s, q);
   }
   return mask;
-}
-
-/* Send slots held by session slot s (s < 0: connection plumbing). */
-static int srvrun_wt_held(const srvrun_conn* c, int s) {
-  int n = 0;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    n += c->wtsend[i].in_use && c->wtsend[i].wt_session_slot == s;
-  }
-  return n;
-}
-
-/* Opening: session slot sidx may claim one more send slot while it holds
- * fewer than its share -- the slots plumbing does not hold, split evenly
- * among the active sessions -- so one session cannot fill the shared
- * table and starve the other's opens. */
-int srvrun_wt_open_share_ok(const srvrun_conn* c, int sidx) {
-  int n = 0;
-  for (int s = 0; s < SRVRUN_MAX_WT_SESSIONS; s++) {
-    n += srvrun_wt_is_active(c, s);
-  }
-  n += !n;
-  return srvrun_wt_held(c, sidx) <
-         ((int)SRVRUN_WT_SEND_SLOTS - srvrun_wt_held(c, -1)) / n;
 }
