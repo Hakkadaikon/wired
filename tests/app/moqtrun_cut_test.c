@@ -190,7 +190,7 @@ static void test_moqtrun_cut_reset_refused_expires(void) {
 static void test_moqtrun_stream_starts_at_gone_object(void) {
   static const u64 ids[2] = {0, 1}, five[1] = {5}, two[1] = {2};
   u8               buf[MOQTRUN_TEST_MAX_PAYLOAD], one[MOQTRUN_TEST_MAX_PAYLOAD];
-  usz              ends[2], e1[1];
+  usz              ends[3], e1[1];
   mcut_init(buf, ends, 0);
   mcut_stream(buf, 1, 0, ids, 2, ends);
   mcut_send(buf, 0, ends[1], 1);
@@ -211,7 +211,7 @@ static void test_moqtrun_stream_starts_at_gone_object(void) {
 static void test_moqtrun_stream_header_then_gone_object(void) {
   static const u64 ids[2] = {0, 1}, five[1] = {5}, two[2] = {2, 5};
   u8               buf[MOQTRUN_TEST_MAX_PAYLOAD], one[MOQTRUN_TEST_MAX_PAYLOAD];
-  usz              ends[2], e1[1];
+  usz              ends[3], e1[1];
   mcut_init(buf, ends, 0);
   mcut_stream(one, 1, 1, ids, 2, ends);
   mt_feed(&mtst_hub, SESS_A, MCUT_SID + 4, wired_span_of(one, ends[1]), 1);
@@ -241,7 +241,7 @@ static void test_moqtrun_stream_gone_round_too_big(void) {
   static u8 pl[sizeof big];
   const usz frag = WIRED_MOQTRUN_RELAY_FRAG_MAX - 4;
   u8        buf[MOQTRUN_TEST_MAX_PAYLOAD], one[MOQTRUN_TEST_MAX_PAYLOAD];
-  usz       ends[2], e1[1], n = 0;
+  usz       ends[3], e1[1], n = 0;
   mcut_init(buf, ends, 0);
   mcut_stream(buf, 1, 0, ids, 2, ends);
   mcut_send(buf, 0, ends[1], 0);
