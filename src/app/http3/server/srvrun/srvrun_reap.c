@@ -73,7 +73,13 @@ usz srvrun_reap_losses(
     u64                now_ms,
     srvrun_loss_span*  span) {
   wired_sendsess_lost_slice lost[WIRED_SENDSESS_LOG];
-  usz                       n = wired_sendsess_detect_lost(
+  usz                       n;
+  /* nothing in flight, nothing to lose: this runs for every in-use session
+   * on every received packet, most of them idle */
+  if (!wired_sendsess_inflight(sess)) {
+    return 0;
+  }
+  n = wired_sendsess_detect_lost(
       sess, c->largest_acked, now_ms, srvrun_loss_delay_us(c), lost,
       WIRED_SENDSESS_LOG);
   srvrun_qlog_lost(cfg, c, now_ms, stream_id, lost, n);

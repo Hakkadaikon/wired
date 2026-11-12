@@ -154,13 +154,20 @@ static void srvrun_rec_check(srvrun_conn* c, usz i, u64 now_us, u64 delay_us) {
  * candidate could be declared lost arms the loss timer (6.1.2: "a timer
  * SHOULD be set for the remaining time"); 0 disarms it. The send sessions'
  * own pass (srvrun_reap_losses_all) requeues the STREAM data. */
-void srvrun_rec_detect(srvrun_conn* c, u64 now_ms) {
-  u64 delay_us    = srvrun_loss_delay_us(c);
-  c->loss_time_us = 0;
+static void srvrun_rec_detect_scan(srvrun_conn* c, u64 now_ms) {
+  u64 delay_us = srvrun_loss_delay_us(c);
   for (usz i = 0; i < SENTMETA_CAP; i++) {
     if (srvrun_rec_eligible(&c->l.ackst.sent.pkts[i], c->largest_acked)) {
       srvrun_rec_check(c, i, now_ms * 1000, delay_us);
     }
+  }
+}
+
+void srvrun_rec_detect(srvrun_conn* c, u64 now_ms) {
+  c->loss_time_us = 0;
+  /* an empty record has no candidate and arms nothing */
+  if (c->l.ackst.sent.count) {
+    srvrun_rec_detect_scan(c, now_ms);
   }
 }
 
