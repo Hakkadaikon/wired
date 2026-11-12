@@ -11223,6 +11223,22 @@ static void test_srvrun_wt_uni_stream_data_delivered_on_offer(void) {
   CHECK(c.l.wt_uni_streams[0].delivered_len == 1);
 }
 
+/* Narrow an opened 1-RTT payload to its DATAGRAM frame, past the ACK that
+ * may ride ahead of it. 0 when it carries none. */
+static int sr_dg_frame_of(const u8** pl, usz* pll) {
+  framewalk      it;
+  framewalk_item fr;
+  framewalk_init(&it, *pl, *pll);
+  while (framewalk_next(&it, &fr)) {
+    if (frame_classify(fr.type) == FK_DATAGRAM) {
+      *pl  = fr.start;
+      *pll = fr.remaining;
+      return 1;
+    }
+  }
+  return 0;
+}
+
 /* PHASE 7c: full in-tree client/server integration. Extended CONNECT
  * establishes a WT session -> a WT bidi stream's reassembled bytes reach the
  * app callback -> a QUIC DATAGRAM round-trips on the wire and reaches the app
@@ -11372,6 +11388,8 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
       CHECK(srvrun_send_pending_datagram(&cfg, &conns[0], &sendob) == 1);
       CHECK(client_open_onertt(&f, sendob.p, sendob.len, &pl, &pll) == 1);
     }
+    /* a pending ACK may ride ahead of the frame (RFC 9000 13.2.1) */
+    CHECK(sr_dg_frame_of(&pl, &pll));
     CHECK(datagram_decode(pl, pll, &df) == pll);
     /* RFC 9297 2.1: the outbound wire bytes carry the target session's qsid
      * prefix (session on stream 4 -> qsid 1, byte 0x01) ahead of the queued
@@ -12334,6 +12352,9 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
         srvrun_send_pending_datagram(
             &cfg, &g_srvrun_state.conns[1], &sendob1) == 1);
     CHECK(client_open_onertt(&f0, sendob0.p, sendob0.len, &pl, &pll) == 1);
+    /* conn 0 just received a packet: its pending ACK rides this DATAGRAM
+     * (RFC 9000 13.2.1), ahead of the frame */
+    CHECK(sr_dg_frame_of(&pl, &pll));
     CHECK(datagram_decode(pl, pll, &df) == pll);
     CHECK(df.length == 1 + sizeof sr_dg_payload);
     CHECK(df.data[0] == 0x01);

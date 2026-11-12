@@ -738,6 +738,38 @@ static void test_srvrun_pto_probe_retransmits_when_no_new_data(void) {
   CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 4); /* + originals */
 }
 
+/* RFC 9000 13.2.1: an ACK still pending for the connection rides the
+ * DATAGRAM's packet (the packet is longer by the ACK frame and the pending
+ * count is consumed); with nothing pending the DATAGRAM goes out bare, and
+ * an ACK that would not fit beside a full-size DATAGRAM stays pending. */
+static void test_srvrun_datagram_carries_pending_ack(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024], dg[1500];
+  wired_obuf    ob  = {obuf, sizeof obuf, 0};
+  wired_obuf    dob = obuf_of(dg, sizeof dg);
+  srvrun_cfg    cfg = srvrec_cfg();
+  usz           bare, room;
+  srvrec_bare(&c, &f, &ob);
+  c.l.now_ms = 0;
+  CHECK(srvrun_send_datagram_now(&cfg, &c, wired_span_of(dg, 10), &dob));
+  bare = dob.len;
+  pnspaces_on_recv(&c.l.ack_recv, PNS_APP, 0);
+  c.l.app_ack_policy.pending = 1; /* not yet due on its own */
+  dob                        = obuf_of(dg, sizeof dg);
+  srvrun_test_reset_send_count();
+  CHECK(srvrun_send_datagram_now(&cfg, &c, wired_span_of(dg, 10), &dob));
+  CHECK(srvrun_test_send_count() == 1); /* one packet for both */
+  CHECK(dob.len > bare);
+  CHECK(c.l.app_ack_policy.pending == 0);
+  /* a DATAGRAM that fills the packet leaves no room: the ACK stays */
+  room                       = srvrun_dg_room(&c, 1400);
+  c.l.app_ack_policy.pending = 1;
+  dob                        = obuf_of(dg, sizeof dg);
+  srvrun_send_datagram_now(&cfg, &c, wired_span_of(dg, room - 9), &dob);
+  CHECK(c.l.app_ack_policy.pending == 1);
+}
+
 /* RFC 9221 5.2 (9221-028) / RFC 9002 6.2.4: an unacknowledged DATAGRAM-only
  * packet arms the PTO (the poll tick stays on for it), and with no stream
  * data to send the probe is a single PING. */
@@ -937,6 +969,7 @@ void test_srvrun_rec(void) {
   test_srvrun_pto_probe_sends_new_data();
   test_srvrun_pto_probe_retransmits_when_no_new_data();
   test_srvrun_pto_pings_datagram_only();
+  test_srvrun_datagram_carries_pending_ack();
   test_srvrun_dg_blocked_by_cwnd();
   test_srvrun_cc_no_growth_app_limited();
   test_srvrun_cc_paced_not_app_limited();

@@ -1,6 +1,9 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static usz srvrun_dg_room(const srvrun_conn* c, usz cap);
+static usz srvrun_dg_ack_peek(srvrun_conn* c, usz data_n, u8* pl, usz room);
+static int srvrun_dg_emit(
+    const srvrun_cfg* cfg, srvrun_conn* c, const wired_obuf* out, usz al);
 static int srvrun_dg_build(
     const srvrun_conn*    c,
     wired_span            data,
@@ -58,30 +61,63 @@ int srvrun_dg_cwnd_blocked(const srvrun_conn* c, usz len) {
  * Returns 1 if sent, 0 if the frame could not be built (too large for the
  * peer's limit, or past the validated PMTU's room, srvrun_dg_room) or the
  * congestion window has no room for it (srvrun_dg_build). */
-int srvrun_send_datagram_now(
-    const srvrun_cfg* cfg, srvrun_conn* c, wired_span data, wired_obuf* out) {
-  u8                    pl[1400];
-  wired_obuf            plb        = obuf_of(pl, srvrun_dg_room(c, sizeof pl));
-  u64                   peer_limit = c->s.sdrv.peer_max_datagram_frame_size;
-  dgdeliver_opts        o = {.with_length = 1, .max_frame_size = peer_limit};
-  wired_srvloop_send_in sin;
-  if (!srvrun_dg_build(c, data, &o, &plb)) {
-    return 0;
+/* RFC 9000 13.2.1: an App-space ACK still pending for c rides the
+ * DATAGRAM's packet -- written at pl[0], ahead of the frame -- when both
+ * fit the packet's plaintext room (the frame's type byte and an 8-byte
+ * Length bound included). A hub's fan-out sends to a connection far more
+ * often than that connection's own packets fall due for an ACK, so this
+ * takes the place of most ACK-only packets. Returns the ACK bytes written,
+ * 0 when nothing is pending or it does not fit (the DATAGRAM then goes
+ * bare and the ACK stays pending). */
+static usz srvrun_dg_ack_peek(srvrun_conn* c, usz data_n, u8* pl, usz room) {
+  usz al = wired_srvloop_ack_peek(&c->l, pl, SRVRUN_ACK_ROOM);
+  return al + data_n + 9 <= room ? al : 0;
+}
+
+/* The sealed DATAGRAM packet goes out; a piggybacked ACK (al != 0) is
+ * consumed only now that its carrier is on the wire. */
+static int srvrun_dg_emit(
+    const srvrun_cfg* cfg, srvrun_conn* c, const wired_obuf* out, usz al) {
+  srvrun_send(cfg, c, wired_span_of(out->p, out->len), "DATAGRAM sent\n");
+  if (al) {
+    wired_srvloop_ack_mark_sent(&c->l);
   }
-  sin = (wired_srvloop_send_in){
+  return 1;
+}
+
+/* The 1-RTT send of payload pl[0..n) under the connection's next packet
+ * number. */
+static wired_srvloop_send_in srvrun_dg_send_in(
+    srvrun_conn* c, const u8* pl, usz n) {
+  return (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
       c->l.tx_pn++,
       -1,
-      wired_span_of(pl, plb.len),
+      wired_span_of(pl, n),
       0,
       0,
       0,
       0};
+}
+
+int srvrun_send_datagram_now(
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_span data, wired_obuf* out) {
+  u8             pl[SRVRUN_ACK_ROOM + 1400];
+  usz            room = srvrun_dg_room(c, 1400);
+  usz            al   = srvrun_dg_ack_peek(c, data.n, pl, room);
+  wired_obuf     plb  = obuf_of(pl + al, room - al);
+  dgdeliver_opts o    = {
+      .with_length    = 1,
+      .max_frame_size = c->s.sdrv.peer_max_datagram_frame_size};
+  wired_srvloop_send_in sin;
+  if (!srvrun_dg_build(c, data, &o, &plb)) {
+    return 0;
+  }
+  sin = srvrun_dg_send_in(c, pl, al + plb.len);
   if (!srvloop_send_onertt_rec(&c->l, &c->s, &sin, out)) {
     return 0;
   }
-  srvrun_send(cfg, c, wired_span_of(out->p, out->len), "DATAGRAM sent\n");
-  return 1;
+  return srvrun_dg_emit(cfg, c, out, al);
 }
 
 /* RFC 9297 2.1: on the wire every HTTP Datagram carries the quarter-stream-
