@@ -8,7 +8,10 @@ static int srvrun_deferred_ack_due(srvrun_conn* c);
 
 void srvrun_reap_wtsends(srvrun_conn* c) {
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    srvrun_reap_one_wtsend(c, &c->wtsend[i]);
+    /* reaping only ever frees a slot: a free one has nothing to do */
+    if (c->wtsend[i].in_use) {
+      srvrun_reap_one_wtsend(c, &c->wtsend[i]);
+    }
   }
 }
 

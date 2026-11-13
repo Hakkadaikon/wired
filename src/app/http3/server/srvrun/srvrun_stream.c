@@ -94,7 +94,10 @@ usz srvrun_reap_one(
 void srvrun_reap_resps(const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
   usz freed = 0;
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
-    freed += srvrun_reap_one(ctx, c, slot, &c->resp[i]);
+    /* a free slot neither refills nor frees (srvrun_resp_reap) */
+    if (c->resp[i].in_use) {
+      freed += srvrun_reap_one(ctx, c, slot, &c->resp[i]);
+    }
   }
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }

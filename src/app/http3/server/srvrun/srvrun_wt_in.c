@@ -121,7 +121,11 @@ static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
 static int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   int sent = 0;
   for (usz k = 0; k < SRVRUN_RESP_SLOTS; k++) {
-    sent |= srvrun_pump_one(ctx, c, &c->resp[c->prio_order[k]]);
+    srvrun_resp* r = &c->resp[c->prio_order[k]];
+    /* a free slot sends nothing (srvrun_pump_one): skip the call */
+    if (r->in_use) {
+      sent |= srvrun_pump_one(ctx, c, r);
+    }
   }
   return sent;
 }

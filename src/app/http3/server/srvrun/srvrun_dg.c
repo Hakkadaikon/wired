@@ -41,7 +41,10 @@ void srvrun_offer_and_deliver_wt_slot(
  * slot over every slot. */
 void srvrun_offer_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
-    srvrun_offer_and_deliver_wt_slot(cfg, c, &c->l.wt_streams[i]);
+    /* a free slot is neither offered nor delivered */
+    if (c->l.wt_streams[i].in_use) {
+      srvrun_offer_and_deliver_wt_slot(cfg, c, &c->l.wt_streams[i]);
+    }
   }
 }
 

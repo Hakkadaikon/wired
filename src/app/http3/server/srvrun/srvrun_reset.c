@@ -2,6 +2,8 @@
 
 static void srvrun_grant_req_slot_credit(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_stream_slot* slot);
+static void srvrun_grant_wt_bidi_credit(const srvrun_cfg* cfg, srvrun_conn* c);
+static void srvrun_grant_wt_slots_credit(const srvrun_cfg* cfg, srvrun_conn* c);
 static void srvrun_reset_wt_bidi_if_owned(
     const srvrun_cfg*             cfg,
     srvrun_conn*                  c,
@@ -21,13 +23,28 @@ static void srvrun_reset_wt_send_if_owned(
     int               session_slot,
     u64               err_code);
 
-void srvrun_grant_wt_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
+/* Every in-use WT receive slot's stream credit (a free slot is granted
+ * none: srvrun_grant_wt_slot_credit, srvrun_grant_wt_uni_slot_credit). */
+static void srvrun_grant_wt_bidi_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
-    srvrun_grant_wt_slot_credit(cfg, c, &c->l.wt_streams[i]);
+    if (c->l.wt_streams[i].in_use) {
+      srvrun_grant_wt_slot_credit(cfg, c, &c->l.wt_streams[i]);
+    }
   }
+}
+
+static void srvrun_grant_wt_slots_credit(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  srvrun_grant_wt_bidi_credit(cfg, c);
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
-    srvrun_grant_wt_uni_slot_credit(cfg, c, &c->l.wt_uni_streams[i]);
+    if (c->l.wt_uni_streams[i].in_use) {
+      srvrun_grant_wt_uni_slot_credit(cfg, c, &c->l.wt_uni_streams[i]);
+    }
   }
+}
+
+void srvrun_grant_wt_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
+  srvrun_grant_wt_slots_credit(cfg, c);
   srvrun_grant_qenc_credit(cfg, c);
   srvrun_grant_conn_credit(cfg, c);
 }
