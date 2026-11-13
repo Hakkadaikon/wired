@@ -41,11 +41,13 @@ int srvrun_pto_armed(const srvrun_conn* c) {
 }
 
 /* A.8 GetPtoTimeAndSpace: due at time_of_last_ack_eliciting_packet + PTO
- * scaled by 2^pto_count, so every ack-eliciting send restarts it (6.2.1). */
+ * scaled by 2^pto_count, so every ack-eliciting send restarts it (6.2.1).
+ * The time is compared first: it is almost never up, and the armed test
+ * walks the sent-packet record. */
 int srvrun_pto_fire_due(const srvrun_conn* c, u64 now_ms) {
-  return srvrun_pto_armed(c) &&
-         now_ms >= c->l.ackst.last_elicit_ms +
-                       srvrun_pto_deadline_ms(c, c->l.ackst.pto_count);
+  return now_ms >= c->l.ackst.last_elicit_ms +
+                       srvrun_pto_deadline_ms(c, c->l.ackst.pto_count) &&
+         srvrun_pto_armed(c);
 }
 
 /* 1 when sess can carry new data in a probe (srvrun_can_send_new without
