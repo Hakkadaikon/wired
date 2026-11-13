@@ -89,13 +89,44 @@ usz srvrun_sess_consumed(const wired_sendsess* sess) {
   return sess->stream_base_offset + sess->q.cur;
 }
 
+/* Both totals of srvrun_acct_resync, summed in one pass per slot table
+ * (srvrun_inflight_bytes_all and srvrun_conn_consumed_bytes make four). */
+typedef struct {
+  usz inflight;
+  usz consumed;
+} srvrun_acct;
+
+static void srvrun_acct_sess(srvrun_acct* a, const wired_sendsess* sess) {
+  a->inflight += sess->inflight_len; /* wired_sendsess_inflight_bytes */
+  a->consumed += srvrun_sess_consumed(sess);
+}
+
+static void srvrun_acct_wtsends(const srvrun_conn* c, srvrun_acct* a) {
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (c->wtsend[i].in_use) {
+      srvrun_acct_sess(a, &c->wtsend[i].sess);
+    }
+  }
+}
+
+static void srvrun_acct_resps(const srvrun_conn* c, srvrun_acct* a) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    if (c->resp[i].in_use) {
+      srvrun_acct_sess(a, &c->resp[i].sess);
+    }
+  }
+}
+
 /* Resync the cached totals from the full scans -- once per step (and per
  * pump pass), so ACK/requeue/reap/re-arm effects are picked up wholesale
  * instead of being tracked per event; see srvrun_conn.acct_inflight's doc.
  */
 void srvrun_acct_resync(srvrun_conn* c) {
-  c->acct_inflight = srvrun_inflight_bytes_all(c);
-  c->acct_consumed = srvrun_conn_consumed_bytes(c);
+  srvrun_acct a = {0, 0};
+  srvrun_acct_wtsends(c, &a);
+  srvrun_acct_resps(c, &a);
+  c->acct_inflight = a.inflight;
+  c->acct_consumed = a.consumed;
 }
 
 /* 1 when the connection's send credit (RFC 9000 18.2/19.9) has room for one
