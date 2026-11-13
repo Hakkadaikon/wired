@@ -9,6 +9,7 @@ static int srvrun_qenc_claim_and_arm(srvrun_conn* c, const u8* prefix, usz n);
 srvrun_wtsend* srvrun_wtsend_claim(srvrun_conn* c, u64 credit) {
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     if (!c->wtsend[i].in_use) {
+      c->wtsend_free &= ~((u64)1 << i); /* no longer known free */
       return srvrun_wtsend_take(&c->wtsend[i], credit);
     }
   }

@@ -400,22 +400,33 @@ static void test_srvrun_wt_replies_leave_relay_slots(void) {
 }
 
 /* srvrun_wtsend_live marks exactly the in-use send slots, first and last
- * included. */
+ * included, and agrees with the full scan across claims and frees: a slot
+ * it has seen free shows again once claimed. */
 static void test_srvrun_wtsend_live_matches_in_use(void) {
   srvrun_conn* c = sr_sl_fixture();
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     c->wtsend[i].in_use = 0;
   }
+  c->wtsend_free = 0;
   CHECK(srvrun_wtsend_live(c) == 0);
+  c->wtsend_free                             = 0; /* in_use set by hand */
   c->wtsend[0].in_use                        = 1;
   c->wtsend[7].in_use                        = 1;
   c->wtsend[SRVRUN_WT_SEND_SLOTS - 1].in_use = 1;
   CHECK(
       srvrun_wtsend_live(c) ==
       ((u64)1 | (u64)1 << 7 | (u64)1 << (SRVRUN_WT_SEND_SLOTS - 1)));
+  CHECK(srvrun_wtsend_claim(c, 0) == &c->wtsend[1]);
+  c->wtsend[7].in_use = 0;
+  CHECK(srvrun_wtsend_live(c) == srvrun_wtsend_live_scan(c));
+  CHECK(srvrun_wtsend_live(c) & 2);
+  CHECK(srvrun_wtsend_claim(c, 0) == &c->wtsend[2]);
+  CHECK(srvrun_wtsend_claim(c, 0) == &c->wtsend[3]);
+  CHECK(srvrun_wtsend_live(c) == srvrun_wtsend_live_scan(c));
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     c->wtsend[i].in_use = 0;
   }
+  CHECK(srvrun_wtsend_live(c) == 0);
 }
 
 void test_srvrun_wtflow(void) {

@@ -537,6 +537,11 @@ typedef struct {
    * connection (wired_server_wt_open_uni/open_bidi/stream_reply), pumped/
    * ACKed/probed alongside resp[] under the same connection-wide gates. */
   srvrun_wtsend wtsend[SRVRUN_WT_SEND_SLOTS];
+  /** wtsend[] slots known free, one bit each: a set bit means in_use is 0,
+   * a clear bit means "look" -- so all-zero (a fresh or reset connection)
+   * is always right. Set by srvrun_wtsend_live as it finds free slots,
+   * cleared by srvrun_wtsend_claim, the one place a slot becomes in use. */
+  u64 wtsend_free;
   /** Diagnostic counters for wired_server_wt_stream_send: rounds appended
    * (ok), live rounds refused only because the previous round was still
    * unACKed (busy -- the round the caller then drops), and rounds refused

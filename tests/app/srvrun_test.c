@@ -875,6 +875,7 @@ static void test_srvrun_wt_unacked_round_loss_detected(void) {
   u64               pn0;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
+  c.wtsend_free         = 0; /* in_use set by hand */
   c.wtsend[0].in_use    = 1;
   c.wtsend[0].stream_id = 19;
   pn0                   = c.l.tx_pn;
@@ -943,6 +944,7 @@ static void test_srvrun_wt_lost_bare_fin_redetected_and_resent(void) {
   u64               pn_data, pn_fin;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
+  c.wtsend_free             = 0; /* in_use set by hand */
   c.wtsend[0].in_use        = 1;
   c.wtsend[0].stream_id     = 23;
   c.wtsend[0].stream_credit = 1000;
@@ -1731,8 +1733,9 @@ static void test_srvrun_wtsend_ring_rolling_reclaim(void) {
   for (usz i = 0; i < sizeof acked; i++) {
     acked[i] = 0;
   }
-  w         = &c.wtsend[0];
-  w->in_use = 1;
+  w             = &c.wtsend[0];
+  c.wtsend_free = 0; /* in_use set by hand */
+  w->in_use     = 1;
   {
     usz first = 100;
     srvrun_wtsend_arm_id(&c, w, 7, wired_span_of(expected, first));
@@ -7869,6 +7872,7 @@ static void test_srvrun_wt_abort_frames_match_stream_type(void) {
   }
   { /* server uni (id % 4 == 3): RESET_STREAM alone */
     wired_obuf pktb       = obuf_of(pkt, sizeof pkt);
+    c.wtsend_free         = 0; /* in_use set by hand */
     c.wtsend[0].in_use    = 1; /* live send slot, nothing sent yet */
     c.wtsend[0].stream_id = 7;
     CHECK(srvrun_seal_wt_busy_reset(&c, 7, H3_REQUEST_REJECTED, &pktb));
@@ -19183,10 +19187,11 @@ static void test_srvrun_wtsend_large_payload_still_copies(void) {
   for (usz i = 0; i < sizeof pay; i++) {
     pay[i] = (u8)i;
   }
-  ob        = (wired_obuf){obuf, sizeof obuf, 0};
-  c         = sr_wtsend_fixture(&f, &ob);
-  w         = &c->wtsend[0];
-  w->in_use = 1;
+  ob             = (wired_obuf){obuf, sizeof obuf, 0};
+  c              = sr_wtsend_fixture(&f, &ob);
+  w              = &c->wtsend[0];
+  c->wtsend_free = 0; /* in_use set by hand */
+  w->in_use      = 1;
   srvrun_wtsend_arm_id(c, w, 7, wired_span_of(pay, sizeof pay));
   CHECK(w->view_round == 0);
   CHECK(w->sess.q.p == w->roundbuf);
@@ -19691,6 +19696,7 @@ static void test_srvrun_any_wtsend_requeued(void) {
   srvrun_conn* c              = sr_test_conns();
   c->wtsend[1].sess.requeue_n = 1;
   CHECK(srvrun_any_wtsend_requeued(c) == 0);
+  c->wtsend_free      = 0; /* in_use set by hand */
   c->wtsend[1].in_use = 1;
   CHECK(srvrun_any_wtsend_requeued(c) == 1);
 }
@@ -19711,6 +19717,7 @@ static void test_srvrun_qpack_streams_wait_for_send_slot(void) {
   c->l.h3.settings_sent                  = 1;
   c->s.sdrv.peer_initial_max_streams_uni = 3;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    c->wtsend_free         = 0; /* in_use set by hand */
     c->wtsend[i].in_use    = 1;
     c->wtsend[i].stream_id = 1000 + 4 * i;
   }
@@ -19737,6 +19744,7 @@ static void test_srvrun_wt_stream_reply_send_table_full(void) {
   c->l.wt_streams[0].offered         = 1;
   c->l.wt_streams[0].wt_session_slot = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    c->wtsend_free         = 0; /* in_use set by hand */
     c->wtsend[i].in_use    = 1;
     c->wtsend[i].stream_id = 1000 + 4 * i;
   }
@@ -23358,6 +23366,7 @@ static void test_srvrun_wt_close_without_send_slot_resets_connect(void) {
   srvrun_cfg         cfg = sr_wt_send_cfg();
   reset_stream_frame rs;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    c->wtsend_free         = 0; /* in_use set by hand */
     c->wtsend[i].in_use    = 1;
     c->wtsend[i].stream_id = 1000 + 4 * i;
   }
@@ -28185,6 +28194,7 @@ static void test_srvrun_connect_unfinable_close_resets_at_final(void) {
   fin = c->wt_connect_sent_len[0]; /* the 200 plus the capsule's DATA */
   CHECK(fin > sent);
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    c->wtsend_free         = 0; /* in_use set by hand */
     c->wtsend[i].in_use    = 1;
     c->wtsend[i].stream_id = 1000 + 4 * i;
   }

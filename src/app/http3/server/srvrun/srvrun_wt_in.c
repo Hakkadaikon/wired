@@ -24,11 +24,25 @@ static int srvrun_wt_in_class(
  * these: a free slot never sends (srvrun_pump_one_wt), is never ready and
  * never counts toward a session's share, so skipping it changes nothing
  * but the cost of a round that has little or nothing to send. */
-u64 srvrun_wtsend_live(const srvrun_conn* c) {
+u64 srvrun_wtsend_live_scan(const srvrun_conn* c) {
   u64 live = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     live |= (u64)(c->wtsend[i].in_use != 0) << i;
   }
+  return live;
+}
+
+/* The same mask as srvrun_wtsend_live_scan, looking only at the slots not
+ * already known free (srvrun_conn.wtsend_free), and remembering the free
+ * ones it finds: this runs on every pump round, most of them idle. */
+u64 srvrun_wtsend_live(srvrun_conn* c) {
+  u64 all  = ~(u64)0 >> (64 - SRVRUN_WT_SEND_SLOTS);
+  u64 live = 0;
+  for (u64 b = all & ~c->wtsend_free; b; b &= b - 1) {
+    usz i = bits_ctz64(b);
+    live |= (u64)(c->wtsend[i].in_use != 0) << i;
+  }
+  c->wtsend_free = all & ~live;
   return live;
 }
 

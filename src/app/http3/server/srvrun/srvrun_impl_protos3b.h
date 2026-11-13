@@ -65,7 +65,8 @@ int  srvrun_pump_one_wt(
 u8   srvrun_wtsend_urgency(const srvrun_wtsend* w);
 u32  srvrun_wtsend_key(const srvrun_wtsend* w);
 u32  srvrun_wt_pass_key(const srvrun_conn* c, u64 live);
-u64  srvrun_wtsend_live(const srvrun_conn* c);
+u64  srvrun_wtsend_live_scan(const srvrun_conn* c);
+u64  srvrun_wtsend_live(srvrun_conn* c);
 int  srvrun_wtsend_wants_pump(const srvrun_wtsend* w);
 u64  srvrun_wt_fair_mask(srvrun_conn* c, u64 mask);
 int  srvrun_wt_open_share_ok(const srvrun_conn* c, int sidx);
