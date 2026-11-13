@@ -71,15 +71,26 @@ static int srvrun_rst_retry_one(
   return 1;
 }
 
-/* Resend every kept packet on c whose deadline passed without an ACK.
- * 0 when one has exhausted SRVRUN_PTO_MAX resends. */
-int srvrun_rst_retry(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
+/* The walk of srvrun_rst_retry; notes in wtx.rst_none whether it found
+ * the table empty. */
+static int srvrun_rst_retry_all(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
+  u8 kept = 0;
   for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    kept |= c->rst[i].pln;
     if (!srvrun_rst_retry_one(cfg, c, &c->rst[i], now)) {
       return 0;
     }
   }
+  c->wtx.rst_none = !kept;
   return 1;
+}
+
+/* Resend every kept packet on c whose deadline passed without an ACK.
+ * 0 when one has exhausted SRVRUN_PTO_MAX resends. Runs on every poll
+ * tick, so a table known empty is not walked. */
+int srvrun_rst_retry(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
+  return c->wtx.rst_none || srvrun_rst_retry_all(cfg, c, now);
 }
 
 /* RFC 9000 10.2.3: an application-level CONNECTION_CLOSE (type 0x1d,

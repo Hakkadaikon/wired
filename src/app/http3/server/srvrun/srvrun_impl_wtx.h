@@ -87,6 +87,9 @@ typedef struct {
   /** 1 while no resp[] slot is in use: set by srvrun_prio_refresh at the
    * start of a pump pass, cleared by srvrun_resp_claim. 0 means "look". */
   u8 resp_idle;
+  /** 1 while no rst[] entry awaits an ACK: set by srvrun_rst_retry when
+   * its walk finds none, cleared by srvrun_rst_keep. 0 means "look". */
+  u8 rst_none;
 } srvrun_wtx;
 
 #endif

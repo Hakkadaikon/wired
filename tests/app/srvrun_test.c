@@ -5515,6 +5515,7 @@ static void test_srvrun_retire_bound(void) {
     c.rst[i].pln   = 1;
     c.rst[i].pl[0] = 0x01;
   }
+  c.wtx.rst_none = 0; /* entries set by hand */
   sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 1, 0xc1));
   CHECK(c.pcid.retire_n == 1);
   CHECK(sr_kept(&c, 0x19) == 0);

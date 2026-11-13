@@ -74,10 +74,11 @@ void srvrun_rst_keep(srvrun_conn* c, const u8* pl, usz pln) {
     return;
   }
   bytes_memcpy(e->pl, pl, pln);
-  e->pln    = (u8)pln;
-  e->tries  = SRVRUN_PTO_MAX;
-  e->pn     = c->l.tx_pn;
-  e->due_ms = c->l.now_ms + srvrun_pto_deadline_ms(c, 0);
+  c->wtx.rst_none = 0;
+  e->pln          = (u8)pln;
+  e->tries        = SRVRUN_PTO_MAX;
+  e->pn           = c->l.tx_pn;
+  e->due_ms       = c->l.now_ms + srvrun_pto_deadline_ms(c, 0);
 }
 
 /* Send the type-appropriate abort frames carrying err_code as their own
@@ -106,11 +107,18 @@ static int srvrun_rst_acked(const srvrun_rst* e, u64 lo, u64 hi) {
   return e->pln && srvrun_pn_in(e->pn, lo, hi);
 }
 
-/* RFC 9000 13.3: an ACK naming a kept packet ends its resends. */
-void srvrun_rst_ack(srvrun_conn* c, u64 lo, u64 hi) {
+static void srvrun_rst_ack_all(srvrun_conn* c, u64 lo, u64 hi) {
   for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
     if (srvrun_rst_acked(&c->rst[i], lo, hi)) {
       c->rst[i].pln = 0;
     }
+  }
+}
+
+/* RFC 9000 13.3: an ACK naming a kept packet ends its resends. Nothing to
+ * end while no packet is kept (wtx.rst_none). */
+void srvrun_rst_ack(srvrun_conn* c, u64 lo, u64 hi) {
+  if (!c->wtx.rst_none) {
+    srvrun_rst_ack_all(c, lo, hi);
   }
 }

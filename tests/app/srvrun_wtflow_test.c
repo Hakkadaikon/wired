@@ -451,7 +451,29 @@ static void test_srvrun_resp_idle_tracks_claims(void) {
   CHECK(c->wtx.resp_idle == 1);
 }
 
+/* wtx.rst_none is set by a retry walk that finds no kept packet and
+ * cleared by the next keep, so the walk is skipped only while the table is
+ * empty; the ACK of the kept packet frees its entry. */
+static void test_srvrun_rst_none_tracks_kept(void) {
+  srvrun_conn*    c    = sr_sl_fixture();
+  static const u8 pl[] = {0x01};
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    c->rst[i].pln = 0;
+  }
+  c->wtx.rst_none = 0;
+  CHECK(srvrun_rst_retry(0, c, 0) == 1);
+  CHECK(c->wtx.rst_none == 1);
+  srvrun_rst_keep(c, pl, sizeof pl);
+  CHECK(c->wtx.rst_none == 0);
+  CHECK(c->rst[0].pln == 1);
+  srvrun_rst_ack(c, c->rst[0].pn, c->rst[0].pn);
+  CHECK(c->rst[0].pln == 0);
+  CHECK(srvrun_rst_retry(0, c, 0) == 1);
+  CHECK(c->wtx.rst_none == 1);
+}
+
 void test_srvrun_wtflow(void) {
+  test_srvrun_rst_none_tracks_kept();
   test_srvrun_resp_idle_tracks_claims();
   test_srvrun_wtsend_live_matches_in_use();
   test_srvrun_wt_replies_leave_relay_slots();
