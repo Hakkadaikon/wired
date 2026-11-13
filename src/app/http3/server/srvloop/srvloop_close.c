@@ -118,11 +118,11 @@ void srvloop_note_ack_owed(
     pnspaces_recv* recv,
     int            space,
     ackpolicy*     policy,
-    wired_span     pl,
+    int            eliciting,
     u64            pn,
     u64            now_ms,
     int            urgent) {
-  if (!framewalk_ack_eliciting(pl)) {
+  if (!eliciting) {
     return;
   }
   pnspaces_on_recv(recv, space, pn);

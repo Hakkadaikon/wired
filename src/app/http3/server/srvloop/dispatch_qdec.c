@@ -199,8 +199,8 @@ static int dispatch_gather_if(
 }
 
 int dispatch_gather_side_channels(
-    const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
-  dispatch_gather_in in = {ctx, payload, framewalk_kinds(payload)};
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload, u32 kinds) {
+  dispatch_gather_in in = {ctx, payload, kinds};
   int                got_wt =
       dispatch_gather_if(&in, DISPATCH_KINDS_STREAM, dispatch_gather_wt);
   int got_uni =

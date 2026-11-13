@@ -2251,7 +2251,8 @@ static void lp_route_at(struct lp_fix* f, u64 off, const u8* d, usz n, u8 fin) {
   CHECK(pn != 0);
   f->l.done_n = 0; /* a step's own outputs, as srvloop_step_reset clears */
   srvloop_step_dispatch(
-      &(wired_srvloop_conn){&f->l, &f->s}, wired_span_of(pl, pn));
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_span_of(pl, pn),
+      framewalk_kinds(wired_span_of(pl, pn)));
 }
 
 /* Exactly one request completed, and its body is the "AA" sent. */
@@ -7713,6 +7714,38 @@ static void test_srvloop_rxacct_retired_stream_ignored(void) {
   CHECK(srvloop_rxacct_payload(l, wired_span_of(pl, n)) == 0);
 }
 
+/* One payload accounted on a fresh loop holding 5 connection bytes under
+ * the limit max_data, by the kind-gated entry or by the full walk it
+ * skips; the error and the byte count after, packed for comparison. */
+static u64 lpcov_rxacct_twin(const u8* pl, usz n, u64 max_data, int gated) {
+  wired_srvloop* l = lpcov_loop();
+  wired_span     s = wired_span_of(pl, n);
+  u64            e;
+  l->rx_max_data   = max_data;
+  l->rx_conn_bytes = 5;
+  e                = gated ? srvloop_rxacct_kinds(l, s, framewalk_kinds(s))
+                           : srvloop_rxacct_payload(l, s);
+  return e << 32 | l->rx_conn_bytes;
+}
+
+/* srvloop_rxacct_kinds skips the walk of a payload without STREAM or
+ * RESET_STREAM: same error and same byte count as the full walk, with and
+ * without stream frames, unchecked (0), over (3) and under (9) the
+ * connection limit -- the limit is still enforced when the walk is
+ * skipped. */
+static void test_srvloop_rxacct_kinds_matches_full_walk(void) {
+  u8  st[32];
+  u8  ping[1] = {0x01};
+  usz n       = lp_stream_frame_at(st, sizeof st, 0, 0, (const u8*)"x", 1, 0);
+  for (u64 lim = 0; lim <= 9; lim += 3) {
+    CHECK(lpcov_rxacct_twin(st, n, lim, 1) == lpcov_rxacct_twin(st, n, lim, 0));
+    CHECK(
+        lpcov_rxacct_twin(ping, 1, lim, 1) ==
+        lpcov_rxacct_twin(ping, 1, lim, 0));
+  }
+  CHECK(lpcov_rxacct_twin(ping, 1, 3, 1) >> 32 == ERR_FLOW_CONTROL_ERROR);
+}
+
 /* RFC 9000 13.2.3 / 19.3: ACK ranges past the per-step list are dropped,
  * and a reordered ACK with a smaller Largest Acknowledged does not replace
  * the step's RTT-sample frame (RFC 9002 5.1). */
@@ -7904,6 +7937,7 @@ void test_srvloop(void) {
   test_srvloop_body_head_len_answered_slot();
   test_srvloop_rxacct_full_retires_known_entry();
   test_srvloop_rxacct_retired_stream_ignored();
+  test_srvloop_rxacct_kinds_matches_full_walk();
   test_srvloop_collect_acks_overflow_and_older();
   test_srvloop_pending_priority_full_drops();
   test_srvloop_stream_slot_claim_full();

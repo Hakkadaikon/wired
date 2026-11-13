@@ -44,4 +44,10 @@ int framewalk_non_probing(wired_span pl);
  * walk of the same payload when its kinds are not in the result. */
 u32 framewalk_kinds(wired_span pl);
 
+/** framewalk_ack_eliciting / framewalk_non_probing of a payload whose
+ * framewalk_kinds is already at hand: the same answer without a walk (a
+ * walked frame's kind is never FK_UNKNOWN, the walk stops there). */
+int framewalk_kinds_ack_eliciting(u32 kinds);
+int framewalk_kinds_non_probing(u32 kinds);
+
 #endif

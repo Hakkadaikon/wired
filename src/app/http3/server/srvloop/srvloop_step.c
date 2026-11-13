@@ -5,14 +5,10 @@ static int srvloop_frame_past_limit(
 static int srvloop_past_stream_limit(const wired_srvloop* l, wired_span pl);
 
 /* RFC 9000 3.2 / 19: the frame kinds that name a stream (and so open it). */
-static const u8 SRVLOOP_NAMES_STREAM[FK_RESET_STREAM_AT + 1] = {
-    [FK_RESET_STREAM]        = 1,
-    [FK_STOP_SENDING]        = 1,
-    [FK_STREAM]              = 1,
-    [FK_MAX_STREAM_DATA]     = 1,
-    [FK_STREAM_DATA_BLOCKED] = 1,
-    [FK_RESET_STREAM_AT]     = 1,
-};
+#define SRVLOOP_NAMES_STREAM                                         \
+  (1u << FK_RESET_STREAM | 1u << FK_STOP_SENDING | 1u << FK_STREAM | \
+   1u << FK_MAX_STREAM_DATA | 1u << FK_STREAM_DATA_BLOCKED |         \
+   1u << FK_RESET_STREAM_AT)
 
 /* RFC 9000 4.6: 1 if id is a client stream at or past l's advertised limit
  * for its type (bidi or uni). */
@@ -27,7 +23,7 @@ static int srvloop_frame_past_limit(
     const wired_srvloop* l, const framewalk_item* fr) {
   u64 id;
   usz t = varint_decode(fr->start, fr->remaining, &id);
-  if (!SRVLOOP_NAMES_STREAM[frame_classify(fr->type)]) {
+  if (!(SRVLOOP_NAMES_STREAM >> frame_classify(fr->type) & 1)) {
     return 0;
   }
   return varint_decode(fr->start + t, fr->remaining - t, &id) &&
@@ -55,32 +51,33 @@ static int srvloop_past_stream_limit(const wired_srvloop* l, wired_span pl) {
  * l->done_slots and mirrored into l->req/req_stream_id there. The in
  * scratch/req fields are unused on the routed path (each completion uses
  * its own slot's buffers), passed empty. */
-void srvloop_step_dispatch(const wired_srvloop_conn* conn, wired_span payload) {
+void srvloop_step_dispatch(
+    const wired_srvloop_conn* conn, wired_span payload, u32 kinds) {
   wired_srvloop*            l   = conn->l;
   int                       got = 0;
   wired_srvloop_dispatch_in in = {payload, wired_mspan_of(0, 0), &got, &l->req};
   wired_srvloop_dispatch_ctx ctx = {conn->s, &l->h3, 0, l};
-  if (srvloop_past_stream_limit(l, payload)) {
+  /* no frame that names a stream: none can be past the limit */
+  if ((kinds & SRVLOOP_NAMES_STREAM) && srvloop_past_stream_limit(l, payload)) {
     l->wt_refused_overflow = 1;
     return;
   }
-  wired_srvloop_dispatch(&ctx, &in);
+  wired_srvloop_dispatch_kinds(&ctx, &in, kinds);
 }
 
 /* This opened slice's level determines which pn space (App/Handshake) owns
  * its ack-eliciting bookkeeping (RFC 9000 12.3); Initial is out of this
  * loop's scope (srvboot's own layer). Split out of srvloop_step_one to keep its
  * own branch count at the CCN gate. */
-void srvloop_step_note_ack_owed(
-    wired_srvloop* l, wired_span payload, int level) {
+void srvloop_step_note_ack_owed(wired_srvloop* l, int eliciting, int level) {
   if (level == LEVEL_ONERTT) {
     srvloop_note_ack_owed(
-        &l->ack_recv, PNS_APP, &l->app_ack_policy, payload, l->app_rx_pn,
+        &l->ack_recv, PNS_APP, &l->app_ack_policy, eliciting, l->app_rx_pn,
         l->now_ms, srvloop_app_ack_urgent(l));
   }
   if (level == LEVEL_HANDSHAKE) {
     srvloop_note_ack_owed(
-        &l->ack_recv, PNS_HANDSHAKE, &l->ackst.hs_ack_policy, payload,
+        &l->ack_recv, PNS_HANDSHAKE, &l->ackst.hs_ack_policy, eliciting,
         l->hs_rx_pn, l->now_ms, 0);
   }
 }

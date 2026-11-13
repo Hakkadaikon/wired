@@ -2,10 +2,18 @@
 
 static void reset_request_stream(wired_srvloop* l, u64 id, u64 code);
 static void reset_request_streams(wired_srvloop* l, wired_span payload);
+static int  dispatch_resets_due(
+    const wired_srvloop_dispatch_ctx* ctx, u32 kinds);
 static void dispatch_request_resets(
-    const wired_srvloop_dispatch_ctx* ctx, wired_span payload);
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload, u32 kinds);
+static int dispatch_h3_requests(
+    const wired_srvloop_dispatch_ctx* ctx,
+    const wired_srvloop_dispatch_in*  in,
+    u32                               kinds);
 static int dispatch_h3(
-    const wired_srvloop_dispatch_ctx* ctx, const wired_srvloop_dispatch_in* in);
+    const wired_srvloop_dispatch_ctx* ctx,
+    const wired_srvloop_dispatch_in*  in,
+    u32                               kinds);
 static int  dispatch_is_raw(const wired_srvloop_dispatch_ctx* ctx);
 static void raw_land_bidi(wired_srvloop* l, const stream_frame* sf);
 static int  raw_uni_slot(wired_srvloop* l, u64 stream_id);
@@ -54,21 +62,38 @@ static void reset_request_streams(wired_srvloop* l, wired_span payload) {
   }
 }
 
+/* A loop to reset request streams on, and a payload with a RESET_STREAM
+ * or RESET_STREAM_AT (what srvloop_wt_reset_frame reacts to). */
+static int dispatch_resets_due(
+    const wired_srvloop_dispatch_ctx* ctx, u32 kinds) {
+  return ctx->l && (kinds & (1u << FK_RESET_STREAM | 1u << FK_RESET_STREAM_AT));
+}
+
 static void dispatch_request_resets(
-    const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
-  if (ctx->l) {
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload, u32 kinds) {
+  if (dispatch_resets_due(ctx, kinds)) {
     reset_request_streams(ctx->l, payload);
   }
+}
+
+/* Request reassembly, which only a STREAM frame feeds: without one it
+ * handles nothing. */
+static int dispatch_h3_requests(
+    const wired_srvloop_dispatch_ctx* ctx,
+    const wired_srvloop_dispatch_in*  in,
+    u32                               kinds) {
+  return (kinds & 1u << FK_STREAM) ? srvloop_reassemble_and_drive(ctx, in) : 0;
 }
 
 /* The HTTP/3 (and hq-interop) payload path: side channels, then request
  * reassembly, then the handshake-feed fallback. */
 static int dispatch_h3(
     const wired_srvloop_dispatch_ctx* ctx,
-    const wired_srvloop_dispatch_in*  in) {
-  int handled_side = dispatch_gather_side_channels(ctx, in->payload);
-  int handled_req  = srvloop_reassemble_and_drive(ctx, in);
-  dispatch_request_resets(ctx, in->payload);
+    const wired_srvloop_dispatch_in*  in,
+    u32                               kinds) {
+  int handled_side = dispatch_gather_side_channels(ctx, in->payload, kinds);
+  int handled_req  = dispatch_h3_requests(ctx, in, kinds);
+  dispatch_request_resets(ctx, in->payload, kinds);
   if (handled_req || handled_side) {
     return 1;
   }
@@ -179,8 +204,16 @@ static int dispatch_raw(
   return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
 }
 
+int wired_srvloop_dispatch_kinds(
+    const wired_srvloop_dispatch_ctx* ctx,
+    const wired_srvloop_dispatch_in*  in,
+    u32                               kinds) {
+  return dispatch_is_raw(ctx) ? dispatch_raw(ctx, in)
+                              : dispatch_h3(ctx, in, kinds);
+}
+
 int wired_srvloop_dispatch(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {
-  return dispatch_is_raw(ctx) ? dispatch_raw(ctx, in) : dispatch_h3(ctx, in);
+  return wired_srvloop_dispatch_kinds(ctx, in, framewalk_kinds(in->payload));
 }

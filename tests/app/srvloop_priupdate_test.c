@@ -492,7 +492,8 @@ static int kinds_gathered(const u8* frame, usz len) {
   static wired_srvloop l;
   bytes_memset(&l, 0, sizeof l);
   return dispatch_gather_side_channels(
-      &(wired_srvloop_dispatch_ctx){0, 0, 0, &l}, wired_span_of(frame, len));
+      &(wired_srvloop_dispatch_ctx){0, 0, 0, &l}, wired_span_of(frame, len),
+      framewalk_kinds(wired_span_of(frame, len)));
 }
 
 static void test_dispatch_kind_gate_keeps_every_gathered_kind(void) {

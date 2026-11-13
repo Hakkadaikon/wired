@@ -63,4 +63,12 @@ typedef struct {
 int wired_srvloop_dispatch(
     const wired_srvloop_dispatch_ctx* ctx, const wired_srvloop_dispatch_in* in);
 
+/** wired_srvloop_dispatch for a caller that already holds
+ * framewalk_kinds(in->payload): the walks that react to kinds the payload
+ * does not carry are skipped. */
+int wired_srvloop_dispatch_kinds(
+    const wired_srvloop_dispatch_ctx* ctx,
+    const wired_srvloop_dispatch_in*  in,
+    u32                               kinds);
+
 #endif

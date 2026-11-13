@@ -190,36 +190,28 @@ int framewalk_next(framewalk* it, framewalk_item* out) {
   return 1;
 }
 
-/* RFC 9000 13.2: 1 if any frame in pl is ack-eliciting (every frame except
- * PADDING/ACK/CONNECTION_CLOSE). */
-int framewalk_ack_eliciting(wired_span pl) {
-  framewalk      it;
-  framewalk_item fr;
-  int            eliciting = 0;
-  framewalk_init(&it, pl.p, pl.n);
-  while (framewalk_next(&it, &fr)) {
-    eliciting |= frame_ack_eliciting(frame_classify(fr.type));
-  }
-  return eliciting;
+/* RFC 9000 13.2: the kinds that do not elicit an ACK. */
+#define FRAMEWALK_NON_ELICITING \
+  (1u << FK_PADDING | 1u << FK_ACK | 1u << FK_CONNECTION_CLOSE)
+/* RFC 9000 9.1: the probing frame kinds. */
+#define FRAMEWALK_PROBING                                                    \
+  (1u << FK_PADDING | 1u << FK_NEW_CONNECTION_ID | 1u << FK_PATH_CHALLENGE | \
+   1u << FK_PATH_RESPONSE)
+
+int framewalk_kinds_ack_eliciting(u32 kinds) {
+  return (kinds & ~FRAMEWALK_NON_ELICITING) != 0;
 }
 
-/* RFC 9000 9.1: the probing frame kinds. */
-static const u8 FRAMEWALK_PROBING[FK_RESET_STREAM_AT + 1] = {
-    [FK_PADDING]           = 1,
-    [FK_NEW_CONNECTION_ID] = 1,
-    [FK_PATH_CHALLENGE]    = 1,
-    [FK_PATH_RESPONSE]     = 1,
-};
+int framewalk_kinds_non_probing(u32 kinds) {
+  return (kinds & ~FRAMEWALK_PROBING) != 0;
+}
+
+int framewalk_ack_eliciting(wired_span pl) {
+  return framewalk_kinds_ack_eliciting(framewalk_kinds(pl));
+}
 
 int framewalk_non_probing(wired_span pl) {
-  framewalk      it;
-  framewalk_item fr;
-  int            np = 0;
-  framewalk_init(&it, pl.p, pl.n);
-  while (framewalk_next(&it, &fr)) {
-    np |= !FRAMEWALK_PROBING[frame_classify(fr.type)];
-  }
-  return np;
+  return framewalk_kinds_non_probing(framewalk_kinds(pl));
 }
 
 u32 framewalk_kinds(wired_span pl) {

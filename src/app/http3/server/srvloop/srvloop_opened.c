@@ -8,6 +8,12 @@ static int step_newer_dropped(
 static int step_admit(
     wired_srvloop* l, wired_server* s, const srvloop_opened* o, wired_span pl);
 static u64 step_error(wired_srvloop* l, const srvloop_opened* o, wired_span pl);
+static int step_has_acks(const srvloop_opened* o);
+static int step_crypto_free(const srvloop_opened* o);
+static int step_crypto_ok(
+    const wired_srvloop_conn* conn, const srvloop_opened* o, wired_span pl);
+static void step_note_close(
+    wired_srvloop* l, const srvloop_opened* o, wired_span pl);
 static int step_refused(
     wired_srvloop* l, const srvloop_opened* o, wired_span pl);
 static int np_above(const wired_srvloop* l);
@@ -16,7 +22,9 @@ static int step_np_raises(
 static void step_note_np(
     wired_srvloop* l, const srvloop_opened* o, wired_span pl);
 static void step_frames(
-    const wired_srvloop_conn* conn, const wired_srvloop_recv_out* ro);
+    const wired_srvloop_conn*     conn,
+    const wired_srvloop_recv_out* ro,
+    const srvloop_opened*         o);
 
 /* A short-header 1-RTT packet (not a long-header 0-RTT one). */
 static int opened_is_short(const srvloop_opened* o) {
@@ -46,7 +54,7 @@ static int step_newer_dropped(
 static u64 step_error(
     wired_srvloop* l, const srvloop_opened* o, wired_span pl) {
   u64 e = srvloop_payload_error(l, o->level, o->pkt.p[0], pl);
-  return e ? e : srvloop_rxacct_payload(l, pl);
+  return e ? e : srvloop_rxacct_kinds(l, pl, o->kinds);
 }
 
 static int step_refused(
@@ -80,7 +88,9 @@ static int np_above(const wired_srvloop* l) {
 
 static int step_np_raises(
     const wired_srvloop* l, const srvloop_opened* o, wired_span pl) {
-  return o->level == LEVEL_ONERTT && framewalk_non_probing(pl) && np_above(l);
+  (void)pl;
+  return o->level == LEVEL_ONERTT && framewalk_kinds_non_probing(o->kinds) &&
+         np_above(l);
 }
 
 /* RFC 9000 9.3: compare against the largest non-probing pn, then raise it.
@@ -101,18 +111,45 @@ static void step_note_np(
 /* The admitted packet's frames: ACKs, ack-owed bookkeeping, then dispatch
  * -- unless its encryption level may not carry the CRYPTO it holds
  * (wired_server_crypto_level_ok; Initial is never dispatched after boot). */
+/* Restricted to 1-RTT: the caller's bookkeeping (wired_sendsess) keys
+ * entries by pn in the 1-RTT space only, so an ACK opened at the Initial/
+ * Handshake level could otherwise hit an unrelated 1-RTT pn by
+ * coincidence. */
+static int step_has_acks(const srvloop_opened* o) {
+  return o->level == LEVEL_ONERTT && (o->kinds & 1u << FK_ACK);
+}
+
+/* A 1-RTT packet without CRYPTO: wired_server_crypto_level_ok's walk would
+ * find none and pass it. */
+static int step_crypto_free(const srvloop_opened* o) {
+  return o->level == LEVEL_ONERTT && !(o->kinds & 1u << FK_CRYPTO);
+}
+
+static int step_crypto_ok(
+    const wired_srvloop_conn* conn, const srvloop_opened* o, wired_span pl) {
+  return step_crypto_free(o) ||
+         wired_server_crypto_level_ok(conn->s, o->level, pl);
+}
+
 static void step_frames(
-    const wired_srvloop_conn* conn, const wired_srvloop_recv_out* ro) {
-  /* Restricted to 1-RTT: the caller's bookkeeping (wired_sendsess) keys
-   * entries by pn in the 1-RTT space only, so an ACK opened at the Initial/
-   * Handshake level could otherwise hit an unrelated 1-RTT pn by
-   * coincidence. */
-  if (ro->level == LEVEL_ONERTT) {
+    const wired_srvloop_conn*     conn,
+    const wired_srvloop_recv_out* ro,
+    const srvloop_opened*         o) {
+  if (step_has_acks(o)) {
     srvloop_collect_acks(conn->l, ro->payload);
   }
-  srvloop_step_note_ack_owed(conn->l, ro->payload, ro->level);
-  if (wired_server_crypto_level_ok(conn->s, ro->level, ro->payload)) {
-    srvloop_step_dispatch(conn, ro->payload);
+  srvloop_step_note_ack_owed(
+      conn->l, framewalk_kinds_ack_eliciting(o->kinds), ro->level);
+  if (step_crypto_ok(conn, o, ro->payload)) {
+    srvloop_step_dispatch(conn, ro->payload, o->kinds);
+  }
+}
+
+/* RFC 9000 10.2.2: latch the peer's CONNECTION_CLOSE, when pl has one. */
+static void step_note_close(
+    wired_srvloop* l, const srvloop_opened* o, wired_span pl) {
+  if (o->kinds & 1u << FK_CONNECTION_CLOSE) {
+    l->peer_closed |= srvloop_has_close(pl, &l->peer_close_code);
   }
 }
 
@@ -130,12 +167,12 @@ void srvloop_step_opened(
     const wired_srvloop_recv_out* ro,
     wired_mspan                   pkt) {
   wired_srvloop* l = conn->l;
-  srvloop_opened o = {ro->level, pkt};
+  srvloop_opened o = {ro->level, pkt, framewalk_kinds(ro->payload)};
   if (!step_admit(l, conn->s, &o, ro->payload)) {
     return;
   }
   step_note_ecn(l, o.level);
   step_note_np(l, &o, ro->payload);
-  l->peer_closed |= srvloop_has_close(ro->payload, &l->peer_close_code);
-  step_frames(conn, ro);
+  step_note_close(l, &o, ro->payload);
+  step_frames(conn, ro, &o);
 }

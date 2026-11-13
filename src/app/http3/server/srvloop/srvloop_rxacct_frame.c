@@ -100,3 +100,13 @@ u64 srvloop_rxacct_payload(wired_srvloop* l, wired_span pl) {
   }
   return rxacct_conn_error(l);
 }
+
+/* srvloop_rxacct_payload of a payload whose framewalk_kinds is kinds: with
+ * no STREAM and no RESET_STREAM the walk accounts nothing, and only the
+ * connection limit is left to check. */
+u64 srvloop_rxacct_kinds(wired_srvloop* l, wired_span pl, u32 kinds) {
+  if (!(kinds & (1u << FK_STREAM | 1u << FK_RESET_STREAM))) {
+    return rxacct_conn_error(l);
+  }
+  return srvloop_rxacct_payload(l, pl);
+}

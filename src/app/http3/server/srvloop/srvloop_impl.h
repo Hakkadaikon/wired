@@ -38,24 +38,28 @@
 typedef struct {
   int         level;
   wired_mspan pkt;
+  /* framewalk_kinds of the packet's payload: a walk that reacts to kinds
+   * the payload does not carry is skipped */
+  u32 kinds;
 } srvloop_opened;
 
-void                  srvloop_body_reset(wired_srvloop_stream_slot* slot);
-void                  srvloop_body_rearm(wired_srvloop_stream_slot* slot);
-void                  srvloop_streams_reset(wired_srvloop* l);
-void                  srvloop_wt_window_reset(wired_srvloop_wt_window* w);
-void                  srvloop_wt_streams_reset(wired_srvloop* l);
-void                  srvloop_wt_uni_streams_reset(wired_srvloop* l);
-void                  srvloop_pending_priority_reset(wired_srvloop* l);
-void                  srvloop_init_pn(wired_srvloop* l);
-void                  srvloop_init_req(wired_srvloop* l);
-void                  srvloop_init_ecn(wired_srvloop* l);
-void                  srvloop_init_seen(wired_srvloop* l);
-u64*                  srvloop_ecn_counter_for(wired_srvloop* l, u8 ecn);
-u64                   srvloop_app_largest_pn(const wired_srvloop* l);
-int                   srvloop_app_pkt_is_long(u8 byte0);
-void                  srvloop_rxacct_reset(wired_srvloop* l);
-u64                   srvloop_rxacct_payload(wired_srvloop* l, wired_span pl);
+void srvloop_body_reset(wired_srvloop_stream_slot* slot);
+void srvloop_body_rearm(wired_srvloop_stream_slot* slot);
+void srvloop_streams_reset(wired_srvloop* l);
+void srvloop_wt_window_reset(wired_srvloop_wt_window* w);
+void srvloop_wt_streams_reset(wired_srvloop* l);
+void srvloop_wt_uni_streams_reset(wired_srvloop* l);
+void srvloop_pending_priority_reset(wired_srvloop* l);
+void srvloop_init_pn(wired_srvloop* l);
+void srvloop_init_req(wired_srvloop* l);
+void srvloop_init_ecn(wired_srvloop* l);
+void srvloop_init_seen(wired_srvloop* l);
+u64* srvloop_ecn_counter_for(wired_srvloop* l, u8 ecn);
+u64  srvloop_app_largest_pn(const wired_srvloop* l);
+int  srvloop_app_pkt_is_long(u8 byte0);
+void srvloop_rxacct_reset(wired_srvloop* l);
+u64  srvloop_rxacct_payload(wired_srvloop* l, wired_span pl);
+u64  srvloop_rxacct_kinds(wired_srvloop* l, wired_span pl, u32 kinds);
 wired_srvloop_rxacct* srvloop_rxacct_entry(wired_srvloop* l, u64 id);
 u64                   srvloop_payload_error(
     const wired_srvloop* l, int level, u8 byte0, wired_span pl);
@@ -82,14 +86,14 @@ void srvloop_note_ack_owed(
     pnspaces_recv* recv,
     int            space,
     ackpolicy*     policy,
-    wired_span     pl,
+    int            eliciting,
     u64            pn,
     u64            now_ms,
     int            urgent);
 int  srvloop_app_ack_urgent(const wired_srvloop* l);
-void srvloop_step_dispatch(const wired_srvloop_conn* conn, wired_span payload);
-void srvloop_step_note_ack_owed(
-    wired_srvloop* l, wired_span payload, int level);
+void srvloop_step_dispatch(
+    const wired_srvloop_conn* conn, wired_span payload, u32 kinds);
+void srvloop_step_note_ack_owed(wired_srvloop* l, int eliciting, int level);
 int  srvloop_step_dup(const wired_srvloop* l, int level);
 void srvloop_step_opened(
     const wired_srvloop_conn*     conn,

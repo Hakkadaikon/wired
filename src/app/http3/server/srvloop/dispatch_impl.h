@@ -148,7 +148,7 @@ int dispatch_gather_closes(
 int dispatch_gather_flowctl(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload);
 int dispatch_gather_side_channels(
-    const wired_srvloop_dispatch_ctx* ctx, wired_span payload);
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload, u32 kinds);
 int  srvloop_qdec_slot_find(const wired_srvloop* l, u64 id);
 int  srvloop_qdec_stream_open(const wired_srvloop* l, u64 id);
 void srvloop_reset_cancel_slot(wired_srvloop* l, int i, u64 code);
