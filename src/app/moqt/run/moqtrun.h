@@ -566,6 +566,10 @@ typedef struct {
   u64 stat_rel_early_return;
   /** Peer-opened request streams in flight, all sessions. */
   wired_moqtrun_req reqs[WIRED_MOQTRUN_MAX_REQS];
+  /** reqs[] slots known free, one bit each: a set bit means in_use is 0, a
+   * clear bit means "look", so all-zero is always right. Set as a tick
+   * finds free slots, cleared when a slot is handed out. */
+  u64 req_free[WIRED_MOQTRUN_REQ_WORDS];
   /** Held-fragment buffers shared by every relay (relay frag_idx). */
   u8 frag_pool[WIRED_MOQTRUN_FRAG_POOL][WIRED_MOQTRUN_RELAY_FRAG_MAX];
   /** The relay that last took each buffer; the buffer is free unless that

@@ -23,6 +23,7 @@ static int moqtrun_req_slot_free(const wired_moqt_hub* hub, usz i) {
 wired_moqtrun_req* moqtrun_req_free_slot(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
     if (moqtrun_req_slot_free(hub, i)) {
+      hub->req_free[i / 64] &= ~((u64)1 << (i % 64)); /* handed out */
       return &hub->reqs[i];
     }
   }

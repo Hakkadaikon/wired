@@ -1,16 +1,18 @@
 #include "app/moqt/run/moqtrun_impl.h"
+#include "common/bytes/util/bits.h"
 
-static int moqtrun_req_answered(const wired_moqtrun_req* q);
-static int moqtrun_req_orphan(const wired_moqtrun_req* q);
-static int moqtrun_req_ending(const wired_moqtrun_req* q);
-static int moqtrun_req_may_end(const wired_moqtrun_req* q);
-static int moqtrun_req_end_out(wired_moqt_io* io, wired_moqtrun_req* q);
-static int moqtrun_req_both_ended(const wired_moqtrun_req* q);
-static int moqtrun_pubst_awaiting(const wired_moqtrun_req* q);
-static int moqtrun_req_bad_open(const wired_moqtrun_req* q);
-static int moqtrun_req_fin_kind(u64 kind);
-static int moqtrun_req_muted(wired_moqt_hub* hub, const wired_moqtrun_req* q);
-static int moqtrun_req_fin_cancels(
+static int  moqtrun_req_answered(const wired_moqtrun_req* q);
+static int  moqtrun_req_orphan(const wired_moqtrun_req* q);
+static int  moqtrun_req_ending(const wired_moqtrun_req* q);
+static int  moqtrun_req_may_end(const wired_moqtrun_req* q);
+static int  moqtrun_req_end_out(wired_moqt_io* io, wired_moqtrun_req* q);
+static int  moqtrun_req_both_ended(const wired_moqtrun_req* q);
+static int  moqtrun_pubst_awaiting(const wired_moqtrun_req* q);
+static int  moqtrun_req_bad_open(const wired_moqtrun_req* q);
+static int  moqtrun_req_fin_kind(u64 kind);
+static void moqtrun_reqs_tick_word(wired_moqt_hub* hub, usz w);
+static int  moqtrun_req_muted(wired_moqt_hub* hub, const wired_moqtrun_req* q);
+static int  moqtrun_req_fin_cancels(
     const wired_moqtrun_peer* p, const wired_moqtrun_req* q);
 
 /* stream_id's request slot, else a fresh one -- but not for a delivery
@@ -109,6 +111,24 @@ static int moqtrun_req_muted(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
   return p && p->closing;
 }
 
+/* Settles reqs[64w ..] in slot order, skipping the slots known free. The
+ * free mask is re-read before each slot: a request opened while an earlier
+ * one settles is still reached in this pass, as when every slot was
+ * visited. */
+static void moqtrun_reqs_tick_word(wired_moqt_hub* hub, usz w) {
+  u64 done = 0;
+  u64 m;
+  moqtrun_req_used_word(hub, w);
+  while ((m = ~hub->req_free[w] & ~done) != 0) {
+    usz                b = bits_ctz64(m);
+    wired_moqtrun_req* q = &hub->reqs[w * 64 + b];
+    done |= ((u64)2 << b) - 1;
+    if (!moqtrun_req_muted(hub, q)) {
+      moqtrun_reqs_tick_one(&hub->io, q);
+    }
+  }
+}
+
 /* Pushes owed namespace changes, syncs SUBSCRIBE_TRACKS against every
  * published track, re-issues requests moved by a GOAWAY on their stream,
  * syncs upstream SUBSCRIBEs against their waiters, then
@@ -119,10 +139,8 @@ void moqtrun_reqs_tick(wired_moqt_hub* hub) {
   moqtrun_pubst_moves(hub);
   moqtrun_upf_moves(hub);
   moqtrun_up_sync(hub);
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
-    if (!moqtrun_req_muted(hub, &hub->reqs[i])) {
-      moqtrun_reqs_tick_one(&hub->io, &hub->reqs[i]);
-    }
+  for (usz w = 0; w < WIRED_MOQTRUN_REQ_WORDS; w++) {
+    moqtrun_reqs_tick_word(hub, w);
   }
 }
 

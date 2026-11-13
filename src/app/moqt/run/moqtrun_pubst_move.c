@@ -1,4 +1,5 @@
 #include "app/moqt/run/moqtrun_impl.h"
+#include "common/bytes/util/bits.h"
 
 /* draft-23 9.2: B sent GOAWAY on the stream of a PUBLISH the hub sent it
  * for a SUBSCRIBE_TRACKS (moqtrun_pubst_goaway): "the sender of the
@@ -83,10 +84,19 @@ static int moqtrun_pubst_moving(const wired_moqtrun_req* q) {
   return q->in_use && q->pub_move;
 }
 
-void moqtrun_pubst_moves(wired_moqt_hub* hub) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
-    if (moqtrun_pubst_moving(&hub->reqs[i])) {
-      moqtrun_pubst_move(hub, &hub->reqs[i]);
+/* The moving requests among reqs[64w ..]'s in-use slots. A request a move
+ * opens is not itself moving, so the word is read once. */
+static void moqtrun_pubst_moves_word(wired_moqt_hub* hub, usz w) {
+  for (u64 m = moqtrun_req_used_word(hub, w); m; m &= m - 1) {
+    wired_moqtrun_req* q = &hub->reqs[w * 64 + bits_ctz64(m)];
+    if (moqtrun_pubst_moving(q)) {
+      moqtrun_pubst_move(hub, q);
     }
+  }
+}
+
+void moqtrun_pubst_moves(wired_moqt_hub* hub) {
+  for (usz w = 0; w < WIRED_MOQTRUN_REQ_WORDS; w++) {
+    moqtrun_pubst_moves_word(hub, w);
   }
 }

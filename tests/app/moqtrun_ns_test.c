@@ -539,8 +539,11 @@ static void test_moqtrun_disc_live_mask_matches_scan(void) {
   static wired_moqt_hub hub;
   u64                   mask[WIRED_MOQTRUN_REQ_WORDS] = {0};
   static const usz      subs[]                        = {0, 63, 64, 127};
+  wired_moqtrun_req*    q;
   bytes_memset(&hub, 0, sizeof hub);
   CHECK(!moqtrun_disc_live_mask(&hub, MOQNS_T_SUBSCRIBE_NAMESPACE, mask));
+  CHECK(hub.req_free[0] == ~(u64)0 && hub.req_free[1] == ~(u64)0);
+  bytes_memset(hub.req_free, 0, sizeof hub.req_free); /* in_use by hand */
   for (usz i = 0; i < sizeof subs / sizeof *subs; i++) {
     hub.reqs[subs[i]].in_use = 1;
     hub.reqs[subs[i]].live   = 1;
@@ -560,6 +563,13 @@ static void test_moqtrun_disc_live_mask_matches_scan(void) {
   }
   CHECK(bits_ctz64(mask[0]) == 0 && bits_ctz64(mask[1]) == 0);
   CHECK(bits_ctz64(mask[0] & (mask[0] - 1)) == 63);
+  /* a slot seen free is looked at again once it is handed out */
+  CHECK(hub.req_free[0] >> 1 & 1);
+  q = moqtrun_req_free_slot(&hub);
+  CHECK(q == &hub.reqs[1]);
+  CHECK(!(hub.req_free[0] >> 1 & 1));
+  q->in_use = 1;
+  CHECK(moqtrun_req_used_word(&hub, 0) & 2);
 }
 
 void test_moqtrun_ns(void) {
