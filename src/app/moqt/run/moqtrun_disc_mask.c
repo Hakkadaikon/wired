@@ -6,10 +6,13 @@
 int moqtrun_disc_live_mask(const wired_moqt_hub* hub, u64 kind, u64* mask) {
   u64 any = 0;
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
-    if (moqtrun_disc_is(&hub->reqs[i], kind)) {
-      mask[i / 64] |= (u64)1 << (i % 64);
-      any = 1;
-    }
+    const wired_moqtrun_req* q = &hub->reqs[i];
+    /* moqtrun_disc_is, branch-free and in line: this runs for every slot
+     * on every tick */
+    u64 hit =
+        (u64)(q->in_use != 0) & (u64)(q->live != 0) & (u64)(q->kind == kind);
+    mask[i / 64] |= hit << (i % 64);
+    any |= hit;
   }
   return (int)any;
 }
