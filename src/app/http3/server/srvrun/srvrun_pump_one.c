@@ -3,7 +3,6 @@
 
 static int srvrun_pump_one_wt_slice(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w);
-static int srvrun_wtsend_has_work(const srvrun_wtsend* w);
 static int srvrun_wtsend_ready(const srvrun_conn* c, const srvrun_wtsend* w);
 static u32 srvrun_wtsend_ready_key(
     const srvrun_conn* c, const srvrun_wtsend* w);
@@ -62,20 +61,7 @@ u8 srvrun_wtsend_urgency(const srvrun_wtsend* w) {
   return w->urgency1 ? (u8)(w->urgency1 - 1) : H3_URGENCY_DEFAULT;
 }
 
-/* w has something to put on the wire: a retransmit, unsent bytes, or a
- * pending bare FIN. */
-static int srvrun_wtsend_has_work(const srvrun_wtsend* w) {
-  return srvrun_has_requeued(&w->sess) || w->sess.q.cur < w->sess.q.len ||
-         w->fin_only_pending;
-}
-
 /* w could send a slice right now. */
-/* 1 while a pump visit of in-use slot w could do anything: a slice to send
- * or resend, a bare FIN to send, or a deferred FIN to promote
- * (srvrun_wtsend_promote_fin_if_ready). */
-int srvrun_wtsend_wants_pump(const srvrun_wtsend* w) {
-  return w->fin_requested || srvrun_wtsend_has_work(w);
-}
 
 static int srvrun_wtsend_ready(const srvrun_conn* c, const srvrun_wtsend* w) {
   return w->in_use && srvrun_wtsend_has_work(w) &&

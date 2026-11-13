@@ -65,10 +65,12 @@ static void srvrun_prio_identity(srvrun_conn* c) {
 
 void srvrun_prio_refresh(srvrun_conn* c) {
   if (srvrun_any_resp_in_use(c)) {
+    c->wtx.resp_idle = 0;
     srvrun_prio_build(c);
     return;
   }
   srvrun_prio_identity(c);
+  c->wtx.resp_idle = 1;
 }
 
 /* 1 if in-use slot sess has a PTO probe queued (a freed slot's leftover

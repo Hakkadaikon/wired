@@ -170,7 +170,7 @@ static void test_srvrun_wt_credit_table_full(void) {
   wired_obuf    ob = obuf_of(obuf, sizeof obuf);
   srvrun_conn*  c  = crd_fixture(&f, &ob);
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    c->wtsend_free               = 0; /* in_use set by hand */
+    c->wtx.send_free             = 0; /* in_use set by hand */
     c->wtsend[i].in_use          = 1;
     c->wtsend[i].wt_session_slot = 1;
   }

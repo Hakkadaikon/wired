@@ -33,16 +33,16 @@ u64 srvrun_wtsend_live_scan(const srvrun_conn* c) {
 }
 
 /* The same mask as srvrun_wtsend_live_scan, looking only at the slots not
- * already known free (srvrun_conn.wtsend_free), and remembering the free
+ * already known free (srvrun_conn.wtx.send_free), and remembering the free
  * ones it finds: this runs on every pump round, most of them idle. */
 u64 srvrun_wtsend_live(srvrun_conn* c) {
   u64 all  = ~(u64)0 >> (64 - SRVRUN_WT_SEND_SLOTS);
   u64 live = 0;
-  for (u64 b = all & ~c->wtsend_free; b; b &= b - 1) {
+  for (u64 b = all & ~c->wtx.send_free; b; b &= b - 1) {
     usz i = bits_ctz64(b);
     live |= (u64)(c->wtsend[i].in_use != 0) << i;
   }
-  c->wtsend_free = all & ~live;
+  c->wtx.send_free = all & ~live;
   return live;
 }
 
@@ -160,6 +160,7 @@ static int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * out AFTER them, which peers may not tolerate.
  * @return 1 if any slot actually sent one. */
 int srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  int sent = srvrun_pump_resp_round(ctx, c);
+  /* resp_idle: no response in flight when this pass began, none since */
+  int sent = c->wtx.resp_idle ? 0 : srvrun_pump_resp_round(ctx, c);
   return sent | srvrun_pump_wt_round(ctx, c);
 }

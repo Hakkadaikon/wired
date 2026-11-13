@@ -36,6 +36,7 @@ srvrun_resp* srvrun_resp_claim(srvrun_conn* c, u64 stream_id) {
       continue;
     }
     c->resp[i].in_use    = 1;
+    c->wtx.resp_idle     = 0;
     c->resp[i].stream_id = stream_id;
     /* Start from no send state: a slot freed mid-send (srvrun_resp_stop)
      * keeps its old sess, and an arm that never happens (a header section

@@ -62,12 +62,27 @@ int srvrun_pump_wt_fin_only(
 void srvrun_wtsend_promote_fin_if_ready(const srvrun_conn* c, srvrun_wtsend* w);
 int  srvrun_pump_one_wt(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w);
-u8   srvrun_wtsend_urgency(const srvrun_wtsend* w);
-u32  srvrun_wtsend_key(const srvrun_wtsend* w);
-u32  srvrun_wt_pass_key(const srvrun_conn* c, u64 live);
-u64  srvrun_wtsend_live_scan(const srvrun_conn* c);
-u64  srvrun_wtsend_live(srvrun_conn* c);
-int  srvrun_wtsend_wants_pump(const srvrun_wtsend* w);
+u8  srvrun_wtsend_urgency(const srvrun_wtsend* w);
+u32 srvrun_wtsend_key(const srvrun_wtsend* w);
+u32 srvrun_wt_pass_key(const srvrun_conn* c, u64 live);
+u64 srvrun_wtsend_live_scan(const srvrun_conn* c);
+u64 srvrun_wtsend_live(srvrun_conn* c);
+
+/* w has something to put on the wire: a retransmit, unsent bytes, or a
+ * pending bare FIN. In line: the pump asks this of every in-use slot on
+ * every round. */
+static inline int srvrun_wtsend_has_work(const srvrun_wtsend* w) {
+  return w->sess.requeue_n != 0 || w->sess.q.cur < w->sess.q.len ||
+         w->fin_only_pending;
+}
+
+/* 1 while a pump visit of in-use slot w could do anything: a slice to send
+ * or resend, a bare FIN to send, or a deferred FIN to promote
+ * (srvrun_wtsend_promote_fin_if_ready). */
+static inline int srvrun_wtsend_wants_pump(const srvrun_wtsend* w) {
+  return w->fin_requested || srvrun_wtsend_has_work(w);
+}
+
 u64  srvrun_wt_fair_mask(srvrun_conn* c, u64 mask);
 int  srvrun_wt_open_share_ok(const srvrun_conn* c, int sidx);
 int  srvrun_wt_flow_ok(const srvrun_conn* c, const srvrun_wtsend* w, u64 live);

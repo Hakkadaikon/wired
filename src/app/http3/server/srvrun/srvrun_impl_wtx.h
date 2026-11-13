@@ -79,6 +79,14 @@ typedef struct {
    * cleared when it fires and when a session starts. */
   u8  credit_wait[SRVRUN_MAX_WT_SESSIONS];
   usz credit_len[SRVRUN_MAX_WT_SESSIONS];
+  /** wtsend[] slots known free, one bit each: a set bit means in_use is 0,
+   * a clear bit means "look" -- so all-zero (a fresh or reset connection)
+   * is always right. Set by srvrun_wtsend_live as it finds free slots,
+   * cleared by srvrun_wtsend_claim, the one place a slot becomes in use. */
+  u64 send_free;
+  /** 1 while no resp[] slot is in use: set by srvrun_prio_refresh at the
+   * start of a pump pass, cleared by srvrun_resp_claim. 0 means "look". */
+  u8 resp_idle;
 } srvrun_wtx;
 
 #endif

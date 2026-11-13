@@ -407,9 +407,9 @@ static void test_srvrun_wtsend_live_matches_in_use(void) {
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     c->wtsend[i].in_use = 0;
   }
-  c->wtsend_free = 0;
+  c->wtx.send_free = 0;
   CHECK(srvrun_wtsend_live(c) == 0);
-  c->wtsend_free                             = 0; /* in_use set by hand */
+  c->wtx.send_free                           = 0; /* in_use set by hand */
   c->wtsend[0].in_use                        = 1;
   c->wtsend[7].in_use                        = 1;
   c->wtsend[SRVRUN_WT_SEND_SLOTS - 1].in_use = 1;
@@ -429,7 +429,30 @@ static void test_srvrun_wtsend_live_matches_in_use(void) {
   CHECK(srvrun_wtsend_live(c) == 0);
 }
 
+/* resp_idle is set by a refresh that finds no response in use and cleared
+ * by the next claim, so the pump's response half is skipped only while
+ * there is nothing for it to visit. */
+static void test_srvrun_resp_idle_tracks_claims(void) {
+  srvrun_conn* c = sr_sl_fixture();
+  srvrun_resp* r;
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    c->resp[i].in_use = 0;
+  }
+  c->wtx.resp_idle = 0;
+  srvrun_prio_refresh(c);
+  CHECK(c->wtx.resp_idle == 1);
+  r = srvrun_resp_claim(c, 400);
+  CHECK(r != 0);
+  CHECK(c->wtx.resp_idle == 0);
+  srvrun_prio_refresh(c);
+  CHECK(c->wtx.resp_idle == 0);
+  r->in_use = 0;
+  srvrun_prio_refresh(c);
+  CHECK(c->wtx.resp_idle == 1);
+}
+
 void test_srvrun_wtflow(void) {
+  test_srvrun_resp_idle_tracks_claims();
   test_srvrun_wtsend_live_matches_in_use();
   test_srvrun_wt_replies_leave_relay_slots();
   test_srvrun_wt_fair_pass_equal_per_session();
