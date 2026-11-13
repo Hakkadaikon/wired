@@ -551,6 +551,8 @@ static void test_moqtrun_disc_live_mask_matches_scan(void) {
   hub.reqs[5].kind   = MOQNS_T_PUBLISH_NAMESPACE;
   hub.reqs[6].in_use = 1; /* right kind, not live yet */
   hub.reqs[6].kind   = MOQNS_T_SUBSCRIBE_NAMESPACE;
+  hub.reqs[7].live   = 1; /* a freed slot's leftovers */
+  hub.reqs[7].kind   = MOQNS_T_SUBSCRIBE_NAMESPACE;
   CHECK(moqtrun_disc_live_mask(&hub, MOQNS_T_SUBSCRIBE_NAMESPACE, mask));
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
     int bit = (int)((mask[i / 64] >> (i % 64)) & 1);
