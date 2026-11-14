@@ -83,7 +83,7 @@ usz sentmeta_find(const sentmeta* m, u64 pn) {
 
 void sentmeta_uncount(sentmeta* m, u64 pn, usz n) {
   usz i = sentmeta_find(m, pn);
-  if (i == SENTMETA_CAP || !m->pkts[i].in_flight) {
+  if (i >= SENTMETA_CAP || !m->pkts[i].in_flight) {
     return;
   }
   n = (usz)u64_min(n, m->pkts[i].sent_bytes);

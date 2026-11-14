@@ -115,7 +115,7 @@ static void srvrun_acct_wtsends(const srvrun_conn* c, srvrun_acct* a) {
 
 /* Nothing to add while no response is in flight (wtx.resp_idle). */
 static void srvrun_acct_resps(const srvrun_conn* c, srvrun_acct* a) {
-  for (usz i = c->wtx.resp_idle * SRVRUN_RESP_SLOTS; i < SRVRUN_RESP_SLOTS;
+  for (usz i = (usz)c->wtx.resp_idle * SRVRUN_RESP_SLOTS; i < SRVRUN_RESP_SLOTS;
        i++) {
     if (c->resp[i].in_use) {
       srvrun_acct_sess(a, &c->resp[i].sess);
