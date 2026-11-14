@@ -3,8 +3,8 @@
 
 /**
  * @file
- * 128-bit SIMD register wrappers (x86-64 SSE/AES-NI/PCLMULQDQ). All SIMD is
- * GCC vector extensions plus inline asm for the AES/CLMUL instructions, so
+ * 128-bit SIMD register wrappers (x86-64 SSE/SSSE3/AES-NI/PCLMULQDQ). All SIMD
+ * is GCC vector extensions plus inline asm for the AES/CLMUL instructions, so
  * consumers compile freestanding with no intrinsics headers. Kept separate
  * from x8664.h: only ISA-specific crypto implementations include this.
  */
@@ -57,6 +57,14 @@ static inline wired_arch_v128 wired_arch_aesenclast(
     wired_arch_v128 s, wired_arch_v128 rk) {
   __asm__("aesenclast %1, %0" : "+x"(s) : "x"(rk));
   return s;
+}
+
+/** Byte shuffle (pshufb, SSSE3): lane i of the result is lane mask[i] of
+ * @p a, or 0 where mask[i] has its top bit set. */
+static inline wired_arch_v128 wired_arch_pshufb(
+    wired_arch_v128 a, wired_arch_v128 mask) {
+  __asm__("pshufb %1, %0" : "+x"(a) : "x"(mask));
+  return a;
 }
 
 /** ECX feature word of `cpuid` for @p leaf (subleaf 0). */

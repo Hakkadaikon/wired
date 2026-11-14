@@ -145,19 +145,75 @@ static void gcmx86_diff_one(usz n, usz an) {
   }
 }
 
-/* Lengths cover empty, sub-block, exact block, block+1, multi-block, the
- * 4-block (64-byte) interleave boundary (63/64/65) and the boundary one
- * 4-block group past it (129 = 2*64+1), the 1129-byte QUIC packet hot case,
- * and the largest test buffer. */
+/* Lengths cover empty, sub-block, exact block, block+1, the 4-block
+ * (64-byte) CTR and GHASH groups on both sides (48/63/64/65, 127/128/129),
+ * the QUIC packet sizes, and the largest test buffer. The AAD lengths move
+ * where the ciphertext's first block lands inside a four-block GHASH fold
+ * (0, 1 and 2 AAD blocks, whole and padded). */
 static void test_gcmx86_diff(void) {
-  static const usz lens[] = {0,  1,  15,  16,  17,   63,
-                             64, 65, 129, 255, 1129, 2048};
-  static const usz aads[] = {0, 13, 20};
+  static const usz lens[] = {0,  1,   15,  16,  17,  47,   48,   49,   63,  64,
+                             65, 127, 128, 129, 255, 1129, 1200, 1400, 2048};
+  static const usz aads[] = {0, 13, 16, 20, 32};
   gcmx86_rng              = 0x77697265; /* deterministic across runs */
   for (usz i = 0; i < sizeof(lens) / sizeof(lens[0]); i++) {
     for (usz j = 0; j < sizeof(aads) / sizeof(aads[0]); j++) {
       gcmx86_diff_one(lens[i], aads[j]);
     }
+  }
+}
+
+/* Every length up to three 4-block groups, against the scalar path: each
+ * way the AAD, the ciphertext and the length block can share a fold. */
+static void test_gcmx86_diff_sweep(void) {
+  static const usz aads[] = {0, 1, 15, 17, 31};
+  gcmx86_rng              = 0x73776570;
+  for (usz n = 0; n <= 200; n++) {
+    gcmx86_diff_one(n, aads[n % 5]);
+  }
+}
+
+/* SP 800-38D 6.5: the counter's low 32 bits wrap modulo 2^32 and never
+ * carry into the IV part. A 96-bit nonce starts them at 1, so the wrap is
+ * reached here by handing gcmx86_ctr a J0 two blocks short of it; the
+ * keystream is checked block by block against scalar AES. */
+static void test_gcmx86_ctr_wraps(void) {
+  u8     key[16], j[16], in[150], out[150], blk[16], ks[16];
+  aes128 a;
+  gcmx86 x;
+  gcmx86_rng = 0x77726170;
+  gcmx86_fill(key, 16);
+  gcmx86_fill(j, 12);
+  gcmx86_fill(in, sizeof in);
+  be_put_be32(j + 12, 0xfffffffeu);
+  aes128_init(&a, key);
+  gcmx86_init(&x, key);
+  gcmx86_ctr(&x, j, wired_span_of(in, sizeof in), out);
+  for (usz i = 0; i < sizeof in; i++) {
+    if (i % 16 == 0) {
+      bytes_memcpy(blk, j, 12);
+      be_put_be32(blk + 12, 0xfffffffeu + 1u + (u32)(i / 16));
+      aes128_encrypt(&a, blk, ks);
+    }
+    CHECK(out[i] == (u8)(in[i] ^ ks[i % 16]));
+  }
+  CHECK(be_get_be32(j + 12) == 0xfffffffeu); /* J0 itself is left alone */
+}
+
+/* hp[] holds H, H^2, H^3, H^4 (as GHASH operands): each is the one before
+ * times H. */
+static void test_gcmx86_h_powers(void) {
+  u8       key[16] = {1, 2, 3}, got[16];
+  gcmx86   x;
+  gcmx86_v h, p;
+  gcmx86_init(&x, key);
+  h = gcmx86_load_rev(x.h, 16);
+  p = h;
+  for (usz i = 0; i < 4; i++) {
+    gcmx86_store(got, p);
+    for (usz k = 0; k < 16; k++) {
+      CHECK(got[k] == x.hp[i][k]);
+    }
+    p = gcmx86_gfmul(p, h);
   }
 }
 
@@ -178,5 +234,8 @@ void test_gcmx86(void) {
   test_gcmx86_align();
   test_gcmx86_nist();
   test_gcmx86_diff();
+  test_gcmx86_diff_sweep();
+  test_gcmx86_ctr_wraps();
+  test_gcmx86_h_powers();
   test_gcmx86_short();
 }

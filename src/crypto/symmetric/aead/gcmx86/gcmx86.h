@@ -15,7 +15,7 @@
 
 /**
  * Expanded AES-128-GCM key: 11 round keys (FIPS 197 byte order, as AESENC
- * consumes them) plus the GHASH subkey H = AES_K(0^128).
+ * consumes them) plus the GHASH subkey H = AES_K(0^128) and its powers.
  *
  * 16-byte aligned so the compiler may use aligned SSE loads; the accessors
  * copy byte-wise, so no additional caller-side alignment is required beyond
@@ -24,10 +24,13 @@
 typedef struct __attribute__((aligned(16))) {
   u8 rk[11][16]; /**< round keys 0..10, 16 bytes each */
   u8 h[16];      /**< GHASH subkey H = AES_K(0^128) */
+  /** H^1..H^4 as GHASH operands (byte-reversed), hp[i] = H^(i+1): GHASH
+   * folds up to four blocks per reduction with them. */
+  u8 hp[4][16];
 } gcmx86;
 
-/* 1 when the CPU has both AES-NI and PCLMULQDQ (CPUID.1:ECX bits 25 and 1),
- * 0 otherwise. Result is cached after the first call. */
+/* 1 when the CPU has AES-NI, PCLMULQDQ and SSSE3 (CPUID.1:ECX bits 25, 1
+ * and 9), 0 otherwise. Result is cached after the first call. */
 int gcmx86_supported(void);
 
 /** One AES-128 block under x's key (ECB): out = AES_K(in). For a QUIC

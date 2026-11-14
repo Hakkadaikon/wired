@@ -21,8 +21,8 @@ typedef wired_arch_v128 gcmx86_v;
 
 typedef wired_arch_v128w gcmx86_w;
 
-void gcmx86_ctr_tail(const gcmx86* x, u8 j[16], wired_span in, u8* out);
-void gcmx86_ctr(const gcmx86* x, u8 j[16], wired_span in, u8* out);
+void gcmx86_ctr_tail(const gcmx86* x, gcmx86_v blk, wired_span in, u8* out);
+void gcmx86_ctr(const gcmx86* x, const u8 j[16], wired_span in, u8* out);
 void gcmx86_j0(u8 j[16], const u8 nonce[GCMX86_NONCE]);
 void gcmx86_tag(
     const gcmx86* x,
@@ -42,10 +42,7 @@ static inline gcmx86_v gcmx86_load_rev(const u8* p, usz n);
 static inline gcmx86_v gcmx86_rev(gcmx86_v a);
 static inline gcmx86_v gcmx86_aes(const gcmx86* x, gcmx86_v in);
 static inline gcmx86_v gcmx86_gfmul(gcmx86_v a, gcmx86_v b);
-static inline gcmx86_v gcmx86_ghash(gcmx86_v h, gcmx86_v y, wired_span in);
-static inline void     gcmx86_inc32(u8 j[16]);
-static inline void     gcmx86_ctr_block(
-    const gcmx86* x, u8 j[16], const u8* in, u8* out);
+static inline gcmx86_v gcmx86_ctr_at(gcmx86_v j0, u32 c);
 
 /* Shift the 256-bit value [hi:lo] left one bit (aligns the reflected
  * carry-less product with the GHASH bit order, SP 800-38D 6.3). */
@@ -105,10 +102,12 @@ static inline gcmx86_v gcmx86_load_rev(const u8* p, usz n) {
   }
   return v;
 }
-/* Reverse the 16 bytes of a register (GHASH operand <-> wire order). */
+/* Reverse the 16 bytes of a register (GHASH operand <-> wire order): one
+ * pshufb. */
 static inline gcmx86_v gcmx86_rev(gcmx86_v a) {
-  return __builtin_shufflevector(
-      a, a, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+  static const gcmx86_v flip = {15, 14, 13, 12, 11, 10, 9, 8,
+                                7,  6,  5,  4,  3,  2,  1, 0};
+  return wired_arch_pshufb(a, flip);
 }
 /* AES-128 encrypt one block with AES-NI: rounds 1..9 aesenc, 10 aesenclast.
  */
@@ -126,32 +125,14 @@ static inline gcmx86_v gcmx86_gfmul(gcmx86_v a, gcmx86_v b) {
   gcmx86_shl1_256(&lo, &hi);
   return gcmx86_reduce(lo, hi);
 }
-/* Absorb in (zero-padded to a block multiple) into the GHASH accumulator y:
- * per block, y = (y ^ block) * H. */
-static inline gcmx86_v gcmx86_ghash(gcmx86_v h, gcmx86_v y, wired_span in) {
-  usz off = 0;
-  for (; off + 16 <= in.n; off += 16) {
-    y = gcmx86_gfmul(y ^ gcmx86_rev(gcmx86_load(in.p + off)), h);
-  }
-  if (off < in.n) {
-    y = gcmx86_gfmul(y ^ gcmx86_load_rev(in.p + off, in.n - off), h);
-  }
-  return y;
-}
-/* Increment the low 32 bits of a counter block big-endian (SP 800-38D 6.2).
- */
-static inline void gcmx86_inc32(u8 j[16]) {
-  for (usz i = 16; i > 12; i--) {
-    if (++j[i - 1] != 0) {
-      return;
-    }
-  }
-}
-/* Advance the counter and XOR one full keystream block into out. */
-static inline void gcmx86_ctr_block(
-    const gcmx86* x, u8 j[16], const u8* in, u8* out) {
-  gcmx86_inc32(j);
-  gcmx86_store(out, gcmx86_load(in) ^ gcmx86_aes(x, gcmx86_load(j)));
+/* The counter block of J0 with its low 32 bits set to c (SP 800-38D 6.2,
+ * 6.5: they count big-endian and wrap modulo 2^32). The counter lives in a
+ * register: no byte-wise increment and reload per block. */
+static inline gcmx86_v gcmx86_ctr_at(gcmx86_v j0, u32 c) {
+  gcmx86_w w = (gcmx86_w)j0;
+  w[3]       = (c >> 24) | ((c >> 8) & 0xff00u) | ((c << 8) & 0xff0000u) |
+               (c << 24); /* big-endian in the last four bytes */
+  return (gcmx86_v)w;
 }
 
 #endif

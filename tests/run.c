@@ -215,6 +215,7 @@
 #include "crypto/symmetric/aead/gcm/gcm_open.c"
 #include "crypto/symmetric/aead/gcmx86/gcmx86.c"
 #include "crypto/symmetric/aead/gcmx86/gcmx86_ctr.c"
+#include "crypto/symmetric/aead/gcmx86/gcmx86_ghash.c"
 #include "crypto/symmetric/aead/gcmx86/gcmx86_load.c"
 #include "crypto/symmetric/aead/gcmx86/gcmx86_seal.c"
 #include "tls/ext/grease/bitset.c"

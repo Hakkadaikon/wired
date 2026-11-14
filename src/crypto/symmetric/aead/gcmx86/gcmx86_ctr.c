@@ -1,13 +1,24 @@
 #include "crypto/symmetric/aead/gcmx86/gcmx86_impl.h"
 
+/** A CTR position: J0 and the low 32 bits of the next counter block. */
+typedef struct {
+  gcmx86_v j0; /**< the pre-counter block J0 */
+  u32      c;  /**< counter of the next block, modulo 2^32 */
+} gcmx86_cnt;
+
 static void gcmx86_aes4_init(const gcmx86* x, gcmx86_v s[4]);
 static void gcmx86_aes4_round(const gcmx86* x, gcmx86_v s[4], usz r);
 static void gcmx86_aes4_last(const gcmx86* x, gcmx86_v s[4]);
 static void gcmx86_aes4(const gcmx86* x, gcmx86_v s[4]);
-static void gcmx86_ctr_x4_advance(u8 j[16], gcmx86_v s[4]);
+static void gcmx86_ctr_x4_load(gcmx86_v j0, u32 c, gcmx86_v s[4]);
 static void gcmx86_ctr_x4_store(gcmx86_v s[4], const u8* in, u8* out);
-static void gcmx86_ctr_x4(const gcmx86* x, u8 j[16], const u8* in, u8* out);
-static usz gcmx86_ctr_x4_all(const gcmx86* x, u8 j[16], wired_span in, u8* out);
+static void gcmx86_ctr_x4(
+    const gcmx86* x, const gcmx86_cnt* k, const u8* in, u8* out);
+static usz gcmx86_ctr_x4_all(
+    const gcmx86* x, gcmx86_cnt* k, wired_span in, u8* out);
+static usz gcmx86_ctr_x1_all(
+    const gcmx86* x, gcmx86_cnt* k, wired_span in, u8* out, usz off);
+static void gcmx86_init_powers(gcmx86* x);
 
 /* AddRoundKey with rk[0] across 4 independent lanes. */
 static void gcmx86_aes4_init(const gcmx86* x, gcmx86_v s[4]) {
@@ -45,11 +56,10 @@ static void gcmx86_aes4(const gcmx86* x, gcmx86_v s[4]) {
   gcmx86_aes4_last(x, s);
 }
 
-/* Advance the counter 4 times, loading each resulting J into a lane. */
-static void gcmx86_ctr_x4_advance(u8 j[16], gcmx86_v s[4]) {
-  for (usz i = 0; i < 4; i++) {
-    gcmx86_inc32(j);
-    s[i] = gcmx86_load(j);
+/* The 4 counter blocks c .. c+3 of J0, one per lane. */
+static void gcmx86_ctr_x4_load(gcmx86_v j0, u32 c, gcmx86_v s[4]) {
+  for (u32 i = 0; i < 4; i++) {
+    s[i] = gcmx86_ctr_at(j0, c + i);
   }
 }
 
@@ -60,10 +70,11 @@ static void gcmx86_ctr_x4_store(gcmx86_v s[4], const u8* in, u8* out) {
   }
 }
 
-/* Advance the counter 4 times and XOR 4 full keystream blocks into out. */
-static void gcmx86_ctr_x4(const gcmx86* x, u8 j[16], const u8* in, u8* out) {
+/* XOR the 4 keystream blocks of counters c .. c+3 into out. */
+static void gcmx86_ctr_x4(
+    const gcmx86* x, const gcmx86_cnt* k, const u8* in, u8* out) {
   gcmx86_v s[4];
-  gcmx86_ctr_x4_advance(j, s);
+  gcmx86_ctr_x4_load(k->j0, k->c, s);
   gcmx86_aes4(x, s);
   gcmx86_ctr_x4_store(s, in, out);
 }
@@ -72,24 +83,36 @@ static void gcmx86_ctr_x4(const gcmx86* x, u8 j[16], const u8* in, u8* out) {
  * independent aesenc chains (measured 20-31% faster than one block at a
  * time). Returns the byte offset of the first byte not yet processed. */
 static usz gcmx86_ctr_x4_all(
-    const gcmx86* x, u8 j[16], wired_span in, u8* out) {
+    const gcmx86* x, gcmx86_cnt* k, wired_span in, u8* out) {
   usz off = 0;
-  for (; off + 64 <= in.n; off += 64) {
-    gcmx86_ctr_x4(x, j, in.p + off, out + off);
+  for (; off + 64 <= in.n; off += 64, k->c += 4) {
+    gcmx86_ctr_x4(x, k, in.p + off, out + off);
   }
   return off;
 }
 
-/* CTR-encrypt in into out; j enters as J0 (data blocks use J0+1, J0+2, ...).
- * The remainder after the last full 4-block group (<4 blocks, then <16
- * bytes) falls back to the sequential single-block path. */
-void gcmx86_ctr(const gcmx86* x, u8 j[16], wired_span in, u8* out) {
-  usz off = gcmx86_ctr_x4_all(x, j, in, out);
-  for (; off + 16 <= in.n; off += 16) {
-    gcmx86_ctr_block(x, j, in.p + off, out + off);
+/* Every full block left after the 4-block groups, one at a time. */
+static usz gcmx86_ctr_x1_all(
+    const gcmx86* x, gcmx86_cnt* k, wired_span in, u8* out, usz off) {
+  for (; off + 16 <= in.n; off += 16, k->c++) {
+    gcmx86_v ks = gcmx86_aes(x, gcmx86_ctr_at(k->j0, k->c));
+    gcmx86_store(out + off, gcmx86_load(in.p + off) ^ ks);
   }
+  return off;
+}
+
+/* CTR-encrypt in into out; j is J0 (data blocks use J0+1, J0+2, ..., the
+ * low 32 bits wrapping, SP 800-38D 6.5). The remainder after the last
+ * full 4-block group (<4 blocks, then <16 bytes) takes the single-block
+ * path. */
+void gcmx86_ctr(const gcmx86* x, const u8 j[16], wired_span in, u8* out) {
+  gcmx86_cnt k   = {gcmx86_load(j), be_get_be32(j + 12) + 1u};
+  usz        off = gcmx86_ctr_x4_all(x, &k, in, out);
+  off            = gcmx86_ctr_x1_all(x, &k, in, out, off);
   if (off < in.n) {
-    gcmx86_ctr_tail(x, j, wired_span_of(in.p + off, in.n - off), out + off);
+    gcmx86_ctr_tail(
+        x, gcmx86_ctr_at(k.j0, k.c), wired_span_of(in.p + off, in.n - off),
+        out + off);
   }
 }
 
@@ -104,22 +127,16 @@ void gcmx86_j0(u8 j[16], const u8 nonce[GCMX86_NONCE]) {
   j[15] = 1;
 }
 
-/* tag = GHASH(H; aad, ct, len block) ^ E(K, J0) (SP 800-38D 7.1). */
-void gcmx86_tag(
-    const gcmx86* x,
-    const u8      j0[16],
-    wired_span    aad,
-    wired_span    ct,
-    u8            tag[16]) {
-  u8       lens[16];
+/* hp[i] = H^(i+1) as GHASH operands, for the four-block fold
+ * (gcmx86_ghash.c). */
+static void gcmx86_init_powers(gcmx86* x) {
   gcmx86_v h = gcmx86_load_rev(x->h, 16);
-  gcmx86_v y = {0};
-  y          = gcmx86_ghash(h, y, aad);
-  y          = gcmx86_ghash(h, y, ct);
-  be_put_be64(lens, (u64)aad.n * 8);
-  be_put_be64(lens + 8, (u64)ct.n * 8);
-  y = gcmx86_gfmul(y ^ gcmx86_load_rev(lens, 16), h);
-  gcmx86_store(tag, gcmx86_rev(y) ^ gcmx86_aes(x, gcmx86_load(j0)));
+  gcmx86_v p = h;
+  gcmx86_store(x->hp[0], p);
+  for (usz i = 1; i < 4; i++) {
+    p = gcmx86_gfmul(p, h);
+    gcmx86_store(x->hp[i], p);
+  }
 }
 
 void gcmx86_init(gcmx86* x, const u8 key[16]) {
@@ -130,4 +147,5 @@ void gcmx86_init(gcmx86* x, const u8 key[16]) {
     be_put_be32((u8*)x->rk + 4 * i, a.rk[i]); /* be words = FIPS bytes */
   }
   gcmx86_store(x->h, gcmx86_aes(x, zero)); /* H = E(K, 0^128), 6.4 */
+  gcmx86_init_powers(x);
 }

@@ -2,10 +2,11 @@
 
 static int gcmx86_cpuid_ok(void);
 
-/* CPUID.1:ECX bit 25 (AES-NI) and bit 1 (PCLMULQDQ). */
+/* CPUID.1:ECX bit 25 (AES-NI), bit 1 (PCLMULQDQ) and bit 9 (SSSE3, for
+ * the byte reversal; every CPU with AES-NI has it, checked all the same). */
 static int gcmx86_cpuid_ok(void) {
   u32 c = wired_arch_cpuid_ecx(1u);
-  return (int)((c >> 25) & (c >> 1) & 1u);
+  return (int)((c >> 25) & (c >> 1) & (c >> 9) & 1u);
 }
 
 /* 0 unknown, 1 unsupported, 2 supported. File scope so a test can pin 1 and
