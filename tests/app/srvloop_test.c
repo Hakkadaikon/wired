@@ -6306,19 +6306,26 @@ static void test_srvloop_ku_expanded_keys_follow_discard(void) {
  * xkeys off and zeroed, so the first packet builds them from its own
  * keys and never reads the leftovers. */
 static void test_srvloop_init_clears_expanded_keys(void) {
-  struct lp_fix f;
-  usz           nz = 0;
-  bytes_memset(&f.s.kx_send, 0xAA, sizeof f.s.kx_send);
-  bytes_memset(f.s.kx_recv, 0xAA, sizeof f.s.kx_recv);
-  lp_drive_to_flight(&f);
-  for (usz i = 0; i < sizeof f.s.kx_send; i++) {
-    nz += ((const u8*)&f.s.kx_send)[i] != 0;
+  static wired_server s;
+  u8                  srv_priv[32], srv_pub[32], cert_seed[32];
+  usz                 nz = 0;
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_seed[i] = (u8)(0x80 + i);
   }
-  for (usz i = 0; i < sizeof f.s.kx_recv; i++) {
-    nz += ((const u8*)f.s.kx_recv)[i] != 0;
+  wired_x25519_base(srv_pub, srv_priv);
+  wired_server_init_in sin = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
+  bytes_memset(&s.kx_send, 0xAA, sizeof s.kx_send);
+  bytes_memset(s.kx_recv, 0xAA, sizeof s.kx_recv);
+  wired_server_init(&s, &sin);
+  for (usz i = 0; i < sizeof s.kx_send; i++) {
+    nz += ((const u8*)&s.kx_send)[i] != 0;
+  }
+  for (usz i = 0; i < sizeof s.kx_recv; i++) {
+    nz += ((const u8*)s.kx_recv)[i] != 0;
   }
   CHECK(nz == 0);
-  CHECK(xkeys_usable(&f.s.kx_send) == 0);
+  CHECK(xkeys_usable(&s.kx_send) == 0);
 }
 
 /* RFC 9001 6.6: with the previous self-initiated update still unconfirmed,
