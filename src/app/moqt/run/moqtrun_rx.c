@@ -189,9 +189,20 @@ void moqtrun_rx_route(
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
+  wired_moqtrun_track* track = 0;
+  wired_moqtrun_relay* relay;
   if (moqtrun_rx_on_ctl(p, stream_id)) {
     moqtrun_ctl_rx(hub, p, stream_id, data, fin);
-  } else {
-    moqtrun_dispatch_other(hub, p, stream_id, data, fin);
+    return;
   }
+  /* A stream already in the relay map is a data stream being relayed
+   * (moqtrun_dispatch_pub_stream put it there): its next bytes -- every
+   * video chunk -- go straight on, without the request and upstream
+   * tables being searched first only to miss. */
+  relay = moqtrun_peer_relay_by_stream(p, stream_id, &track);
+  if (relay) {
+    moqtrun_relay_continue(hub, track, relay, data, fin);
+    return;
+  }
+  moqtrun_dispatch_other(hub, p, stream_id, data, fin);
 }
