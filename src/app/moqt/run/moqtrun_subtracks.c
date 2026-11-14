@@ -104,12 +104,11 @@ static void moqtrun_disc_sync_subs(
 
 /* Every live SUBSCRIBE_NAMESPACE catches up with the published set. Runs
  * every tick, so it walks bitmaps of the live subscriptions and publishers
- * (two passes over reqs[]) rather than reqs[] squared. */
+ * (one pass over reqs[]) rather than reqs[] squared. */
 void moqtrun_disc_sync(wired_moqt_hub* hub) {
   u64 sub_mask[WIRED_MOQTRUN_REQ_WORDS] = {0};
   u64 pub_mask[WIRED_MOQTRUN_REQ_WORDS] = {0};
-  if (moqtrun_disc_live_mask(hub, MOQNS_T_SUBSCRIBE_NAMESPACE, sub_mask)) {
-    moqtrun_disc_live_mask(hub, MOQNS_T_PUBLISH_NAMESPACE, pub_mask);
+  if (moqtrun_disc_ns_masks(hub, sub_mask, pub_mask)) {
     moqtrun_disc_sync_subs(hub, sub_mask, pub_mask);
   }
 }

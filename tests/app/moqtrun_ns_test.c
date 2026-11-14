@@ -562,6 +562,16 @@ static void test_moqtrun_disc_live_mask_matches_scan(void) {
     CHECK(bit == moqtrun_disc_is(&hub.reqs[i], MOQNS_T_SUBSCRIBE_NAMESPACE));
   }
   CHECK(bits_ctz64(mask[0]) == 0 && bits_ctz64(mask[1]) == 0);
+  /* the one-walk pair agrees with a mask per kind */
+  {
+    u64 subs[WIRED_MOQTRUN_REQ_WORDS] = {0};
+    u64 pubs[WIRED_MOQTRUN_REQ_WORDS] = {0};
+    u64 want[WIRED_MOQTRUN_REQ_WORDS] = {0};
+    CHECK(moqtrun_disc_ns_masks(&hub, subs, pubs));
+    moqtrun_disc_live_mask(&hub, MOQNS_T_PUBLISH_NAMESPACE, want);
+    CHECK(subs[0] == mask[0] && subs[1] == mask[1]);
+    CHECK(pubs[0] == want[0] && pubs[1] == want[1] && pubs[0] == 1u << 5);
+  }
   CHECK(bits_ctz64(mask[0] & (mask[0] - 1)) == 63);
   /* a slot seen free is looked at again once it is handed out */
   CHECK(hub.req_free[0] >> 1 & 1);

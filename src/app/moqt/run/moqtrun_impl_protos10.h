@@ -20,6 +20,7 @@ int  moqtrun_upf_old_data(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 sid, int fin);
 
 int moqtrun_disc_live_mask(wired_moqt_hub* hub, u64 kind, u64* mask);
+int moqtrun_disc_ns_masks(wired_moqt_hub* hub, u64* subs, u64* pubs);
 u64 moqtrun_req_used_word(wired_moqt_hub* hub, usz w);
 
 #endif
