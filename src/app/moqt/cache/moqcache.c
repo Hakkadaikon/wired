@@ -9,6 +9,7 @@ void moqcache_init(moqcache* c, u8* arena, usz cap) {
   c->arena    = arena;
   c->cap      = cap;
   c->used     = 0;
+  c->memo_on  = 0;
   c->hint_off = 0;
   c->hint_tag = 0;
   c->hint_cur = moqctl_loc_of(0, 0);
@@ -49,6 +50,7 @@ void moqcache_drop(moqcache* c, u64 tag, u64 group, int any) {
   }
   c->used     = w;
   c->hint_off = 0; /* records moved */
+  c->memo_on  = 0; /* and maybe the memo's group with them */
 }
 
 void moqcache_release(moqcache* c, u64 tag) { moqcache_drop(c, tag, 0, 1); }
@@ -58,6 +60,7 @@ void moqcache_write(moqcache* c, moqcache_rec r, const u8* p, usz len) {
   bytes_memcpy(c->arena + c->used, &r, sizeof r);
   bytes_memcpy(c->arena + c->used + MOQCACHE_HDR, p, len);
   c->used += MOQCACHE_HDR + len;
+  c->memo_on = 0; /* moqcache_append_exp sets it again for a stored Object */
 }
 
 static int moqcache_later(moqcache_rec r, moqcache_rec v) {

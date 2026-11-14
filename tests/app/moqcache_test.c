@@ -392,7 +392,46 @@ static void test_moqcache_gone_full(void) {
   CHECK(mc_kind(&c, 1, 0, mc_loc(1, 1), &n) == 1);
 }
 
+/* The size memo never changes what is cached: a random run of Objects
+ * over three tracks -- continued groups, new groups, evictions, a group
+ * too big to keep -- leaves the same arena whether each append trusts the
+ * memo or walks the records, and whenever the memo is on it equals the
+ * walk. */
+static void test_moqcache_memo_matches_walk(void) {
+  static u8 a1[6000], a2[6000];
+  moqcache  c1, c2;
+  u32       rng  = 0x6d656d6f;
+  usz       hits = 0;
+  u64       g[3] = {1, 1, 1};
+  moqcache_init(&c1, a1, sizeof a1);
+  moqcache_init(&c2, a2, sizeof a2);
+  for (usz i = 0; i < 4000; i++) {
+    usz t, n;
+    rng = rng * 1664525u + 1013904223u;
+    t   = (rng >> 28) % 3;
+    n   = (rng >> 8) % 700;
+    g[t] += (rng >> 20) % 5 == 0; /* mostly the same group again */
+    hits += (usz)moqcache_memo_hit(&c1, 20 + t, g[t]);
+    if (c1.memo_on) {
+      int dead = 0;
+      CHECK(
+          moqcache_group_bytes(&c1, c1.memo_tag, c1.memo_group, &dead) ==
+          c1.memo_bytes);
+      CHECK(!dead);
+    }
+    c2.memo_on = 0; /* the reference always walks */
+    mc_put(&c1, 20 + t, g[t], i, n);
+    mc_put(&c2, 20 + t, g[t], i, n);
+    CHECK(c1.used == c2.used);
+  }
+  CHECK(hits > 1000);
+  for (usz i = 0; i < c1.used; i++) {
+    CHECK(a1[i] == a2[i]);
+  }
+}
+
 void test_moqcache(void) {
+  test_moqcache_memo_matches_walk();
   test_moqcache_gone_partial();
   test_moqcache_gone_whole_group();
   test_moqcache_gone_expires();

@@ -87,6 +87,17 @@ typedef struct {
   moqcache_gone gone[MOQCACHE_GONE_MAX];
   /** Ranges added so far: the next one goes to gone[gone_at % max]. */
   usz gone_at;
+  /** The group the last Object was stored in (memo_tag, memo_group) and
+   * the bytes it now holds, so the next Object of that group -- the usual
+   * arrival -- needs no walk of the arena to size it. memo_on is 0 after
+   * any other change to the records. */
+  u64 memo_tag;
+  /** The memo's group. */
+  u64 memo_group;
+  /** Bytes memo_tag's memo_group holds. */
+  usz memo_bytes;
+  /** 1 while the memo describes the arena. */
+  u8 memo_on;
 } moqcache;
 
 /** One FETCH response item at a cursor: an Object (unknown 0, payload a

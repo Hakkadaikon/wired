@@ -8,6 +8,10 @@ static usz  moqcache_group_bytes(
 static int moqcache_too_big(usz group_bytes, usz n, usz cap);
 static int moqcache_store(
     moqcache* c, moqcache_rec r, wired_span payload, usz held);
+static int  moqcache_memo_hit(const moqcache* c, u64 tag, u64 group);
+static void moqcache_memo_set(moqcache* c, moqcache_rec r, usz held);
+static usz  moqcache_group_held(
+    const moqcache* c, u64 tag, u64 group, int* dead);
 
 /* Evicts the oldest whole group other than tag's group; 0 if none can
  * go. A closed group goes whole; an open one (another track's group
@@ -83,10 +87,35 @@ static int moqcache_store(
          moqcache_put(c, r, payload.p, payload.n);
 }
 
+/* The memo names tag's group: its size is known without a walk. */
+static int moqcache_memo_hit(const moqcache* c, u64 tag, u64 group) {
+  return c->memo_on && c->memo_tag == tag && c->memo_group == group;
+}
+
+/* moqcache_group_bytes, from the memo when it names this group (a group
+ * the memo names holds stored Objects only, so it is not dead). */
+static usz moqcache_group_held(
+    const moqcache* c, u64 tag, u64 group, int* dead) {
+  if (moqcache_memo_hit(c, tag, group)) {
+    return c->memo_bytes;
+  }
+  return moqcache_group_bytes(c, tag, group, dead);
+}
+
+/* r was just stored on top of held bytes of its group: evictions on the
+ * way only ever removed other groups, so the group now holds exactly
+ * this. */
+static void moqcache_memo_set(moqcache* c, moqcache_rec r, usz held) {
+  c->memo_tag   = r.tag;
+  c->memo_group = r.group;
+  c->memo_bytes = held + MOQCACHE_HDR + (usz)r.len;
+  c->memo_on    = 1;
+}
+
 void moqcache_append_exp(
     moqcache* c, u64 tag, u64 group, u64 object, wired_span payload, u64 exp) {
   int          dead = 0;
-  usz          held = moqcache_group_bytes(c, tag, group, &dead);
+  usz          held = moqcache_group_held(c, tag, group, &dead);
   moqcache_rec r    = {tag, group, object, payload.n, exp};
   if (dead) {
     return;
@@ -95,6 +124,7 @@ void moqcache_append_exp(
     moqcache_kill(c, tag, group);
     return;
   }
+  moqcache_memo_set(c, r, held);
   c->next_exp = u64_min(c->next_exp, exp);
 }
 
