@@ -39,7 +39,15 @@ void srvrun_reannounce_uni_stream_limit(const srvrun_cfg* cfg, srvrun_conn* c);
 int  srvrun_wt_any_slot_in_use(const srvrun_conn* c);
 usz  srvrun_wt_bidi_slots_in_use(const srvrun_conn* c);
 usz  srvrun_wt_uni_slots_in_use(const srvrun_conn* c);
-int  srvrun_req_credit_live(const wired_srvloop_stream_slot* slot);
+
+/* A request slot whose body is still streaming (srvloop's body window). In
+ * line: the credit passes of every received packet ask it of each of the
+ * WIRED_SRVLOOP_MAX_STREAMS slots. */
+static inline int srvrun_req_credit_live(
+    const wired_srvloop_stream_slot* slot) {
+  return slot->in_use && slot->body.on && slot->body.state == BODYWIN_OPEN;
+}
+
 u64  srvrun_req_rx_ceiling(const srvrun_conn* c);
 void srvrun_grant_conn_credit(const srvrun_cfg* cfg, srvrun_conn* c);
 void srvrun_grant_qenc_credit(const srvrun_cfg* cfg, srvrun_conn* c);

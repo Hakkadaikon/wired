@@ -42,11 +42,6 @@ static usz wt_slots_in_use(const srvrun_conn* c) {
   return srvrun_wt_bidi_slots_in_use(c) + srvrun_wt_uni_slots_in_use(c);
 }
 
-/* A request slot whose body is still streaming (srvloop's body window). */
-int srvrun_req_credit_live(const wired_srvloop_stream_slot* slot) {
-  return slot->in_use && slot->body.on && slot->body.state == BODYWIN_OPEN;
-}
-
 /* One request slot's share of the MAX_DATA ceiling: the body bytes its
  * window already consumed, plus the window itself while it streams. */
 static u64 srvrun_req_slot_ceiling(const wired_srvloop_stream_slot* slot) {
