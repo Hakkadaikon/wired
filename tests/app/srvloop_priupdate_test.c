@@ -533,7 +533,43 @@ static void test_dispatch_kind_gate_keeps_every_gathered_kind(void) {
   CHECK(!kinds_gathered(quiet, sizeof quiet));
 }
 
+/* dispatch_non_request_kinds answers as dispatch_non_request does, and the
+ * handshake feed it skips for a payload without CRYPTO is one that leaves
+ * the server untouched. */
+static int non_request_same(const u8* frame, usz len) {
+  static wired_server s, before;
+  wired_span          pl = wired_span_of(frame, len);
+  int                 want, got;
+  bytes_memset(&s, 0, sizeof s);
+  want   = dispatch_non_request(&s, frame, len);
+  before = s;
+  bytes_memset(&s, 0, sizeof s);
+  got = dispatch_non_request_kinds(&s, pl, framewalk_kinds(pl));
+  for (usz i = 0; i < sizeof s; i++) {
+    got |= ((const u8*)&s)[i] != ((const u8*)&before)[i] ? 2 : 0;
+  }
+  return want == got;
+}
+
+static void test_dispatch_non_request_kinds_matches(void) {
+  static const u8 quiet[]  = {0x01, 0x00, 0x02, 0x05, 0x00, 0x00, 0x00};
+  static const u8 ack[]    = {0x02, 0x05, 0x00, 0x00, 0x00};
+  static const u8 stream[] = {0x0a, 0x00, 0x01, 0xaa};
+  static const u8 reset[]  = {0x04, 0x00, 0x00, 0x00};
+  static const u8 crypto[] = {0x06, 0x00, 0x02, 0x14, 0x00};
+  static const u8 bad[]    = {0x21};
+  CHECK(non_request_same(quiet, sizeof quiet));
+  CHECK(non_request_same(ack, sizeof ack));
+  CHECK(non_request_same(stream, sizeof stream));
+  CHECK(non_request_same(reset, sizeof reset));
+  CHECK(non_request_same(crypto, sizeof crypto));
+  CHECK(non_request_same(bad, sizeof bad));
+  CHECK(non_request_same(bad, 0));
+  CHECK(!dispatch_non_request(0, bad, 0)); /* has no frame: never feeds */
+}
+
 void test_srvloop_priupdate(void) {
+  test_dispatch_non_request_kinds_matches();
   test_dispatch_kind_gate_keeps_every_gathered_kind();
   test_srvloop_priupdate_applies_to_open_stream();
   test_srvloop_priupdate_bad_value_defaults();

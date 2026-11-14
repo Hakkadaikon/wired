@@ -141,6 +141,7 @@ int srvloop_gather_stream_closes(wired_srvloop* l, const u8* payload, usz len);
 int srvloop_has_stream(const u8* payload, usz len);
 int srvloop_feed_or_accept(wired_server* s, const u8* payload, usz len);
 int dispatch_non_request(wired_server* s, const u8* payload, usz len);
+int dispatch_non_request_kinds(wired_server* s, wired_span pl, u32 kinds);
 int dispatch_gather_datagrams(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload);
 int dispatch_gather_closes(

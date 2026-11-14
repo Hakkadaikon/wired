@@ -97,7 +97,7 @@ static int dispatch_h3(
   if (handled_req || handled_side) {
     return 1;
   }
-  return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
+  return dispatch_non_request_kinds(ctx->s, in->payload, kinds);
 }
 
 /* 1 if ctx is a loop-backed connection whose negotiated ALPN is a raw-QUIC

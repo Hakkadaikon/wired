@@ -52,6 +52,20 @@ int dispatch_non_request(wired_server* s, const u8* payload, usz len) {
   return srvloop_feed_or_accept(s, payload, len);
 }
 
+/* dispatch_non_request for a payload whose frame kinds (framewalk_kinds)
+ * are known: with no CRYPTO frame wired_server_feed collects nothing and
+ * finds no message to take, so it is not called -- the usual case of an
+ * ACK-only 1-RTT packet. */
+int dispatch_non_request_kinds(wired_server* s, wired_span pl, u32 kinds) {
+  if (kinds & 1u << FK_STREAM) {
+    return 1;
+  }
+  if (!(kinds & 1u << FK_CRYPTO)) {
+    return 0;
+  }
+  return wired_server_feed(s, pl.p, pl.n);
+}
+
 /* 1 if ctx has a loop to gather WT bidi traffic into (ctx->l != 0) and this
  * payload carried any (draft-ietf-webtrans-http3-15 4.3). A dispatch caller
  * exercising only the request path directly (l == 0) skips WT gathering
