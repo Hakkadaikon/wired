@@ -35,6 +35,7 @@ import {
 	joinStabilityClient,
 } from "../lib/stabilityClient.mjs";
 import { startUdpProxy } from "../lib/udpProxy.mjs";
+import { summarizeVoiceTrace } from "../lib/voiceMetrics.mjs";
 
 const PROXY_BASE = 24433;
 const SERVER_PORT = E2E_PORT;
@@ -142,6 +143,7 @@ export async function run({ pageUrl, server, arg, log }) {
 		const taps = {};
 		const stalledTiles = {};
 		const screenStreams = {};
+		const voiceTaps = {};
 		for (const c of clients) {
 			const entries = await c.page.evaluate(
 				() => window.__wiredScreenTap ?? [],
@@ -170,6 +172,7 @@ export async function run({ pageUrl, server, arg, log }) {
 					);
 			}
 			const m = await clientMetrics(c);
+			voiceTaps[c.tag] = m?.voiceTapEvents ?? [];
 			// This client's own long-lived uni streams (chat's one-shot uploads
 			// are a few dozen bytes; a screen stream is many KB): more than one
 			// means the write timeout fired and the share reopened its stream.
@@ -197,6 +200,9 @@ export async function run({ pageUrl, server, arg, log }) {
 			// Raw per-frame receive taps (screenTap.ts), so a gap can be placed
 			// in time offline.
 			taps,
+			// Voice rides DATAGRAMs next to the screen streams: its inter-arrival
+			// shows whether the share's bursts hold the audio back at the hub.
+			voiceTrace: summarizeVoiceTrace(voiceTaps),
 			hubSendCounters: hubSendCounters(path.join(evidenceDir, "server.qlog")),
 			proxyStats: proxy.stats(),
 		};
