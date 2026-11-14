@@ -12,6 +12,8 @@ static void moqtrun_pubdone_req_close(
 static void moqtrun_pubdone_finish(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t);
 static int moqtrun_pubdone_peer(wired_moqt_hub* hub, wired_moqtrun_peer* p);
+static int moqtrun_pubdone_track(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t);
 
 static int moqtrun_pubdone_req_is(
     const wired_moqtrun_req* q, const wired_moqtrun_peer* p, u64 rid) {
@@ -93,13 +95,25 @@ int moqtrun_pubdone_try(
   return 1;
 }
 
+/* moqtrun_pubdone_try for a track that can be due at all: only one with a
+ * PUBLISH_DONE waiting or found Malformed is ever ready
+ * (moqtrun_pubdone_ready), and this runs for every track on every
+ * delivery and tick. */
+static int moqtrun_pubdone_track(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t) {
+  if (!(t->pubdone_pending | t->malformed)) {
+    return 0;
+  }
+  return moqtrun_pubdone_try(hub, p, t);
+}
+
 static int moqtrun_pubdone_peer(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   int n = 0;
   if (!p->in_use) {
     return 0;
   }
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
-    n += moqtrun_pubdone_try(hub, p, &p->tracks[t]);
+    n += moqtrun_pubdone_track(hub, p, &p->tracks[t]);
   }
   return n;
 }
