@@ -6301,6 +6301,26 @@ static void test_srvloop_ku_expanded_keys_follow_discard(void) {
   CHECK(lp_ku_recv(&f, pkt, n) == 1);
 }
 
+/* wired_server_init leaves no expanded key behind: a server whose memory
+ * held another connection's (here: filled with 0xAA) starts with every
+ * xkeys off and zeroed, so the first packet builds them from its own
+ * keys and never reads the leftovers. */
+static void test_srvloop_init_clears_expanded_keys(void) {
+  struct lp_fix f;
+  usz           nz = 0;
+  bytes_memset(&f.s.kx_send, 0xAA, sizeof f.s.kx_send);
+  bytes_memset(f.s.kx_recv, 0xAA, sizeof f.s.kx_recv);
+  lp_drive_to_flight(&f);
+  for (usz i = 0; i < sizeof f.s.kx_send; i++) {
+    nz += ((const u8*)&f.s.kx_send)[i] != 0;
+  }
+  for (usz i = 0; i < sizeof f.s.kx_recv; i++) {
+    nz += ((const u8*)f.s.kx_recv)[i] != 0;
+  }
+  CHECK(nz == 0);
+  CHECK(xkeys_usable(&f.s.kx_send) == 0);
+}
+
 /* RFC 9001 6.6: with the previous self-initiated update still unconfirmed,
  * nearing the confidentiality limit latches AEAD_LIMIT_REACHED while the
  * margin can still seal the close; at the limit itself nothing seals. */
@@ -8194,6 +8214,7 @@ void test_srvloop(void) {
   test_srvloop_recv_key_selection_table();
   test_srvloop_ku_next_keys_precomputed();
   test_srvloop_ku_expanded_keys_follow_discard();
+  test_srvloop_init_clears_expanded_keys();
   test_srvloop_aead_limit_latches_close_when_no_update();
   test_srvloop_touched_mask_reaches_high_slots();
   test_srvloop_stream_limit_clamps_to_table();

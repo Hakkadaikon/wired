@@ -66,6 +66,7 @@ static void srv_reset_counters(wired_server* s) {
   s->hs_wait       = SRV_WAIT_FIN;
   s->hs_aborted    = 0;
   s->cauth_clock   = clock_ymdhms;
+  server_reset_xkeys(s);
 }
 
 void wired_server_init(wired_server* s, const wired_server_init_in* in) {
@@ -94,18 +95,6 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
 
 int wired_server_set_cids(wired_server* s, wired_span odcid, wired_span iscid) {
   return sdrv_set_cids(&s->sdrv, odcid, iscid);
-}
-
-void wired_server_set_limits(
-    wired_server* s,
-    u64           max_data,
-    u64           max_streams_bidi,
-    u64           max_streams_uni,
-    u64           max_datagram_frame_size) {
-  s->sdrv.limits.max_data                = max_data;
-  s->sdrv.limits.max_streams_bidi        = max_streams_bidi;
-  s->sdrv.limits.max_streams_uni         = max_streams_uni;
-  s->sdrv.limits.max_datagram_frame_size = max_datagram_frame_size;
 }
 
 void server_ku_derive_next(wired_server* s) {

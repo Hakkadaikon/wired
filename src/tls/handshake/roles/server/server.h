@@ -229,6 +229,11 @@ u64 wired_server_idle_timeout_ms(const wired_server* s);
  * @param s the server */
 void server_ku_derive_next(wired_server* s);
 
+/** Wipe the expanded 1-RTT keys (kx_send, kx_recv): part of
+ * wired_server_init, so a reused server starts without the last
+ * connection's. */
+void server_reset_xkeys(wired_server* s);
+
 /** Advertise this 16-byte stateless_reset_token (RFC 9000 10.3.1/18.2) for
  * the server's handshake SCID in the transport parameters. Derive it from a
  * restart-stable secret (sreset_key_derive + sreset_token) so a
