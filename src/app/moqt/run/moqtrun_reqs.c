@@ -12,6 +12,8 @@ static int  moqtrun_req_bad_open(const wired_moqtrun_req* q);
 static int  moqtrun_req_fin_kind(u64 kind);
 static void moqtrun_reqs_tick_word(wired_moqt_hub* hub, usz w);
 static int  moqtrun_req_muted(wired_moqt_hub* hub, const wired_moqtrun_req* q);
+static int  moqtrun_req_unsettled(const wired_moqtrun_req* q);
+static int  moqtrun_req_due(wired_moqt_hub* hub, const wired_moqtrun_req* q);
 static int  moqtrun_req_fin_cancels(
     const wired_moqtrun_peer* p, const wired_moqtrun_req* q);
 
@@ -111,6 +113,26 @@ static int moqtrun_req_muted(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
   return p && p->closing;
 }
 
+/* 1 iff settling q would end or free it: its side may end now, or both
+ * sides already have. */
+static int moqtrun_req_unsettled(const wired_moqtrun_req* q) {
+  return moqtrun_req_may_end(q) || moqtrun_req_both_ended(q);
+}
+
+/* 0 iff moqtrun_reqs_tick_one would leave q as it is and send nothing:
+ * nothing is queued, and q either awaits its PUBLISH reply (flush only) or
+ * has nothing to end. Most requests of a standing session are in this
+ * state on every tick. */
+int moqtrun_req_tick_idle(const wired_moqtrun_req* q) {
+  return q->send_lens[q->armed_idx ^ 1] == 0 &&
+         (moqtrun_pubst_awaiting(q) || !moqtrun_req_unsettled(q));
+}
+
+/* q is worth a tick: it has something to do and its session is open. */
+static int moqtrun_req_due(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
+  return !moqtrun_req_tick_idle(q) && !moqtrun_req_muted(hub, q);
+}
+
 /* Settles reqs[64w ..] in slot order, skipping the slots known free. The
  * free mask is re-read before each slot: a request opened while an earlier
  * one settles is still reached in this pass, as when every slot was
@@ -123,7 +145,7 @@ static void moqtrun_reqs_tick_word(wired_moqt_hub* hub, usz w) {
     usz                b = bits_ctz64(m);
     wired_moqtrun_req* q = &hub->reqs[w * 64 + b];
     done |= ((u64)2 << b) - 1;
-    if (!moqtrun_req_muted(hub, q)) {
+    if (moqtrun_req_due(hub, q)) {
       moqtrun_reqs_tick_one(&hub->io, q);
     }
   }

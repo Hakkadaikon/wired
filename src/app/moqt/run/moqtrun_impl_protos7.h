@@ -44,6 +44,7 @@ wired_moqtrun_req* moqtrun_req_for(
     wired_moqt_hub* hub, wired_wt_session* s, u64 stream_id, wired_span data);
 void moqtrun_req_settle(wired_moqt_io* io, wired_moqtrun_req* q);
 void moqtrun_reqs_tick_one(wired_moqt_io* io, wired_moqtrun_req* q);
+int  moqtrun_req_tick_idle(const wired_moqtrun_req* q);
 void moqtrun_reqs_tick(wired_moqt_hub* hub);
 void moqtrun_req_check_open(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 void moqtrun_req_note_fin(

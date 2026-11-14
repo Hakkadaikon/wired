@@ -572,8 +572,51 @@ static void test_moqtrun_disc_live_mask_matches_scan(void) {
   CHECK(moqtrun_req_used_word(&hub, 0) & 2);
 }
 
+/* One request in the state the low 9 bits of bits spell. */
+static void moqtrun_test_req_state(wired_moqtrun_req* q, unsigned bits) {
+  bytes_memset(q, 0, sizeof *q);
+  q->in_use         = 1;
+  q->wt             = SESS_A;
+  q->stream_id      = 4;
+  q->send_lens[1]   = bits & 1; /* armed_idx 0: slot 1 is the pending one */
+  q->fin_in         = bits >> 1 & 1;
+  q->fin_out        = bits >> 2 & 1;
+  q->kind           = (bits >> 3 & 1) * MOQNS_T_SUBSCRIBE_NAMESPACE;
+  q->live           = bits >> 4 & 1;
+  q->rdv_held       = bits >> 5 & 1;
+  q->pub_origin_rid = bits >> 6 & 1;
+  q->pub_answered   = bits >> 7 & 1;
+  q->opened         = bits >> 8 & 1;
+}
+
+/* A request moqtrun_req_tick_idle calls idle is one the tick leaves
+ * untouched without calling io, in every combination of the fields the
+ * tick reads; the ones it must not skip are not idle. */
+static void test_moqtrun_req_tick_idle_matches_tick(void) {
+  static wired_moqtrun_req q, before;
+  wired_moqt_io            io   = moqtrun_test_io();
+  usz                      idle = 0;
+  moqtrun_test_reset();
+  for (unsigned bits = 0; bits < 512; bits++) {
+    usz calls = g_n_calls;
+    moqtrun_test_req_state(&q, bits);
+    before = q;
+    moqtrun_reqs_tick_one(&io, &q);
+    int same = g_n_calls == calls && q.in_use == before.in_use &&
+               q.fin_out == before.fin_out && q.opened == before.opened &&
+               q.armed_idx == before.armed_idx &&
+               q.send_lens[0] == before.send_lens[0] &&
+               q.send_lens[1] == before.send_lens[1];
+    idle += (usz)moqtrun_req_tick_idle(&before);
+    CHECK(same == moqtrun_req_tick_idle(&before));
+    g_n_calls = 0;
+  }
+  CHECK(idle > 0 && idle < 512);
+}
+
 void test_moqtrun_ns(void) {
   test_moqtrun_disc_live_mask_matches_scan();
+  test_moqtrun_req_tick_idle_matches_tick();
   test_moqtrun_ns_fin_cancels_d18();
   test_moqtrun_ns_fin_half_closes_d19_d22();
   test_moqtrun_ns_pub_fin_is_not_withdrawal_d22();
