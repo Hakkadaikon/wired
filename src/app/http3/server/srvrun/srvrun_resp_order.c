@@ -69,6 +69,9 @@ void srvrun_prio_refresh(srvrun_conn* c) {
     srvrun_prio_build(c);
     return;
   }
+  if (c->wtx.resp_idle) {
+    return; /* the identity order of the last pass still stands */
+  }
   srvrun_prio_identity(c);
   c->wtx.resp_idle = 1;
 }

@@ -446,9 +446,23 @@ static void test_srvrun_resp_idle_tracks_claims(void) {
   CHECK(c->wtx.resp_idle == 0);
   srvrun_prio_refresh(c);
   CHECK(c->wtx.resp_idle == 0);
+  r->sess.stream_base_offset = 700; /* a claimed response is counted ... */
+  srvrun_acct_resync(c);
+  CHECK(c->acct_consumed == srvrun_conn_consumed_bytes(c));
+  CHECK(c->acct_consumed >= 700);
   r->in_use = 0;
   srvrun_prio_refresh(c);
   CHECK(c->wtx.resp_idle == 1);
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) { /* ... the order is back */
+    CHECK(c->prio_order[i] == i);
+  }
+  c->prio_order[0] = 9; /* an idle refresh leaves the standing order alone */
+  srvrun_prio_refresh(c);
+  CHECK(c->prio_order[0] == 9);
+  c->prio_order[0] = 0;
+  srvrun_acct_resync(c); /* and the freed response is no longer counted */
+  CHECK(c->acct_consumed == srvrun_conn_consumed_bytes(c));
+  CHECK(c->acct_inflight == srvrun_inflight_bytes_all(c));
 }
 
 /* wtx.rst_none is set by a retry walk that finds no kept packet and

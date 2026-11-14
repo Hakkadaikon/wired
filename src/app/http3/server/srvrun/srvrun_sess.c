@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "common/bytes/util/bits.h"
 
 static int srvrun_cwnd_has_room(const srvrun_conn* c);
 static int srvrun_cwnd_fits(const srvrun_conn* c);
@@ -101,16 +102,22 @@ static void srvrun_acct_sess(srvrun_acct* a, const wired_sendsess* sess) {
   a->consumed += srvrun_sess_consumed(sess);
 }
 
+/* Only the slots not known free (srvrun_conn.wtx.send_free) are looked
+ * at: a free slot adds nothing. */
 static void srvrun_acct_wtsends(const srvrun_conn* c, srvrun_acct* a) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+  u64 all = ~(u64)0 >> (64 - SRVRUN_WT_SEND_SLOTS);
+  for (u64 b = all & ~c->wtx.send_free; b; b &= b - 1) {
+    usz i = bits_ctz64(b);
     if (c->wtsend[i].in_use) {
       srvrun_acct_sess(a, &c->wtsend[i].sess);
     }
   }
 }
 
+/* Nothing to add while no response is in flight (wtx.resp_idle). */
 static void srvrun_acct_resps(const srvrun_conn* c, srvrun_acct* a) {
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+  for (usz i = c->wtx.resp_idle * SRVRUN_RESP_SLOTS; i < SRVRUN_RESP_SLOTS;
+       i++) {
     if (c->resp[i].in_use) {
       srvrun_acct_sess(a, &c->resp[i].sess);
     }
