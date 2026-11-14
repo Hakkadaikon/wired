@@ -6263,6 +6263,44 @@ static void test_srvloop_ku_next_keys_precomputed(void) {
   CHECK(ct_diffn(f.s.ku_next.key, want.key, INITIAL_KEY) == 0);
 }
 
+/* RFC 9001 6.5: a key leaves memory in its expanded form too. Right after
+ * a rotation the expanded receive and send keys are those of the retained
+ * generations (none of an older one), and discarding the old generation
+ * zeroes both its raw and its expanded copy. Only where the AES-NI path is
+ * in use (xkeys.on). */
+static void test_srvloop_ku_expanded_keys_follow_discard(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  initial_keys  gen0, gen1;
+  usz           n, nz = 0;
+  lp_confirm(&f, &ob);
+  gen0 = f.s.ku.cur;
+  lp_ku_next(f.s.ku_secret, &gen0, &gen1);
+  n = lp_seal_ku(&f.s, &gen1, 1, 7, pkt, sizeof pkt);
+  CHECK(lp_ku_recv(&f, pkt, n) == 1);
+  CHECK(f.s.ku.generation == 1 && f.s.ku.have_old == 1);
+  if (!f.s.kx_recv[0].on) {
+    return;
+  }
+  CHECK(ct_diffn(f.s.kx_recv[0].key, gen1.key, 16) == 0);
+  CHECK(ct_diffn(f.s.kx_recv[1].key, gen0.key, 16) == 0);
+  CHECK(ct_diffn(f.s.kx_recv[2].key, f.s.ku_next.key, 16) == 0);
+  CHECK(ct_diffn(f.s.kx_send.key, f.s.ku_send.cur.key, 16) == 0);
+  srvloop_ku_discard_old(&f.s);
+  CHECK(f.s.ku.have_old == 0);
+  for (usz i = 0; i < sizeof f.s.kx_recv[1]; i++) {
+    nz += ((const u8*)&f.s.kx_recv[1])[i] != 0;
+  }
+  for (usz i = 0; i < sizeof f.s.ku.old; i++) {
+    nz += ((const u8*)&f.s.ku.old)[i] != 0;
+  }
+  CHECK(nz == 0);
+  /* the next packet still opens under the current keys */
+  n = lp_seal_ku(&f.s, &gen1, 1, 9, pkt, sizeof pkt);
+  CHECK(lp_ku_recv(&f, pkt, n) == 1);
+}
+
 /* RFC 9001 6.6: with the previous self-initiated update still unconfirmed,
  * nearing the confidentiality limit latches AEAD_LIMIT_REACHED while the
  * margin can still seal the close; at the limit itself nothing seals. */
@@ -8155,6 +8193,7 @@ void test_srvloop(void) {
   test_srvloop_recv_follows_repeated_key_updates_across_generations();
   test_srvloop_recv_key_selection_table();
   test_srvloop_ku_next_keys_precomputed();
+  test_srvloop_ku_expanded_keys_follow_discard();
   test_srvloop_aead_limit_latches_close_when_no_update();
   test_srvloop_touched_mask_reaches_high_slots();
   test_srvloop_stream_limit_clamps_to_table();

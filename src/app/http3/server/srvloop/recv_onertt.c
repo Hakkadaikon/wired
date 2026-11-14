@@ -99,6 +99,13 @@ static void kurx_sync_keys(wired_server* s) {
   }
 }
 
+/* RFC 9001 6.5: the retained old read keys leave memory, the expanded
+ * ones with the raw ones. */
+void srvloop_ku_discard_old(wired_server* s) {
+  kuswitch_discard_old(&s->ku);
+  xkeys_wipe(&s->kx_recv[KURX_OLD]);
+}
+
 void srvloop_ku_rotate_send(wired_server* s) {
   initial_keys send_next;
   u8           send_next_secret[TLS_HASH_MAX];
@@ -108,6 +115,9 @@ void srvloop_ku_rotate_send(wired_server* s) {
   bytes_memcpy(send_next.hp, s->ku_send.cur.hp, AEAD_KEY_MAX);
   kuswitch_rotate(&s->ku_send, &send_next);
   bytes_memcpy(s->ku_send_secret, send_next_secret, TLS_HASH_MAX);
+  /* the expanded copy of the replaced send key goes now, not at the next
+   * send */
+  xkeys_sync(&s->kx_send, s->sdrv.cipher_suite, &s->ku_send.cur);
   s->ku_send_count = 0; /* RFC 9001 6.6: the limit is per key */
 }
 
@@ -137,6 +147,9 @@ static int kurx_took_next(wired_server* s, u64 pn) {
   kuswitch_rotate(&s->ku, &next);
   bytes_memcpy(s->ku_secret, s->ku_next_secret, TLS_HASH_MAX);
   server_ku_derive_next(s);
+  /* kx_recv[] drops the expanded keys of the generation just rotated out
+   * now, not at the next packet */
+  kurx_sync_keys(s);
   if (s->ku_send.generation < s->ku.generation) {
     srvloop_ku_rotate_send(s);
   }

@@ -24,6 +24,10 @@ typedef struct {
  * which keeps the raw-key path. */
 void xkeys_sync(xkeys* x, u16 suite, const initial_keys* k);
 
+/** RFC 9001 6.5: x's expanded keys and the raw copies leave memory; x is
+ * off until the next xkeys_sync. */
+void xkeys_wipe(xkeys* x);
+
 /** x when it may be used, else 0. */
 const xkeys* xkeys_usable(const xkeys* x);
 

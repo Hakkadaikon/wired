@@ -32,6 +32,8 @@ void xkeys_sync(xkeys* x, u16 suite, const initial_keys* k) {
   }
 }
 
+void xkeys_wipe(xkeys* x) { bytes_wipe(x, sizeof *x); }
+
 const xkeys* xkeys_usable(const xkeys* x) { return x->on ? x : 0; }
 
 const gcmx86* xkeys_aead(const xkeys* x) { return x ? &x->aead : 0; }

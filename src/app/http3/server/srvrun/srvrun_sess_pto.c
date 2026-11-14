@@ -1,3 +1,4 @@
+#include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static int  srvrun_any_resp_active(const srvrun_conn* c);
@@ -131,6 +132,6 @@ void srvrun_ku_discard_stale(srvrun_conn* c, u64 now_ms) {
   }
   floor_ms = 3u * srvrun_pto_deadline_ms(c, 0);
   if (now_ms >= c->ku_rotated_at_ms + floor_ms) {
-    kuswitch_discard_old(&c->s.ku);
+    srvloop_ku_discard_old(&c->s);
   }
 }

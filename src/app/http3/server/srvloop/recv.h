@@ -40,6 +40,10 @@ int wired_srvloop_recv(
  * update), and restarts the per-key sealed-packet count. */
 void srvloop_ku_rotate_send(wired_server* s);
 
+/* RFC 9001 6.5: drop the retained old read keys (kuswitch_discard_old) and
+ * their expanded AES-NI copy. */
+void srvloop_ku_discard_old(wired_server* s);
+
 /* RFC 9001 5 / 6: open a 1-RTT packet (recv_onertt.c) under the one key
  * generation its Key Phase bit and packet number select. Returns 1 with
  * out->payload set, 0 if it does not open (counted toward the integrity
