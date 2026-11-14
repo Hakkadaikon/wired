@@ -54,8 +54,12 @@ void srvrun_path_tick(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   if (!srvrun_path_live(c)) {
     return;
   }
-  srvrun_path_expire(ctx->cfg, c, ctx->now_ms);
-  srvrun_path_resend(ctx->cfg, c, ctx->now_ms);
+  /* no challenge outstanding: nothing to abandon or resend, so the PTO
+   * both timers are measured against is not even computed */
+  if (pathsel_probing(&c->path)) {
+    srvrun_path_expire(ctx->cfg, c, ctx->now_ms);
+    srvrun_path_resend(ctx->cfg, c, ctx->now_ms);
+  }
   srvrun_path_retire(ctx->cfg, c);
 }
 

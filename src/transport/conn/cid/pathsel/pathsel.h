@@ -102,6 +102,16 @@ u64 pathsel_budget(pathsel* p, const pathsel_key* k);
  * match, 0 otherwise. */
 int pathsel_match(pathsel* p, const u8 resp[PATH_DATA], pathsel_key* out);
 
+/* 1 while some path is being validated (a challenge is outstanding): only
+ * then can pathsel_expire or pathsel_resend_due find anything. */
+static inline int pathsel_probing(const pathsel* p) {
+  int any = 0;
+  for (usz i = 0; i < PATHSEL_SLOTS; i++) {
+    any |= p->slot[i].in_use;
+  }
+  return any != 0;
+}
+
 /* RFC 9000 8.2.4: free one slot outstanding for at least timeout_ms,
  * copying its path to out. 1 if one expired, 0 otherwise. */
 int pathsel_expire(pathsel* p, u64 now_ms, u64 timeout_ms, pathsel_key* out);

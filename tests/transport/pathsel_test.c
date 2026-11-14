@@ -67,13 +67,21 @@ static void test_pathsel_match(void) {
 static void test_pathsel_expire(void) {
   pathsel       p  = {0};
   pathsel_key   k1 = ps_key(1), out;
-  pathsel_slot* s  = pathsel_claim(&p, &k1, &k1);
-  s->first_ms      = 100;
-  s->last_ms       = 900;
+  pathsel_slot* s;
+  /* with no challenge outstanding neither timer finds anything, however
+   * late it is */
+  CHECK(pathsel_probing(&p) == 0);
+  CHECK(pathsel_expire(&p, ~(u64)0, 0, &out) == 0);
+  CHECK(pathsel_resend_due(&p, ~(u64)0, 0) == 0);
+  s = pathsel_claim(&p, &k1, &k1);
+  CHECK(pathsel_probing(&p) == 1);
+  s->first_ms = 100;
+  s->last_ms  = 900;
   CHECK(pathsel_expire(&p, 1099, 1000, &out) == 0);
   CHECK(pathsel_expire(&p, 1100, 1000, &out) == 1);
   CHECK(pathsel_key_eq(&out, &k1));
   CHECK(s->in_use == 0);
+  CHECK(pathsel_probing(&p) == 0);
   CHECK(pathsel_expire(&p, 5000, 1000, &out) == 0);
 }
 
