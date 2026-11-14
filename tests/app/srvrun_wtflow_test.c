@@ -466,6 +466,45 @@ static void test_srvrun_ack_walk_reaches_live_sessions(void) {
   CHECK(wired_sendsess_inflight(fl) == 0);
 }
 
+/* srvrun_dgring_best stops at the first entry nothing can outrank, and
+ * still names the entry a walk of the whole ring would: most urgent first,
+ * oldest within an urgency. Every entry targets a connection that is down,
+ * so each one is ready to leave. */
+static void test_srvrun_dgring_best_matches_full_walk(void) {
+  wired_srvrun_env* env      = &g_srvrun_env;
+  usz               n0       = env->dgring_n;
+  usz               h0       = env->dgring_head;
+  int               up0      = g_srvrun_state.conns[0].up;
+  u32               rng      = 0x64677267;
+  usz               zero     = 0;
+  srvrun_state      st       = {g_srvrun_table, g_srvrun_state.conns};
+  g_srvrun_state.conns[0].up = 0;
+  env->dgring_head           = SRVRUN_DGRING_CAP - 2; /* wraps */
+  for (usz round = 0; round < 200; round++) {
+    usz want;
+    env->dgring_n = 1 + round % 6;
+    want          = env->dgring_n;
+    for (usz i = 0; i < env->dgring_n; i++) {
+      srvrun_dgring_entry* e = srvrun_dgring_at(env, i);
+      rng                    = rng * 1664525u + 1013904223u;
+      e->conn_slot           = 0;
+      e->urgency             = (u8)(rng >> 29); /* 0..7 */
+      zero += e->urgency == 0;
+      if (want == env->dgring_n ||
+          e->urgency < srvrun_dgring_at(env, want)->urgency) {
+        want = i;
+      }
+    }
+    CHECK(srvrun_dgring_best(env, &st, 0) == want);
+  }
+  CHECK(zero > 0);
+  env->dgring_n = 0;
+  CHECK(srvrun_dgring_best(env, &st, 0) == 0);
+  env->dgring_n              = n0;
+  env->dgring_head           = h0;
+  g_srvrun_state.conns[0].up = up0;
+}
+
 /* RFC 9000 13.2.1: a pending App-space ACK rides the MAX_STREAM_DATA packet
  * instead of costing a packet of its own. */
 static void test_srvrun_ack_rides_max_stream_data(void) {
@@ -543,6 +582,7 @@ void test_srvrun_wtflow(void) {
   test_srvrun_rst_none_tracks_kept();
   test_srvrun_resp_idle_tracks_claims();
   test_srvrun_wtsend_live_matches_in_use();
+  test_srvrun_dgring_best_matches_full_walk();
   test_srvrun_ack_rides_max_stream_data();
   test_srvrun_ack_walk_reaches_live_sessions();
   test_srvrun_wt_replies_leave_relay_slots();

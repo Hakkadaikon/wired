@@ -8,6 +8,7 @@ static int srvrun_dgring_beats(
     wired_srvrun_env* env, srvrun_state* st, usz i, usz best, u64 now_ms);
 static usz srvrun_dgring_best(
     wired_srvrun_env* env, srvrun_state* st, u64 now_ms);
+static int  srvrun_dgring_open(wired_srvrun_env* env, usz i, usz best);
 static usz  srvrun_dgring_used(const srvrun_dgring_entry* e);
 static void srvrun_dgring_remove(wired_srvrun_env* env, usz i);
 static int  srvrun_dgring_live(
@@ -78,13 +79,23 @@ static int srvrun_dgring_beats(
           dgpriority_higher(e->urgency, srvrun_dgring_at(env, best)->urgency));
 }
 
+/* The search for the best entry goes on: entry i exists and the best so
+ * far can still be outranked. An entry of urgency 0 cannot (RFC 9218 4.1:
+ * 0 is the most urgent, and an equal urgency keeps the older one), so the
+ * walk ends at the first sendable one -- every entry, when a hub relays
+ * all of its DATAGRAMs at one urgency. */
+static int srvrun_dgring_open(wired_srvrun_env* env, usz i, usz best) {
+  return i < env->dgring_n &&
+         (best == env->dgring_n || srvrun_dgring_at(env, best)->urgency != 0);
+}
+
 /* The most urgent sendable entry, oldest within its urgency -- a held
  * connection's entries are passed over, so they never block another
  * connection's; dgring_n when none can go now. */
 static usz srvrun_dgring_best(
     wired_srvrun_env* env, srvrun_state* st, u64 now_ms) {
   usz best = env->dgring_n;
-  for (usz i = 0; i < env->dgring_n; i++) {
+  for (usz i = 0; srvrun_dgring_open(env, i, best); i++) {
     if (srvrun_dgring_beats(env, st, i, best, now_ms)) {
       best = i;
     }
