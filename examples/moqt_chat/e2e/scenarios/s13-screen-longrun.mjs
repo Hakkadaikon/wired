@@ -83,6 +83,21 @@ function hubSendCounters(qlogPath) {
 	return last;
 }
 
+/** The per-sender voice summary of every client's tap events. */
+async function voiceTraceOf(clients) {
+	const taps = {};
+	for (const c of clients)
+		taps[c.tag] = (await clientMetrics(c))?.voiceTapEvents ?? [];
+	return summarizeVoiceTrace(taps);
+}
+
+/** A client's own long-lived uni streams, by the bytes they carried. */
+function ownScreenStreams(m) {
+	return (m?.wtOutUniStreams ?? [])
+		.filter((s) => s.bytes >= 1000)
+		.map(({ openedAt, bytes, closed }) => ({ openedAt, bytes, closed }));
+}
+
 export async function run({ pageUrl, server, arg, log }) {
 	const talkMs = Number(arg("talk-ms", "180000"));
 	const chatIntervalMs = Number(arg("chat-interval-ms", "500"));
@@ -143,7 +158,6 @@ export async function run({ pageUrl, server, arg, log }) {
 		const taps = {};
 		const stalledTiles = {};
 		const screenStreams = {};
-		const voiceTaps = {};
 		for (const c of clients) {
 			const entries = await c.page.evaluate(
 				() => window.__wiredScreenTap ?? [],
@@ -172,13 +186,10 @@ export async function run({ pageUrl, server, arg, log }) {
 					);
 			}
 			const m = await clientMetrics(c);
-			voiceTaps[c.tag] = m?.voiceTapEvents ?? [];
 			// This client's own long-lived uni streams (chat's one-shot uploads
 			// are a few dozen bytes; a screen stream is many KB): more than one
 			// means the write timeout fired and the share reopened its stream.
-			screenStreams[c.tag] = (m?.wtOutUniStreams ?? [])
-				.filter((s) => s.bytes >= 1000)
-				.map(({ openedAt, bytes, closed }) => ({ openedAt, bytes, closed }));
+			screenStreams[c.tag] = ownScreenStreams(m);
 			const dead = (m?.wtEvents ?? []).filter((e) => e.closedAt !== null);
 			if (dead.length > 0)
 				failures.push(
@@ -202,7 +213,7 @@ export async function run({ pageUrl, server, arg, log }) {
 			taps,
 			// Voice rides DATAGRAMs next to the screen streams: its inter-arrival
 			// shows whether the share's bursts hold the audio back at the hub.
-			voiceTrace: summarizeVoiceTrace(voiceTaps),
+			voiceTrace: await voiceTraceOf(clients),
 			hubSendCounters: hubSendCounters(path.join(evidenceDir, "server.qlog")),
 			proxyStats: proxy.stats(),
 		};
