@@ -10,6 +10,7 @@ static void recvmmsg_fill_all(
     u8        cmsgbufs[][WIRED_RECV_CMSG_CAP]);
 static void recvmmsg_read_lens(mmsg_buf* bufs, const mmsghdr* slots, i64 r);
 static void recvmmsg_read_ecn(mmsg_buf* bufs, const mmsghdr* slots, i64 r);
+static i64  recvmmsg_capped(i64 r, usz n);
 
 /* Point one iovec+msghdr+mmsghdr slot at bufs[i].buf so the kernel writes
  * directly into the caller's storage; src doubles as msg_name. cmsgbuf is a
@@ -65,10 +66,18 @@ static void recvmmsg_read_ecn(mmsg_buf* bufs, const mmsghdr* slots, i64 r) {
   }
 }
 
+/* The kernel fills at most the n slots it was given; holding its count to
+ * n keeps the readers below inside the slots recvmmsg_fill_all set up. */
+static i64 recvmmsg_capped(i64 r, usz n) { return r > (i64)n ? (i64)n : r; }
+
 i64 wired_udp_recvmmsg(i64 fd, mmsg_buf* bufs, usz count) {
-  mmsghdr slots[WIRED_RECVMMSG_MAX]                         = {0};
-  iovec   iovs[WIRED_RECVMMSG_MAX]                          = {0};
-  u8      cmsgbufs[WIRED_RECVMMSG_MAX][WIRED_RECV_CMSG_CAP] = {0};
+  /* Not zeroed here: recvmmsg_fill_all initializes every byte of the n
+   * slots and iovecs the syscall reads, and of a cmsg buffer only the
+   * msg_controllen bytes the kernel wrote are read back. Zeroing all
+   * WIRED_RECVMMSG_MAX of them cost about 8 KB of writes per call. */
+  mmsghdr slots[WIRED_RECVMMSG_MAX];
+  iovec   iovs[WIRED_RECVMMSG_MAX];
+  u8      cmsgbufs[WIRED_RECVMMSG_MAX][WIRED_RECV_CMSG_CAP];
   usz     n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
   i64     r;
   recvmmsg_fill_all(slots, iovs, bufs, n, cmsgbufs);
@@ -76,6 +85,7 @@ i64 wired_udp_recvmmsg(i64 fd, mmsg_buf* bufs, usz count) {
   if (r < 0) {
     return r;
   }
+  r = recvmmsg_capped(r, n);
   recvmmsg_read_lens(bufs, slots, r);
   recvmmsg_read_ecn(bufs, slots, r);
   return r;
@@ -104,9 +114,13 @@ i64 wired_udp_reuseport_enable(i64 fd) {
 }
 
 i64 wired_udp_recvmmsg_nowait(i64 fd, mmsg_buf* bufs, usz count) {
-  mmsghdr slots[WIRED_RECVMMSG_MAX]                         = {0};
-  iovec   iovs[WIRED_RECVMMSG_MAX]                          = {0};
-  u8      cmsgbufs[WIRED_RECVMMSG_MAX][WIRED_RECV_CMSG_CAP] = {0};
+  /* Not zeroed here: recvmmsg_fill_all initializes every byte of the n
+   * slots and iovecs the syscall reads, and of a cmsg buffer only the
+   * msg_controllen bytes the kernel wrote are read back. Zeroing all
+   * WIRED_RECVMMSG_MAX of them cost about 8 KB of writes per call. */
+  mmsghdr slots[WIRED_RECVMMSG_MAX];
+  iovec   iovs[WIRED_RECVMMSG_MAX];
+  u8      cmsgbufs[WIRED_RECVMMSG_MAX][WIRED_RECV_CMSG_CAP];
   usz     n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
   i64     r;
   recvmmsg_fill_all(slots, iovs, bufs, n, cmsgbufs);
@@ -115,6 +129,7 @@ i64 wired_udp_recvmmsg_nowait(i64 fd, mmsg_buf* bufs, usz count) {
   if (r < 0) {
     return r;
   }
+  r = recvmmsg_capped(r, n);
   recvmmsg_read_lens(bufs, slots, r);
   recvmmsg_read_ecn(bufs, slots, r);
   return r;
