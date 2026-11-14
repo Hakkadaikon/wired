@@ -7,6 +7,7 @@ static int srvrun_loss_counts(
 static void srvrun_start_done_resp(
     const srvrun_step_ctx* ctx, int slot, u8 done_i);
 static void srvrun_start_held_resp(const srvrun_step_ctx* ctx, int slot, u8 i);
+static int  srvrun_held_due(const srvrun_conn* c);
 
 /* RFC 9002 7.6.2/5.2: on persistent congestion collapse cwnd to the
  * minimum window and reset min_rtt to the newest sample. */
@@ -109,9 +110,14 @@ static void srvrun_start_held_resp(const srvrun_step_ctx* ctx, int slot, u8 i) {
 
 /* WTH3-009/042: once the client's SETTINGS have arrived, every CONNECT held
  * before them (srvrun_wt_hold) is processed exactly once. */
+/* A held CONNECT exists and the SETTINGS it waited for are in. */
+static int srvrun_held_due(const srvrun_conn* c) {
+  return c->wt_held_mask != 0 && srvrun_wt_settings_ready(c);
+}
+
 void srvrun_start_held_resps(const srvrun_step_ctx* ctx, int slot) {
-  if (!srvrun_wt_settings_ready(&ctx->st->conns[slot])) {
-    return;
+  if (!srvrun_held_due(&ctx->st->conns[slot])) {
+    return; /* nothing held: the usual case on every received packet */
   }
   for (u8 i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     srvrun_start_held_resp(ctx, slot, i);

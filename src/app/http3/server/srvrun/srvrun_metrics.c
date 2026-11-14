@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "common/bytes/util/bits.h"
 
 static void srvrun_metrics_fill(
     const srvrun_conn* c, wired_qlogevent_metrics_in* m);
@@ -7,10 +8,12 @@ static int srvrun_metrics_emit_due(const srvrun_step_ctx* ctx, srvrun_conn* c);
 static int srvrun_deferred_ack_due(srvrun_conn* c);
 
 void srvrun_reap_wtsends(srvrun_conn* c) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    /* reaping only ever frees a slot: a free one has nothing to do */
-    if (c->wtsend[i].in_use) {
-      srvrun_reap_one_wtsend(c, &c->wtsend[i]);
+  /* reaping only ever frees a slot: a free one has nothing to do, so the
+   * slots known free are not even looked at */
+  for (u64 b = srvrun_wtsend_maybe(c); b; b &= b - 1) {
+    srvrun_wtsend* w = &c->wtsend[bits_ctz64(b)];
+    if (w->in_use) {
+      srvrun_reap_one_wtsend(c, w);
     }
   }
 }
