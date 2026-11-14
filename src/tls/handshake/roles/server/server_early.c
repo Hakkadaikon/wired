@@ -41,16 +41,6 @@ int wired_server_is_confirmed(const wired_server* s) {
   return s->phase == WIRED_SERVER_HS_CONFIRMED;
 }
 
-/* The expanded 1-RTT keys start empty: xkeys_sync builds them from this
- * connection's own keys, and a slot's earlier connection leaves none
- * behind (RFC 9001 6.5 asks the same of discarded keys). */
-void server_reset_xkeys(wired_server* s) {
-  xkeys_wipe(&s->kx_send);
-  for (usz i = 0; i < sizeof s->kx_recv / sizeof s->kx_recv[0]; i++) {
-    xkeys_wipe(&s->kx_recv[i]);
-  }
-}
-
 void wired_server_set_limits(
     wired_server* s,
     u64           max_data,

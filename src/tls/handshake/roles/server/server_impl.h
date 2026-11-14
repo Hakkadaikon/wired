@@ -22,6 +22,17 @@
 #include "transport/conn/lifecycle/idledrive/idlenego.h"
 #include "transport/conn/loop/crecv/message.h"
 
+/* The expanded 1-RTT keys start empty: xkeys_sync builds them from this
+ * connection's own keys, and a slot's earlier connection leaves none
+ * behind (RFC 9001 6.5 asks the same of discarded keys). In this header so
+ * every build that takes server.c gets it with it. */
+static inline void server_reset_xkeys(wired_server* s) {
+  xkeys_wipe(&s->kx_send);
+  for (usz i = 0; i < sizeof s->kx_recv / sizeof s->kx_recv[0]; i++) {
+    xkeys_wipe(&s->kx_recv[i]);
+  }
+}
+
 /* RFC 8446 4.1.2: legacy_version(2) precedes ClientHello.random, both after
  * the 4-byte handshake header (HS_HEADER) put_prefix wrote them at. */
 #define SRV_CH_RANDOM_OFF (HS_HEADER + 2)
