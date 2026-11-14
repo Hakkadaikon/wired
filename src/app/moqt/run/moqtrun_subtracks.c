@@ -72,13 +72,14 @@ static void moqtrun_disc_sync_one(
 }
 
 /* Only two kinds of slot can need work for sub: a live PUBLISH_NAMESPACE
- * (pub_mask; a new announcement) and one sub was already told of
- * (ns_seen; a withdrawal). Every other slot is a no-op in
- * moqtrun_disc_sync_one, so the walk skips it. */
+ * it was not told of (a new announcement) and one it was told of that is
+ * no longer published (a withdrawal) -- the slots where pub_mask and
+ * ns_seen differ. Every other slot is a no-op in moqtrun_disc_sync_one,
+ * so the walk skips it. */
 static void moqtrun_disc_sync_sub(
     wired_moqt_hub* hub, wired_moqtrun_req* sub, const u64* pub_mask) {
   for (usz w = 0; w < WIRED_MOQTRUN_REQ_WORDS; w++) {
-    for (u64 m = pub_mask[w] | sub->ns_seen[w]; m; m &= m - 1) {
+    for (u64 m = pub_mask[w] ^ sub->ns_seen[w]; m; m &= m - 1) {
       moqtrun_disc_sync_one(hub, sub, w * 64 + bits_ctz64(m));
     }
   }
