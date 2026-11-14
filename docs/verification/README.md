@@ -18,5 +18,6 @@
 | [実装の比較](../performance/comparison.md) | quic-go、quiche、ngtcp2、picoquic との性能と機能の比較 |
 | [ベンチマークの実行結果](../performance/comparison-runs.md) | 実装の比較の生データ |
 | [moqt_chat のリソース監視](../performance/monitoring.md) | `moqt_chat` の `wired_server` の 4.5 時間の CPU、メモリ、ネットワーク |
+| [高速化の記録](../performance/speedup.md) | `moqt_chat` が使う経路の高速化の効果と、サーバーのループで効く位置 |
 
 テストの書き方、検証の層(TLA+、Lean 4、TDD)の選び方、テストに入れる検査は [テスト](../standards/testing.md) にある。
