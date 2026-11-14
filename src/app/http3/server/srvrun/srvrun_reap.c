@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "common/bytes/util/bits.h"
 
 static void srvrun_ecn_note_acked(srvrun_conn* c, u64 hits, u64 newest_ms);
 static void srvrun_cc_sample(
@@ -7,6 +8,8 @@ static void srvrun_cc_range(
     srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms);
 static void srvrun_loss_span_add(
     srvrun_loss_span* s, const wired_sendsess_lost_slice* l);
+static int srvrun_sess_ackable(int in_use, const wired_sendsess* sess);
+static int srvrun_sess_losable(const srvrun_wtsend* w);
 
 /* Accumulate one range's newly-acked packets into the step's ECN scratch
  * (srvrun_conn.ecn_newly/ecn_sent_ms), before wired_sendsess_ack clears
@@ -90,12 +93,21 @@ usz srvrun_reap_losses(
   return n;
 }
 
+/* 1 while an ACK range can do anything for an in-use session: it has a
+ * slice in flight or a requeued one whose first copy may be acknowledged.
+ * Without either srvrun_cc_range finds nothing, and most sessions of a
+ * standing connection are in that state on every received ACK. */
+static int srvrun_sess_ackable(int in_use, const wired_sendsess* sess) {
+  return in_use && (sess->inflight_n | sess->requeue_n) != 0;
+}
+
 /* Ack/cc accounting for one range on every in-use wtsend session. Loss
  * reaping deliberately does NOT happen here -- see srvrun_feed_acks. */
 void srvrun_ack_range_wt(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    if (c->wtsend[i].in_use) {
-      srvrun_cc_range(c, &c->wtsend[i].sess, lo, hi, now_ms);
+  for (u64 b = srvrun_wtsend_maybe(c); b; b &= b - 1) {
+    srvrun_wtsend* w = &c->wtsend[bits_ctz64(b)];
+    if (srvrun_sess_ackable(w->in_use, &w->sess)) {
+      srvrun_cc_range(c, &w->sess, lo, hi, now_ms);
     }
   }
 }
@@ -103,22 +115,28 @@ void srvrun_ack_range_wt(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
 /* The resp[] half of the ACK-range broadcast, mirroring the wtsend loop. */
 void srvrun_ack_range_resps(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
-    if (c->resp[i].in_use) {
+    if (srvrun_sess_ackable(c->resp[i].in_use, &c->resp[i].sess)) {
       srvrun_cc_range(c, &c->resp[i].sess, lo, hi, now_ms);
     }
   }
 }
 
+static int srvrun_sess_losable(const srvrun_wtsend* w) {
+  return w->in_use && w->sess.inflight_n;
+}
+
 /* One loss pass over every in-use wtsend session against the connection's
  * ONE largest_acked (RFC 9002 6.1.1); the slot's stream_id is only for the
- * loss records' qlog attribution (RFC 9000 19.8). */
+ * loss records' qlog attribution (RFC 9000 19.8). A session with nothing
+ * in flight has nothing to lose (srvrun_reap_losses), so it is not called.
+ */
 usz srvrun_reap_losses_wt(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, srvrun_loss_span* span) {
   usz lost = 0;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    if (c->wtsend[i].in_use) {
-      lost += srvrun_reap_losses(
-          cfg, c, &c->wtsend[i].sess, c->wtsend[i].stream_id, now_ms, span);
+  for (u64 b = srvrun_wtsend_maybe(c); b; b &= b - 1) {
+    srvrun_wtsend* w = &c->wtsend[bits_ctz64(b)];
+    if (srvrun_sess_losable(w)) {
+      lost += srvrun_reap_losses(cfg, c, &w->sess, w->stream_id, now_ms, span);
     }
   }
   return lost;

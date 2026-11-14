@@ -429,6 +429,43 @@ static void test_srvrun_wtsend_live_matches_in_use(void) {
   CHECK(srvrun_wtsend_live(c) == 0);
 }
 
+/* The ACK-range walk reaches every send slot an ACK can do something for
+ * -- one with a slice in flight, one with only a requeued slice whose first
+ * copy the range covers -- wherever it sits, and the loss walk reaches the
+ * in-flight one. */
+static void test_srvrun_ack_walk_reaches_live_sessions(void) {
+  srvrun_conn*      c   = sr_sl_fixture();
+  wired_sendq_slice sl  = {0, 10, 0};
+  srvrun_cfg        cfg = sr_wt_send_cfg();
+  srvrun_loss_span  span;
+  wired_sendsess*   fl;
+  wired_sendsess*   rq;
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    c->wtsend[i].in_use = 0;
+  }
+  c->wtx.send_free = 0;
+  CHECK(srvrun_wtsend_live(c) == 0); /* every slot now known free */
+  fl = &srvrun_wtsend_claim(c, 0)->sess;
+  rq = &c->wtsend[SRVRUN_WT_SEND_SLOTS - 1].sess;
+  c->wtsend[SRVRUN_WT_SEND_SLOTS - 1].in_use = 1; /* by hand: last slot */
+  c->wtx.send_free                           = 0;
+  CHECK(wired_sendsess_sent(fl, &sl, 5, 100));
+  bytes_memset(rq, 0, sizeof *rq);
+  rq->requeue[0]    = sl;
+  rq->requeue_pn[0] = 7 + 1; /* lost on pn 7 */
+  rq->requeue_n     = 1;
+  srvrun_ack_range_wt(c, 6, 7, 200); /* covers the requeued one only */
+  CHECK(rq->requeue_n == 0 && wired_sendsess_inflight(fl) == 1);
+  CHECK(wired_sendsess_sent(fl, &sl, 9, 100));
+  c->largest_acked = 9;
+  bytes_memset(&span, 0, sizeof span);
+  srvrun_ack_range_wt(c, 9, 9, 200);
+  CHECK(wired_sendsess_inflight(fl) == 1); /* pn 5 is still out */
+  c->largest_acked = 5 + 3; /* RFC 9002 6.1.1: pn 5 is past the threshold */
+  CHECK(srvrun_reap_losses_wt(&cfg, c, 200, &span) == 1);
+  CHECK(wired_sendsess_inflight(fl) == 0);
+}
+
 /* resp_idle is set by a refresh that finds no response in use and cleared
  * by the next claim, so the pump's response half is skipped only while
  * there is nothing for it to visit. */
@@ -490,6 +527,7 @@ void test_srvrun_wtflow(void) {
   test_srvrun_rst_none_tracks_kept();
   test_srvrun_resp_idle_tracks_claims();
   test_srvrun_wtsend_live_matches_in_use();
+  test_srvrun_ack_walk_reaches_live_sessions();
   test_srvrun_wt_replies_leave_relay_slots();
   test_srvrun_wt_fair_pass_equal_per_session();
   test_srvrun_wt_open_capped_per_session();

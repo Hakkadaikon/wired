@@ -68,6 +68,13 @@ u32 srvrun_wt_pass_key(const srvrun_conn* c, u64 live);
 u64 srvrun_wtsend_live_scan(const srvrun_conn* c);
 u64 srvrun_wtsend_live(srvrun_conn* c);
 
+/* The WT send slots not known free (srvrun_conn.wtx.send_free), one bit
+ * per slot: every in-use slot is among them, so a walk of these that still
+ * checks in_use sees what a walk of all SRVRUN_WT_SEND_SLOTS would. */
+static inline u64 srvrun_wtsend_maybe(const srvrun_conn* c) {
+  return (~(u64)0 >> (64 - SRVRUN_WT_SEND_SLOTS)) & ~c->wtx.send_free;
+}
+
 /* w has something to put on the wire: a retransmit, unsent bytes, or a
  * pending bare FIN. In line: the pump asks this of every in-use slot on
  * every round. */

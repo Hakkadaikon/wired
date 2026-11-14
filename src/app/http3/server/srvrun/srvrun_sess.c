@@ -105,8 +105,7 @@ static void srvrun_acct_sess(srvrun_acct* a, const wired_sendsess* sess) {
 /* Only the slots not known free (srvrun_conn.wtx.send_free) are looked
  * at: a free slot adds nothing. */
 static void srvrun_acct_wtsends(const srvrun_conn* c, srvrun_acct* a) {
-  u64 all = ~(u64)0 >> (64 - SRVRUN_WT_SEND_SLOTS);
-  for (u64 b = all & ~c->wtx.send_free; b; b &= b - 1) {
+  for (u64 b = srvrun_wtsend_maybe(c); b; b &= b - 1) {
     usz i = bits_ctz64(b);
     if (c->wtsend[i].in_use) {
       srvrun_acct_sess(a, &c->wtsend[i].sess);
