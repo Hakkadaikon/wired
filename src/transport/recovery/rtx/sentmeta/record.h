@@ -22,8 +22,11 @@ typedef struct {
 /** The sent-packet ring and its running bytes-in-flight total. */
 typedef struct {
   sentmeta_pkt pkts[SENTMETA_CAP]; /**< the ring; used marks a live slot */
-  usz          count;              /**< live slots */
-  usz          total_in_flight;    /**< bytes of in-flight live slots */
+  /** One bit per slot, set exactly while pkts[i].used: the walks of every
+   * received ACK visit the live slots, not all SENTMETA_CAP. */
+  u64 live[SENTMETA_CAP / 64];
+  usz count;           /**< live slots */
+  usz total_in_flight; /**< bytes of in-flight live slots */
 } sentmeta;
 
 void sentmeta_init(sentmeta* m);
@@ -50,6 +53,12 @@ void sentmeta_reclaim(sentmeta* m, usz i);
  * total_in_flight -- their owner accounts for them some other way. No-op if
  * pn is not tracked or not in flight. */
 void sentmeta_uncount(sentmeta* m, u64 pn, usz n);
+
+/* Index of the first live slot at or after from, or SENTMETA_CAP when
+ * there is none: for (i = sentmeta_next(m, 0); i < SENTMETA_CAP;
+ * i = sentmeta_next(m, i + 1)) visits the live slots in index order, also
+ * when the body reclaims slot i. */
+usz sentmeta_next(const sentmeta* m, usz from);
 
 /* Index of the slot holding pn, or SENTMETA_CAP if not tracked. */
 usz sentmeta_find(const sentmeta* m, u64 pn);

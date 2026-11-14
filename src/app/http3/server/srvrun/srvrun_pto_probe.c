@@ -20,8 +20,10 @@ static int srvrun_rec_elicits(const sentmeta_pkt* p) {
 /* RFC 9002 A.8: 1 while some ack-eliciting 1-RTT packet in the record is
  * neither acknowledged nor declared lost. */
 int srvrun_rec_eliciting(const srvrun_conn* c) {
-  for (usz i = 0; i < SENTMETA_CAP; i++) {
-    if (srvrun_rec_elicits(&c->l.ackst.sent.pkts[i])) {
+  const sentmeta* m = &c->l.ackst.sent;
+  for (usz i = sentmeta_next(m, 0); i < SENTMETA_CAP;
+       i     = sentmeta_next(m, i + 1)) {
+    if (srvrun_rec_elicits(&m->pkts[i])) {
       return 1;
     }
   }

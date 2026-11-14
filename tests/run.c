@@ -620,6 +620,7 @@
 #include "app/http3/server/srvrun/srvrun_reannounce.c"
 #include "app/http3/server/srvrun/srvrun_reap.c"
 #include "app/http3/server/srvrun/srvrun_recover.c"
+#include "app/http3/server/srvrun/srvrun_recover_delay.c"
 #include "app/http3/server/srvrun/srvrun_rebind.c"
 #include "app/http3/server/srvrun/srvrun_reconfirm.c"
 #include "app/http3/server/srvrun/srvrun_recv.c"

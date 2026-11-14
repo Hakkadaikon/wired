@@ -27,25 +27,6 @@ static int srvrun_rec_lost(
 static void srvrun_rec_arm(srvrun_conn* c, u64 at_us);
 static void srvrun_rec_check(srvrun_conn* c, usz i, u64 now_us, u64 delay_us);
 
-/* RFC 9002 6.1.2 / A.10: loss_delay = max(kTimeThreshold *
- * max(smoothed_rtt, latest_rtt), kGranularity), in us. An estimator that
- * was never initialized (rtt_init seeds kInitialRtt, so only a bare
- * zeroed connection has smoothed_rtt 0 without a sample) skips the time
- * threshold instead: 0. */
-u64 srvrun_loss_delay_us(const srvrun_conn* c) {
-  if (!c->rtt.have_sample && !c->rtt.smoothed_rtt) {
-    return 0;
-  }
-  return lossdrive_loss_delay(
-      c->rtt.smoothed_rtt, c->latest_rtt_ms * 1000, RTT_GRANULARITY);
-}
-
-/* RFC 9000 18.2: the peer's max_ack_delay (default 25ms), in us. */
-u64 srvrun_peer_max_ack_delay_us(const srvrun_conn* c) {
-  u64 p1 = c->s.sdrv.peer_max_ack_delay_p1;
-  return (p1 ? p1 - 1 : 25) * 1000;
-}
-
 /* RFC 9000 19.3: the sample frame's ACK Delay field scaled by the peer's
  * ack_delay_exponent (default 3), in us. */
 static u64 srvrun_rec_ack_delay_us(const srvrun_conn* c) {
@@ -70,7 +51,8 @@ static void srvrun_rec_take(sentmeta* m, usz i, srvrun_rec_acked* a) {
 
 static void srvrun_rec_ack_range(
     sentmeta* m, u64 lo, u64 hi, srvrun_rec_acked* a) {
-  for (usz i = 0; i < SENTMETA_CAP; i++) {
+  for (usz i = sentmeta_next(m, 0); i < SENTMETA_CAP;
+       i     = sentmeta_next(m, i + 1)) {
     if (srvrun_rec_in(&m->pkts[i], lo, hi)) {
       srvrun_rec_take(m, i, a);
     }
@@ -155,9 +137,11 @@ static void srvrun_rec_check(srvrun_conn* c, usz i, u64 now_us, u64 delay_us) {
  * SHOULD be set for the remaining time"); 0 disarms it. The send sessions'
  * own pass (srvrun_reap_losses_all) requeues the STREAM data. */
 static void srvrun_rec_detect_scan(srvrun_conn* c, u64 now_ms) {
-  u64 delay_us = srvrun_loss_delay_us(c);
-  for (usz i = 0; i < SENTMETA_CAP; i++) {
-    if (srvrun_rec_eligible(&c->l.ackst.sent.pkts[i], c->largest_acked)) {
+  u64             delay_us = srvrun_loss_delay_us(c);
+  const sentmeta* m        = &c->l.ackst.sent;
+  for (usz i = sentmeta_next(m, 0); i < SENTMETA_CAP;
+       i     = sentmeta_next(m, i + 1)) {
+    if (srvrun_rec_eligible(&m->pkts[i], c->largest_acked)) {
       srvrun_rec_check(c, i, now_ms * 1000, delay_us);
     }
   }
@@ -169,12 +153,4 @@ void srvrun_rec_detect(srvrun_conn* c, u64 now_ms) {
   if (c->l.ackst.sent.count) {
     srvrun_rec_detect_scan(c, now_ms);
   }
-}
-
-/* RFC 9002 2 / 7: bytes in flight -- the send sessions' STREAM slices, the
- * rest of every in-flight 1-RTT packet the record counts, and the boot
- * flight until its keys are discarded. */
-usz srvrun_bytes_in_flight(const srvrun_conn* c) {
-  return c->acct_inflight + c->l.ackst.sent.total_in_flight +
-         srvrun_boot_inflight(c);
 }
