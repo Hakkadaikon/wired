@@ -505,22 +505,6 @@ static void test_srvrun_dgring_best_matches_full_walk(void) {
   g_srvrun_state.conns[0].up = up0;
 }
 
-/* RFC 9000 13.2.1: a pending App-space ACK rides the MAX_STREAM_DATA packet
- * instead of costing a packet of its own. */
-static void test_srvrun_ack_rides_max_stream_data(void) {
-  static const u8 pl[] = {0x0a, 6, 1, 0x21}; /* client uni stream 6, no FIN */
-  srvrun_conn*    c    = sr_sl_fixture();
-  u8              ack[SRVRUN_ACK_ROOM];
-  u64             pn;
-  sr_sl_step(c, pl, sizeof pl);
-  CHECK(c->closing == 0);
-  CHECK(wired_srvloop_ack_peek(&c->l, ack, sizeof ack) > 0);
-  pn = c->l.tx_pn;
-  srvrun_send_max_stream_data(&g_sl_cfg, c, 6, 1u << 20);
-  CHECK(c->l.tx_pn == pn + 1);
-  CHECK(wired_srvloop_ack_peek(&c->l, ack, sizeof ack) == 0);
-}
-
 /* resp_idle is set by a refresh that finds no response in use and cleared
  * by the next claim, so the pump's response half is skipped only while
  * there is nothing for it to visit. */
@@ -583,7 +567,6 @@ void test_srvrun_wtflow(void) {
   test_srvrun_resp_idle_tracks_claims();
   test_srvrun_wtsend_live_matches_in_use();
   test_srvrun_dgring_best_matches_full_walk();
-  test_srvrun_ack_rides_max_stream_data();
   test_srvrun_ack_walk_reaches_live_sessions();
   test_srvrun_wt_replies_leave_relay_slots();
   test_srvrun_wt_fair_pass_equal_per_session();

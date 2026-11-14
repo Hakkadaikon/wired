@@ -7,7 +7,6 @@ static void srvrun_grant_stream_credit(
     u64               delivered_len,
     u64*              credit_advertised);
 static int srvrun_wt_bidi_held(const wired_srvloop_wt_stream_slot* slot);
-static int srvrun_ack_rode(srvrun_conn* c, usz al);
 
 /* RFC 9000 4.6/19.11: one MAX_STREAMS(uni) raise for every client WT uni
  * stream ended since the last one (wt_uni_credit_owed). */
@@ -52,47 +51,35 @@ int srvrun_wt_credit_stream_due(u64 ceiling, u64 credit_advertised) {
           ceiling - credit_advertised >= SRVRUN_CREDIT_STEP);
 }
 
-/* The pending ACK that rode a sealed packet (al of its bytes) is consumed
- * now that its carrier exists; always 1. */
-static int srvrun_ack_rode(srvrun_conn* c, usz al) {
-  if (al) {
-    wired_srvloop_ack_mark_sent(&c->l);
-  }
-  return 1;
-}
-
 /* Seal one MAX_STREAM_DATA frame (RFC 9000 19.10) naming stream_id/value as
- * its own 1-RTT packet, mirroring srvrun_rst_send's shape for a different
- * frame. RFC 9000 13.2.1: an App-space ACK still pending rides it, ahead of
- * the frame -- a stream being received owes both at the same moments, and
- * the ACK would otherwise cost a second sealed packet. The caller sends
- * the packet at once. */
+ * its own 1-RTT packet and send it, mirroring srvrun_rst_send's
+ * shape for a different frame. */
 int srvrun_seal_max_stream_data(
     srvrun_conn* c, u64 stream_id, u64 value, wired_obuf* out) {
-  u8                    pl[SRVRUN_ACK_ROOM + 32];
-  usz                   al = wired_srvloop_ack_peek(&c->l, pl, SRVRUN_ACK_ROOM);
-  stream_data_frame     f  = {stream_id, value};
+  u8                    pl[32];
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
+  stream_data_frame     f   = {stream_id, value};
   wired_srvloop_send_in sin;
-  usz pln = max_stream_data_encode(pl + al, sizeof pl - al, &f);
+  usz                   pln = max_stream_data_encode(plb.p, plb.cap, &f);
   if (!pln) {
     return 0;
   }
-  sin = (wired_srvloop_send_in){
+  plb.len = pln;
+  sin     = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
       c->l.tx_pn++,
       -1,
-      wired_span_of(pl, al + pln),
+      wired_span_of(pl, pln),
       0,
       0,
       0,
       0};
-  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out) &&
-         srvrun_ack_rode(c, al);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 void srvrun_send_max_stream_data(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 value) {
-  u8         out[SRVRUN_ACK_ROOM + 128];
+  u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
   /* RFC 9000 13.3: none once the receive part is in Size Known/Reset Recvd */
   if (wired_srvloop_rx_final_known(&c->l, stream_id) ||
