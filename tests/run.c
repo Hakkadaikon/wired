@@ -495,6 +495,7 @@
 #include "app/http3/server/srvloop/dispatch_ncid.c"
 #include "app/http3/server/srvloop/dispatch_qdec.c"
 #include "app/http3/server/srvloop/dispatch_qenc.c"
+#include "app/http3/server/srvloop/dispatch_stray.c"
 #include "app/http3/server/srvloop/dispatch_queue.c"
 #include "app/http3/server/srvloop/dispatch_raw.c"
 #include "app/http3/server/srvloop/dispatch_reassemble.c"

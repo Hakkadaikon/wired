@@ -178,6 +178,7 @@ void srvloop_gather_wt_uni_land(wired_srvloop* l, const stream_frame* sf) {
   if (i >= 0 && wt_uni_sig_ready(&l->wt_uni_streams[i], sf)) {
     srvloop_gather_wt_uni_one(sf, &l->wt_uni_streams[i]);
   }
+  srvloop_stray_adopt_uni(l, sf->stream_id); /* overtook the type */
   dispatch_qlog_stream_received(l, sf);
 }
 

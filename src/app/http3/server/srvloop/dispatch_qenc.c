@@ -18,6 +18,7 @@ static void gather_wt_land(wired_srvloop* l, const stream_frame* sf) {
   if (i >= 0 && srvloop_wt_sig_ready(&l->wt_streams[i], sf)) {
     srvloop_gather_wt_one(sf, &l->wt_streams[i]);
   }
+  srvloop_stray_adopt_bidi(l, sf->stream_id); /* overtook the signal */
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: if the walked frame at `frame` is WT bidi
@@ -30,6 +31,7 @@ int srvloop_gather_wt_frame(wired_srvloop* l, u64 type, wired_span frame) {
     return 0;
   }
   if (!srvloop_wt_frame_relevant(l, &sf)) {
+    srvloop_stray_keep_bidi(l, &sf); /* may still prove to be WT */
     return 0;
   }
   gather_wt_land(l, &sf);
@@ -181,6 +183,12 @@ static int qenc_type_known(const wired_srvloop* l, const stream_frame* sf) {
 static int qenc_stream_known(const wired_srvloop* l, const stream_frame* sf) {
   return (l->ctrl.open && l->ctrl.stream_id == sf->stream_id) ||
          qenc_type_known(l, sf);
+}
+
+/* qenc_stream_known for the stray stash (dispatch_stray.c): a stream whose
+ * kind is settled keeps no stray frames. */
+int srvloop_uni_stream_known(const wired_srvloop* l, const stream_frame* sf) {
+  return qenc_stream_known(l, sf);
 }
 
 /* Record sf's stream as typed once its leading type varint is whole at

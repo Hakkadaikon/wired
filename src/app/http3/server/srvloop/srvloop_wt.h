@@ -7,8 +7,10 @@
 #include "app/http3/server/h3srv/state.h"
 #include "app/http3/server/srvloop/body_window.h"
 #include "app/http3/server/srvloop/srvloop_ackst.h"
+#include "app/http3/server/srvloop/srvloop_closed.h"
 #include "app/http3/server/srvloop/srvloop_h3peer.h"
 #include "app/http3/server/srvloop/srvloop_pending_priority.h"
+#include "app/http3/server/srvloop/srvloop_stray.h"
 #include "common/bytes/span/span.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/roles/server/server.h"
@@ -495,18 +497,6 @@ typedef struct {
   usz len;                                /**< bytes valid in buf */
 } wired_srvloop_rx_datagram;
 
-/** RFC 9000 3.2: closed client stream indexes (id / 4) of one stream type
- * -- every index below floor, plus the 1024 just above it in bm (bit k =
- * index floor + k). A late duplicate of a closed stream is discarded, not
- * re-admitted. Ceiling: a mark past the window slides it up 64 indexes at
- * a time, so indexes left behind count as closed even if a long-lived
- * stream among them is still open -- harmless, since a live stream's slot
- * is always found before this set is consulted. */
-typedef struct {
-  u64 floor;  /**< every index below this is closed */
-  u64 bm[16]; /**< the 1024 indexes from floor up */
-} wired_srvloop_closed;
-
 /** RFC 9000 19.4/19.5: peer RESET_STREAM/STOP_SENDING frames one step can
  * queue. Every stream slot this loop tracks (request, WT bidi, WT uni) can
  * draw at most one RESET_STREAM and one STOP_SENDING, so two per slot holds
@@ -522,14 +512,6 @@ typedef struct {
   u64 error_code; /**< its wire application error code */
   int is_stop;    /**< 1 for STOP_SENDING, 0 for RESET_STREAM */
 } wired_srvloop_reset;
-
-/** Record stream_id's id-space index in w (see srvloop.c's closed-set doc:
- * exact ids over a sliding 1024-index window; an id past the window slides
- * it up, counting every index left behind as recorded). */
-void wired_srvloop_closed_mark(wired_srvloop_closed* w, u64 stream_id);
-
-/** 1 if stream_id's index is recorded in w (or below its window). */
-int wired_srvloop_closed_has(const wired_srvloop_closed* w, u64 stream_id);
 
 #include "app/http3/server/srvloop/srvloop_rxacct.h" /* needs the caps */
 #include "app/http3/server/srvloop/srvloop_wt_watch.h"
@@ -820,6 +802,8 @@ typedef struct {
    * encoder window) -- their later chunks are never held as the encoder
    * stream candidate (dispatch.c's qenc_may_hold). */
   wired_srvloop_closed uni_typed;
+  /** Frames that overtook their stream's leading bytes (srvloop_stray.h). */
+  wired_srvloop_strays strays;
   /** RFC 9000 19.14: 1 once a client bidi STREAMS_BLOCKED frame was seen in
    * any 1-RTT payload opened this step (gather_streams_blocked in
    * dispatch.c) -- the peer's own reported limit value is not latched

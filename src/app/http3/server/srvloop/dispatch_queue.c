@@ -22,6 +22,7 @@ void srvloop_gather_wt_uni_frame(wired_srvloop* l, const stream_frame* sf) {
   srvloop_gather_qpack_enc(l, sf);
   srvloop_gather_qpack_dec(l, sf);
   if (!srvloop_wt_uni_frame_relevant(l, sf)) {
+    srvloop_stray_keep_uni(l, sf); /* its type may still arrive */
     return;
   }
   srvloop_gather_wt_uni_land(l, sf);

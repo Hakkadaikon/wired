@@ -112,6 +112,11 @@ void srvloop_gather_wt_uni_one(
     const stream_frame* sf, wired_srvloop_wt_uni_stream_slot* slot);
 void dispatch_qlog_stream_received(wired_srvloop* l, const stream_frame* sf);
 void srvloop_gather_wt_uni_land(wired_srvloop* l, const stream_frame* sf);
+int  srvloop_uni_stream_known(const wired_srvloop* l, const stream_frame* sf);
+void srvloop_stray_keep_uni(wired_srvloop* l, const stream_frame* sf);
+void srvloop_stray_keep_bidi(wired_srvloop* l, const stream_frame* sf);
+void srvloop_stray_adopt_uni(wired_srvloop* l, u64 stream_id);
+void srvloop_stray_adopt_bidi(wired_srvloop* l, u64 stream_id);
 void srvloop_gather_wt_uni_classify(wired_srvloop* l, const stream_frame* sf);
 void srvloop_gather_wt_uni_frame(wired_srvloop* l, const stream_frame* sf);
 int  srvloop_gather_uni_stream(wired_srvloop* l, const u8* payload, usz len);

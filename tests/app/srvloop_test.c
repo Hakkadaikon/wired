@@ -3305,6 +3305,140 @@ static void test_srvloop_wt_bidi_stream_signal_split(void) {
   }
 }
 
+/* One 1-RTT packet carrying frame, stepped through the live loop. */
+static void lp_stray_step(struct lp_fix* f, u64 pn, const u8* frame, usz n) {
+  u8         out[1024], spkt[1600];
+  wired_obuf ob   = {out, sizeof out, 0};
+  usz        slen = client_seal_onertt_pn(f, pn, frame, n, spkt, sizeof spkt);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, slen), &ob);
+}
+
+/* RFC 9000 2.2: STREAM frames may arrive in any order. A browser sends a WT
+ * uni stream's leading type and session id as their own frame; when that
+ * packet is lost, the data and the FIN arrive first and the peer -- whose
+ * packets were acknowledged -- never sends them again. They are kept and
+ * land once the type arrives (the S3 "chat message missing for good"). */
+static void test_srvloop_wt_uni_stream_data_overtakes_type(void) {
+  struct lp_fix f;
+  u8            sig[16], data[16], fin[16], out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           sl = lp_stream_frame_at(
+      sig, sizeof sig, 2, 0, (const u8*)"\x40\x54\x02", 3, 0);
+  usz dl = lp_stream_frame_at(data, sizeof data, 2, 3, (const u8*)"AB", 2, 0);
+  usz fl = lp_stream_frame_at(fin, sizeof fin, 2, 5, (const u8*)"", 0, 1);
+  lp_confirm(&f, &ob);
+  lp_stray_step(&f, 3, data, dl);
+  lp_stray_step(&f, 4, fin, fl);
+  CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 2) < 0); /* type not seen yet */
+  lp_stray_step(&f, 5, sig, sl);
+  {
+    int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_uni_streams[i].win.frontier == 2);
+    CHECK(
+        f.l.wt_uni_streams[i].buf[0] == 'A' &&
+        f.l.wt_uni_streams[i].buf[1] == 'B');
+    CHECK(f.l.wt_uni_streams[i].fin == 1);
+    CHECK(f.l.wt_uni_streams[i].fin_off == 2);
+  }
+}
+
+/* The same on a WT bidi stream (signal 0x41 + session id): the fragment that
+ * overtook the signal is adopted into the WT slot, not dropped with the
+ * request slot it first landed in (docs/security/limitations/http3.md 1.8). */
+static void test_srvloop_wt_bidi_stream_data_overtakes_signal(void) {
+  struct lp_fix f;
+  u8            sig[16], data[16], out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           sl = lp_stream_frame_at(
+      sig, sizeof sig, 4, 0, (const u8*)"\x40\x41\x04", 3, 0);
+  usz dl = lp_stream_frame_at(data, sizeof data, 4, 3, (const u8*)"AB", 2, 1);
+  lp_confirm(&f, &ob);
+  lp_stray_step(&f, 3, data, dl);
+  CHECK(wired_srvloop_wt_slot_find(&f.l, 4) < 0);
+  lp_stray_step(&f, 4, sig, sl);
+  {
+    int i = wired_srvloop_wt_slot_find(&f.l, 4);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_streams[i].win.frontier == 2);
+    CHECK(f.l.wt_streams[i].buf[0] == 'A' && f.l.wt_streams[i].buf[1] == 'B');
+    CHECK(f.l.wt_streams[i].fin == 1);
+    CHECK(srvloop_stream_slot_find(&f.l, 4) < 0); /* no request slot left */
+  }
+}
+
+/* The split signal case: the fragments wait until both leading varints are
+ * in, so their offsets are shifted by the signal's real length. */
+static void test_srvloop_wt_uni_stream_data_overtakes_split_type(void) {
+  struct lp_fix f;
+  u8            t0[16], t1[16], data[16], out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           t0l =
+      lp_stream_frame_at(t0, sizeof t0, 2, 0, (const u8*)"\x40\x54", 2, 0);
+  usz t1l = lp_stream_frame_at(t1, sizeof t1, 2, 2, (const u8*)"\x02", 1, 0);
+  usz dl  = lp_stream_frame_at(data, sizeof data, 2, 3, (const u8*)"AB", 2, 1);
+  lp_confirm(&f, &ob);
+  lp_stray_step(&f, 3, data, dl);
+  lp_stray_step(&f, 4, t0, t0l);
+  lp_stray_step(&f, 5, t1, t1l);
+  {
+    int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_uni_streams[i].win.frontier == 2);
+    CHECK(
+        f.l.wt_uni_streams[i].buf[0] == 'A' &&
+        f.l.wt_uni_streams[i].buf[1] == 'B');
+    CHECK(f.l.wt_uni_streams[i].fin == 1);
+  }
+}
+
+/* The stash is a fixed ring: with more overtaken fragments than it holds,
+ * the oldest is given up (that stream stalls, as every one did before) and
+ * the newest WIRED_SRVLOOP_STRAY_MAX still land. A fragment larger than an
+ * entry is not kept, and a stream whose type is already known keeps none. */
+static void test_srvloop_wt_stray_ring_bounds(void) {
+  struct lp_fix f;
+  static u8     big[WIRED_SRVLOOP_STRAY_CAP + 64],
+      bigpl[WIRED_SRVLOOP_STRAY_CAP + 1];
+  u8         sig[16], data[16], out[1024];
+  wired_obuf ob = {out, sizeof out, 0};
+  u64        pn = 3;
+  usz        n;
+  lp_confirm(&f, &ob);
+  for (u64 k = 0; k <= WIRED_SRVLOOP_STRAY_MAX; k++) { /* one too many */
+    n = lp_stream_frame_at(
+        data, sizeof data, 2 + 4 * k, 3, (const u8*)"AB", 2, 1);
+    lp_stray_step(&f, pn++, data, n);
+  }
+  for (u64 k = 0; k <= WIRED_SRVLOOP_STRAY_MAX; k++) {
+    n = lp_stream_frame_at(
+        sig, sizeof sig, 2 + 4 * k, 0, (const u8*)"\x40\x54\x02", 3, 0);
+    lp_stray_step(&f, pn++, sig, n);
+  }
+  {
+    int first = wired_srvloop_wt_uni_slot_find(&f.l, 2);
+    int last =
+        wired_srvloop_wt_uni_slot_find(&f.l, 2 + 4 * WIRED_SRVLOOP_STRAY_MAX);
+    CHECK(first >= 0 && f.l.wt_uni_streams[first].win.frontier == 0);
+    CHECK(last >= 0 && f.l.wt_uni_streams[last].win.frontier == 2);
+    CHECK(f.l.wt_uni_streams[last].fin == 1);
+  }
+  /* too large for an entry: not kept, the ring is left as it was */
+  bytes_memset(bigpl, 'x', sizeof bigpl);
+  n = lp_stream_frame_at(big, sizeof big, 402, 3, bigpl, sizeof bigpl, 0);
+  CHECK(n != 0);
+  {
+    u8 next = f.l.strays.next;
+    lp_stray_step(&f, pn++, big, n);
+    CHECK(f.l.strays.next == next);
+    /* a later chunk of a stream whose type is known is not a stray */
+    n = lp_stream_frame_at(data, sizeof data, 2, 9, (const u8*)"CD", 2, 0);
+    lp_stray_step(&f, pn++, data, n);
+    CHECK(f.l.strays.next == next);
+  }
+}
+
 /* Control (0x00)/QPACK (0x02/0x03) uni streams, classified (offset-0 type
  * peeked) by srvloop_gather_uni_stream, are accepted (no crash, no
  * got_request), and critically no wt_uni_streams[] slot is claimed for any of
@@ -8127,6 +8261,10 @@ void test_srvloop(void) {
   test_srvloop_wt_uni_stream_reassembled();
   test_srvloop_wt_uni_stream_signal_split();
   test_srvloop_wt_bidi_stream_signal_split();
+  test_srvloop_wt_uni_stream_data_overtakes_type();
+  test_srvloop_wt_bidi_stream_data_overtakes_signal();
+  test_srvloop_wt_uni_stream_data_overtakes_split_type();
+  test_srvloop_wt_stray_ring_bounds();
   test_srvloop_wt_uni_stream_split_data_then_bare_fin();
   test_srvloop_uni_control_qpack_still_ignored();
   test_srvloop_second_qpack_encoder_stream_violation();
