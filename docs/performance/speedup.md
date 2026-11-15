@@ -132,7 +132,7 @@ flowchart TD
 | データグラムをストリームのポンプより先に送る | 画面共有と音声を同時に流しても、ハブでデータグラムが止められた回数は 0 である |
 | 送る物がない接続では、ポンプそのものを飛ばす | 飛ばせるのは約 1.5% である。ペーサーの補充、PMTU の探索、アプリ制限の判定(RFC 9002 7.8)は送る物がなくても要る |
 | ACK がないパケットでは損失判定を飛ばす | 時間による損失判定(RFC 9002 6.1.2)は ACK がなくても成立する。ストリームのスライスの分は、受信のたびの判定に頼っている |
-| MAX_STREAM_DATA のパケットに保留中の ACK を載せる | 損失 1% の e2e で、既知の制限([HTTP/3 と WebTransport](../security/limitations/http3.md) の 1.8)に当たり、チャットが届かない結果が出た |
+| MAX_STREAM_DATA のパケットに保留中の ACK を載せる | 減るのは通知 1 回につき 1 パケットである。ACK を早く返すとクライアントのパケットの切り方が変わり、損失 1% の e2e で、ストリームの先頭を追い越す断片の扱い([HTTP/3 と WebTransport](../security/limitations/http3.md) の 1.8)に当たる回数が増えた |
 | SHA-NI、VAES、VPCLMULQDQ | 本番機と開発機の CPU(Xeon Gold 6230)にない |
 | CTR の 8 ブロック化 | 同じ CPU では AESENC の実行ポートが 4 本で埋まる |
 | `-O3`、`-march=x86-64-v2` / `v3`、LTO | パケットの保護のマイクロベンチマークで、`-O2` との差が ±10% の揺れの中に収まる |
@@ -157,4 +157,4 @@ flowchart TD
 |---|---|
 | e2e(音声 4 人、チャット 4 人、画面共有 4 人) | 通過 |
 | 相互接続(quic-interop-runner、クライアントは quic-go) | transfer、http3、transferloss、blackhole、multiplexing が通過 |
-| 損失 1% の e2e | 既知の制限([HTTP/3 と WebTransport](../security/limitations/http3.md) の 1.8)で失敗する |
+| 損失 1% の e2e(4 人、乱数の種 5 通りで 7 回) | チャットの欠落は 7 回とも 0。うち 2 回は、音声の欠落率が上限の 3.09% をわずかに超えた(3.30% と 3.09%。音声のデータグラムは再送しない) |

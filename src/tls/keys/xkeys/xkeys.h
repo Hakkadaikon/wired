@@ -19,9 +19,9 @@ typedef struct {
 } xkeys;
 
 /** Bring x in line with k under the negotiated suite: valid (on = 1) for
- * TLS_AES_128_GCM_SHA256 on a CPU with AES-NI and PCLMULQDQ, rebuilt only
- * when k's keys differ from the ones x holds; off for every other case,
- * which keeps the raw-key path. */
+ * TLS_AES_128_GCM_SHA256 on a CPU with AES-NI, PCLMULQDQ and SSSE3
+ * (gcmx86_supported), rebuilt only when k's keys differ from the ones x
+ * holds; off for every other case, which keeps the raw-key path. */
 void xkeys_sync(xkeys* x, u16 suite, const initial_keys* k);
 
 /** RFC 9001 6.5: x's expanded keys and the raw copies leave memory; x is
