@@ -1,13 +1,13 @@
-# moqt_chat 向けの高速化: 全体像
+# サーバーの高速化: 全体像
 
-[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › moqt_chat 向けの高速化
+[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › サーバーの高速化
 
 | 項目 | 内容 |
 |---|---|
-| 目的 | `examples/moqt_chat` が使う経路(QUIC、HTTP/3、WebTransport、MoQT のハブ)の高速化について、効果と、サーバーのループのどこに効いたかを示す |
+| 目的 | サーバーの受信から送信までの経路(QUIC、HTTP/3、WebTransport、MoQT のハブ)の高速化について、`examples/moqt_chat` の負荷で測った効果と、サーバーのループのどこに効いたかを示す |
 | 読む人 | サーバーのループ、パケットの保護、ハブを変更するコントリビューター |
 | 前提文書 | [データの流れ](../../architecture/dataflow.md) |
-| 関連文書 | [毎周の走査](idle-scans.md)、[受信パケットの処理](receive.md)、[パケットの保護](crypto.md)、[送信とシステムコール](send.md)、[ハブの中継](hub.md)、[moqt_chat のリソース監視](../monitoring.md) |
+| 関連文書 | [毎周の走査](idle-scans.md)、[受信パケットの処理](receive.md)、[パケットの保護](crypto.md)、[送信とシステムコール](send.md)、[MoQT ハブの中継](moqt-hub.md)、[moqt_chat のリソース監視](../monitoring.md) |
 
 ## 1. 結果
 
@@ -32,6 +32,20 @@
 | フレームの走査 | 7.2% |
 | ACK の処理(`srvrun_feed_acks`) | 5.1% |
 | ハブの中継の本体(`wired_moqt_on_datagram`) | 1.2% |
+
+### 1.1 効く範囲
+
+変更はすべて `src/` にある。`examples/moqt_chat` は計測の負荷で、高速化のためのコードは持たない。
+
+| ページ | 変えたコード | 効く範囲 |
+|---|---|---|
+| [パケットの保護](crypto.md) | `src/tls/keys/xkeys/`、`src/crypto/symmetric/aead/gcmx86/`、`src/transport/packet/protect/` | すべての QUIC 接続 |
+| [受信パケットの処理](receive.md) | `src/app/http3/server/srvloop/`、`src/app/http3/server/srvrun/`、`src/transport/io/socket/io/` | サーバーのループを使うアプリすべて。3 章と 8 章は WebTransport のセッションだけ |
+| [送信とシステムコール](send.md) | `src/app/http3/server/srvrun/`、`src/transport/packet/frame/` | サーバーのループを使うアプリすべて |
+| [毎周の走査](idle-scans.md) | `src/app/http3/server/srvrun/`、`src/app/moqt/run/` | 送信ポンプとタイマーはサーバーのループを使うアプリすべて。ハブの tick は MoQT のハブを使うアプリだけ |
+| [MoQT ハブの中継](moqt-hub.md) | `src/app/moqt/cache/`、`src/app/moqt/run/` | MoQT のハブを使うアプリだけ |
+
+効果の値は `examples/moqt_chat` の負荷だけで測った。ほかの負荷での値は測っていない。
 
 ## 2. 計測の条件と指標
 
@@ -108,7 +122,7 @@ flowchart TD
 | D | データグラムのパケットに保留中の ACK を載せる | ACK だけのパケット 6,489 個 → 273 個、`sendmsg` 42,360 回 → 36,535 回 | 同上 |
 | D | フロー制御の通知は上限が一定量進んでから送る(画面共有) | 受信した STREAM フレーム 1 個あたりの通知 2.0 個 → 0.21 個 | 同上 |
 | D | STREAM フレームへの書き込みをまとめたコピーにする(画面共有) | `frame_put_stream` 1 回あたり 1,490 命令 → 319 命令 | 同上 |
-| E | キャッシュは同じ Group への追記で全レコードをたどらない(画面共有) | `moqcache_append_exp` 6.8% → 1.7% | [ハブの中継](hub.md) |
+| E | キャッシュは同じ Group への追記で全レコードをたどらない(画面共有) | `moqcache_append_exp` 6.8% → 1.7% | [MoQT ハブの中継](moqt-hub.md) |
 | E | データのストリームの続きは中継の表を先に引く(画面共有) | Object 1 個あたりの表引き 12.6k 命令 → 5.7k 命令 | 同上 |
 | E | PUBLISH_DONE の走査は対象になりうるトラックだけを見る(画面共有) | `moqtrun_pubdone_sweep` がプロファイルの一覧から消えた | 同上 |
 

@@ -1,13 +1,13 @@
-# moqt_chat 向けの高速化: パケットの保護
+# サーバーの高速化: パケットの保護
 
-[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › [moqt_chat 向けの高速化](README.md) › パケットの保護
+[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › [サーバーの高速化](README.md) › パケットの保護
 
 | 項目 | 内容 |
 |---|---|
 | 目的 | 1-RTT パケットの AEAD とヘッダー保護について、今の処理の流れと、変更の前後の値を示す |
 | 読む人 | `src/tls/keys/xkeys/` と `src/crypto/symmetric/aead/gcmx86/` を変更するコントリビューター |
-| 前提文書 | [moqt_chat 向けの高速化: 全体像](README.md)(計測の条件と指標)、[暗号化レベルと鍵](../../architecture/keys.md)(鍵の世代と、鍵を捨てる時点) |
-| 関連文書 | [毎周の走査](idle-scans.md)、[受信パケットの処理](receive.md)、[送信とシステムコール](send.md)、[ハブの中継](hub.md)、[moqt_chat のリソース監視](../monitoring.md) |
+| 前提文書 | [サーバーの高速化: 全体像](README.md)(計測の条件と指標)、[暗号化レベルと鍵](../../architecture/keys.md)(鍵の世代と、鍵を捨てる時点) |
+| 関連文書 | [毎周の走査](idle-scans.md)、[受信パケットの処理](receive.md)、[送信とシステムコール](send.md)、[MoQT ハブの中継](moqt-hub.md)、[moqt_chat のリソース監視](../monitoring.md) |
 
 ## 1. 結果
 

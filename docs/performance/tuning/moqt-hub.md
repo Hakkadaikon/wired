@@ -1,12 +1,12 @@
-# moqt_chat 向けの高速化: ハブの中継
+# サーバーの高速化: MoQT ハブの中継
 
-[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › [moqt_chat 向けの高速化](README.md) › ハブの中継
+[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › [サーバーの高速化](README.md) › MoQT ハブの中継
 
 | 項目 | 内容 |
 |---|---|
 | 目的 | ストリームで届いた Object(映像、画面共有、チャット)をハブが購読者へ中継する経路について、命令数を減らした 3 か所の今の動作と変更の前後の値を示す |
 | 読む人 | `src/app/moqt/cache/` と `src/app/moqt/run/` の中継の経路を変更するコントリビューター |
-| 前提文書 | [moqt_chat 向けの高速化: 全体像](README.md)(計測の条件と指標) |
+| 前提文書 | [サーバーの高速化: 全体像](README.md)(計測の条件と指標) |
 | 関連文書 | [毎周の走査](idle-scans.md)、[受信パケットの処理](receive.md)、[パケットの保護](crypto.md)、[送信とシステムコール](send.md)、[moqt_chat のリソース監視](../monitoring.md)、[examples/moqt_chat/README.md](../../../examples/moqt_chat/README.md) |
 
 ## 1. 結果

@@ -1,13 +1,13 @@
-# moqt_chat 向けの高速化: 受信パケットの処理
+# サーバーの高速化: 受信パケットの処理
 
-[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › [moqt_chat 向けの高速化](README.md) › 受信パケットの処理
+[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › [サーバーの高速化](README.md) › 受信パケットの処理
 
 | 項目 | 内容 |
 |---|---|
 | 目的 | サーバーが受信パケット 1 個を処理する道筋と、その命令数を減らした変更の前後の値を示す |
 | 読む人 | `src/app/http3/server/srvloop/` と `src/app/http3/server/srvrun/` の受信経路を変更するコントリビューター |
-| 前提文書 | [moqt_chat 向けの高速化: 全体像](README.md)(計測の条件と指標) |
-| 関連文書 | [毎周の走査](idle-scans.md)、[パケットの保護](crypto.md)、[送信とシステムコール](send.md)、[ハブの中継](hub.md)、[moqt_chat のリソース監視](../monitoring.md) |
+| 前提文書 | [サーバーの高速化: 全体像](README.md)(計測の条件と指標) |
+| 関連文書 | [毎周の走査](idle-scans.md)、[パケットの保護](crypto.md)、[送信とシステムコール](send.md)、[MoQT ハブの中継](moqt-hub.md)、[moqt_chat のリソース監視](../monitoring.md) |
 
 ## 1. 結果
 

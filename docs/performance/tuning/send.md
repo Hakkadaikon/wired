@@ -1,13 +1,13 @@
-# moqt_chat 向けの高速化: 送信とシステムコール
+# サーバーの高速化: 送信とシステムコール
 
-[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › [moqt_chat 向けの高速化](README.md) › 送信とシステムコール
+[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › [サーバーの高速化](README.md) › 送信とシステムコール
 
 | 項目 | 内容 |
 |---|---|
 | 目的 | サーバーが送るパケットの数と、発行するシステムコールの回数を減らした変更について、今の動作と変更の前後の値を示す |
 | 読む人 | `src/app/http3/server/srvrun/` の送信経路と `src/transport/packet/frame/` を変更するコントリビューター |
-| 前提文書 | [moqt_chat 向けの高速化: 全体像](README.md)(計測の条件と指標) |
-| 関連文書 | [毎周の走査](idle-scans.md)、[受信パケットの処理](receive.md)、[パケットの保護](crypto.md)、[ハブの中継](hub.md)、[システムコール](../../syscalls.md)、[moqt_chat のリソース監視](../monitoring.md) |
+| 前提文書 | [サーバーの高速化: 全体像](README.md)(計測の条件と指標) |
+| 関連文書 | [毎周の走査](idle-scans.md)、[受信パケットの処理](receive.md)、[パケットの保護](crypto.md)、[MoQT ハブの中継](moqt-hub.md)、[システムコール](../../syscalls.md)、[moqt_chat のリソース監視](../monitoring.md) |
 
 ## 1. 結果
 
