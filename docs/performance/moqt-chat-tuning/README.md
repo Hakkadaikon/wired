@@ -1,13 +1,13 @@
 # moqt_chat 向けの高速化: 全体像
 
-[ドキュメント](../README.md) › [試験と品質](../verification/README.md) › moqt_chat 向けの高速化
+[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › moqt_chat 向けの高速化
 
 | 項目 | 内容 |
 |---|---|
 | 目的 | `examples/moqt_chat` が使う経路(QUIC、HTTP/3、WebTransport、MoQT のハブ)の高速化について、効果と、サーバーのループのどこに効いたかを示す |
 | 読む人 | サーバーのループ、パケットの保護、ハブを変更するコントリビューター |
-| 前提文書 | [データの流れ](../architecture/dataflow.md) |
-| 関連文書 | [毎周の走査](speedup-idle-scans.md)、[受信パケットの処理](speedup-receive.md)、[パケットの保護](speedup-crypto.md)、[送信とシステムコール](speedup-send.md)、[ハブの中継](speedup-hub.md)、[moqt_chat のリソース監視](monitoring.md) |
+| 前提文書 | [データの流れ](../../architecture/dataflow.md) |
+| 関連文書 | [毎周の走査](idle-scans.md)、[受信パケットの処理](receive.md)、[パケットの保護](crypto.md)、[送信とシステムコール](send.md)、[ハブの中継](hub.md)、[moqt_chat のリソース監視](../monitoring.md) |
 
 ## 1. 結果
 
@@ -93,22 +93,22 @@ flowchart TD
 
 | 分野 | 変えたこと | 代表的な効果 | 詳細 |
 |---|---|---|---|
-| A | ハブの毎周の走査を生きているリクエストだけにする | `wired_moqt_tick` 24.5% → 3.9% | [毎周の走査](speedup-idle-scans.md) |
+| A | ハブの毎周の走査を生きているリクエストだけにする | `wired_moqt_tick` 24.5% → 3.9% | [毎周の走査](idle-scans.md) |
 | A | 送信ポンプを使用中で送る物があるスロットだけに回す | `srvrun_pump_sess` 35.8% → 約 10% | 同上 |
 | A | タイマーは期限の比較を先に行い、期限が来ていない周では送信記録を走査しない | `srvrun_pto_slot` 3.48% → 0.52% | 同上 |
-| B | 進みが 0 のときは CONNECT ストリームの窓を詰めない | `bodywin_consume` 15.9% → 0.01% | [受信パケットの処理](speedup-receive.md) |
+| B | 進みが 0 のときは CONNECT ストリームの窓を詰めない | `bodywin_consume` 15.9% → 0.01% | [受信パケットの処理](receive.md) |
 | B | パケットに含まれるフレームの種類を 1 回の走査で集め、該当する処理だけを呼ぶ | `dispatch_gather_side_channels` 11.1% → 1.2% | 同上 |
 | B | ACK と損失判定は使用中の送信記録だけをたどる | `srvrun_feed_acks` 10.3% → 3.0% | 同上 |
 | B | 受信ストリームの窓は、順番どおりに届いたデータを詰め直さない(画面共有) | `wired_srvloop_wt_window_slide` 1 回あたり 2,531 命令 → 23 命令 | 同上 |
 | B | `recvmmsg` の前に受信用の配列を 0 で埋めない | `wired_udp_recvmmsg` 2.94% → 0.67% | 同上 |
-| C | 鍵の世代ごとに 1 回だけ鍵を展開し、ヘッダー保護に AES-NI を使う | 鍵の展開はパケットあたり約 4.4 回 → 0 回 | [パケットの保護](speedup-crypto.md) |
+| C | 鍵の世代ごとに 1 回だけ鍵を展開し、ヘッダー保護に AES-NI を使う | 鍵の展開はパケットあたり約 4.4 回 → 0 回 | [パケットの保護](crypto.md) |
 | C | GHASH を 4 ブロックまとめて還元する | `gcmx86_seal` 1,400 バイト 1,700 ns → 850 ns、150 バイト 353 ns → 245 ns | 同上 |
-| D | 時計は 1 周に 2 回だけ読み、その周の処理で共有する | `clock_gettime` 145,803 回 → 61,625 回 | [送信とシステムコール](speedup-send.md) |
+| D | 時計は 1 周に 2 回だけ読み、その周の処理で共有する | `clock_gettime` 145,803 回 → 61,625 回 | [送信とシステムコール](send.md) |
 | D | ワーカーの登録がないときは `gettid` を呼ばない | `gettid` 36,156 回 → 0 回 | 同上 |
 | D | データグラムのパケットに保留中の ACK を載せる | ACK だけのパケット 6,489 個 → 273 個、`sendmsg` 42,360 回 → 36,535 回 | 同上 |
 | D | フロー制御の通知は上限が一定量進んでから送る(画面共有) | 受信した STREAM フレーム 1 個あたりの通知 2.0 個 → 0.21 個 | 同上 |
 | D | STREAM フレームへの書き込みをまとめたコピーにする(画面共有) | `frame_put_stream` 1 回あたり 1,490 命令 → 319 命令 | 同上 |
-| E | キャッシュは同じ Group への追記で全レコードをたどらない(画面共有) | `moqcache_append_exp` 6.8% → 1.7% | [ハブの中継](speedup-hub.md) |
+| E | キャッシュは同じ Group への追記で全レコードをたどらない(画面共有) | `moqcache_append_exp` 6.8% → 1.7% | [ハブの中継](hub.md) |
 | E | データのストリームの続きは中継の表を先に引く(画面共有) | Object 1 個あたりの表引き 12.6k 命令 → 5.7k 命令 | 同上 |
 | E | PUBLISH_DONE の走査は対象になりうるトラックだけを見る(画面共有) | `moqtrun_pubdone_sweep` がプロファイルの一覧から消えた | 同上 |
 
@@ -132,7 +132,7 @@ flowchart TD
 | データグラムをストリームのポンプより先に送る | 画面共有と音声を同時に流しても、ハブでデータグラムが止められた回数は 0 である |
 | 送る物がない接続では、ポンプそのものを飛ばす | 飛ばせるのは約 1.5% である。ペーサーの補充、PMTU の探索、アプリ制限の判定(RFC 9002 7.8)は送る物がなくても要る |
 | ACK がないパケットでは損失判定を飛ばす | 時間による損失判定(RFC 9002 6.1.2)は ACK がなくても成立する。ストリームのスライスの分は、受信のたびの判定に頼っている |
-| MAX_STREAM_DATA のパケットに保留中の ACK を載せる | 減るのは通知 1 回につき 1 パケットである。ACK を早く返すとクライアントのパケットの切り方が変わり、損失 1% の e2e で、ストリームの先頭を追い越す断片の扱い([HTTP/3 と WebTransport](../security/limitations/http3.md) の 1.8)に当たる回数が増えた |
+| MAX_STREAM_DATA のパケットに保留中の ACK を載せる | 減るのは通知 1 回につき 1 パケットである。ACK を早く返すとクライアントのパケットの切り方が変わり、損失 1% の e2e で、ストリームの先頭を追い越す断片の扱い([HTTP/3 と WebTransport](../../security/limitations/http3.md) の 1.8)に当たる回数が増えた |
 | SHA-NI、VAES、VPCLMULQDQ | 本番機と開発機の CPU(Xeon Gold 6230)にない |
 | CTR の 8 ブロック化 | 同じ CPU では AESENC の実行ポートが 4 本で埋まる |
 | `-O3`、`-march=x86-64-v2` / `v3`、LTO | パケットの保護のマイクロベンチマークで、`-O2` との差が ±10% の揺れの中に収まる |
@@ -141,7 +141,7 @@ flowchart TD
 
 ## 6. 変えなかった制約
 
-どの変更も[コミットゲート](../standards/commit-gate.md)の上限と設計上の制約を変えていない。
+どの変更も[コミットゲート](../../standards/commit-gate.md)の上限と設計上の制約を変えていない。
 
 | 制約 | 内容 |
 |---|---|

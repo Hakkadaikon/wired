@@ -1,13 +1,13 @@
 # moqt_chat 向けの高速化: パケットの保護
 
-[ドキュメント](../README.md) › [試験と品質](../verification/README.md) › [moqt_chat 向けの高速化](speedup.md) › パケットの保護
+[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › [moqt_chat 向けの高速化](README.md) › パケットの保護
 
 | 項目 | 内容 |
 |---|---|
 | 目的 | 1-RTT パケットの AEAD とヘッダー保護について、今の処理の流れと、変更の前後の値を示す |
 | 読む人 | `src/tls/keys/xkeys/` と `src/crypto/symmetric/aead/gcmx86/` を変更するコントリビューター |
-| 前提文書 | [moqt_chat 向けの高速化: 全体像](speedup.md)(計測の条件と指標)、[暗号化レベルと鍵](../architecture/keys.md)(鍵の世代と、鍵を捨てる時点) |
-| 関連文書 | [毎周の走査](speedup-idle-scans.md)、[受信パケットの処理](speedup-receive.md)、[送信とシステムコール](speedup-send.md)、[ハブの中継](speedup-hub.md)、[moqt_chat のリソース監視](monitoring.md) |
+| 前提文書 | [moqt_chat 向けの高速化: 全体像](README.md)(計測の条件と指標)、[暗号化レベルと鍵](../../architecture/keys.md)(鍵の世代と、鍵を捨てる時点) |
+| 関連文書 | [毎周の走査](idle-scans.md)、[受信パケットの処理](receive.md)、[送信とシステムコール](send.md)、[ハブの中継](hub.md)、[moqt_chat のリソース監視](../monitoring.md) |
 
 ## 1. 結果
 
@@ -32,9 +32,9 @@
 | 受信 1,400 バイト | 3,019 ns | 936 ns | −69% |
 
 - 「後」の値は 2〜4 章の変更をすべて含み、パケットごとの `xkeys_sync` の時間も含む。
-- 時間は `build/libwired.a` をリンクしたマイクロベンチマークの値である。回数とマシンは[全体像](speedup.md)の 2 章と 4 章にある。
+- 時間は `build/libwired.a` をリンクしたマイクロベンチマークの値である。回数とマシンは[全体像](README.md)の 2 章と 4 章にある。
 - 送信 1 パケットは送信の経路(`srvloop/send.c`)と同じ手順で測る。
-- 呼び出しの回数は[全体像](speedup.md)の 2 章の音声の負荷を callgrind で数えた値である。
+- 呼び出しの回数は[全体像](README.md)の 2 章の音声の負荷を callgrind で数えた値である。
 
 ## 2. 鍵の展開の使い回し
 
@@ -220,7 +220,7 @@ AAD、暗号文、長さのブロックは同じ畳み込みを共有する。AA
 | 接続の初期化 | `kx_send` と `kx_recv` の 3 つを 0 で埋める | `server_reset_xkeys`(`wired_server_init` から呼ぶ) |
 
 - 回した直後に合わせ直すので、受信の 2 世代前の鍵と、送信の 1 世代前の鍵を展開したものは、次のパケットを待たずに上書きされる。
-- 古い受信鍵を破棄する時点は[暗号化レベルと鍵](../architecture/keys.md)の 3 章にある。
+- 古い受信鍵を破棄する時点は[暗号化レベルと鍵](../../architecture/keys.md)の 3 章にある。
 - 接続を閉じた時点では生の鍵も展開済みの鍵も消さない。
 
 ## 6. 対象外

@@ -1,13 +1,13 @@
 # moqt_chat 向けの高速化: 受信パケットの処理
 
-[ドキュメント](../README.md) › [試験と品質](../verification/README.md) › [moqt_chat 向けの高速化](speedup.md) › 受信パケットの処理
+[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › [moqt_chat 向けの高速化](README.md) › 受信パケットの処理
 
 | 項目 | 内容 |
 |---|---|
 | 目的 | サーバーが受信パケット 1 個を処理する道筋と、その命令数を減らした変更の前後の値を示す |
 | 読む人 | `src/app/http3/server/srvloop/` と `src/app/http3/server/srvrun/` の受信経路を変更するコントリビューター |
-| 前提文書 | [moqt_chat 向けの高速化: 全体像](speedup.md)(計測の条件と指標) |
-| 関連文書 | [毎周の走査](speedup-idle-scans.md)、[パケットの保護](speedup-crypto.md)、[送信とシステムコール](speedup-send.md)、[ハブの中継](speedup-hub.md)、[moqt_chat のリソース監視](monitoring.md) |
+| 前提文書 | [moqt_chat 向けの高速化: 全体像](README.md)(計測の条件と指標) |
+| 関連文書 | [毎周の走査](idle-scans.md)、[パケットの保護](crypto.md)、[送信とシステムコール](send.md)、[ハブの中継](hub.md)、[moqt_chat のリソース監視](../monitoring.md) |
 
 ## 1. 結果
 
@@ -24,7 +24,7 @@
 | `framewalk_next` を呼ぶ走査の回数(受信パケット 1 個) | 20 回以上 | 約 7 回(ACK だけのパケット) |
 | 中継で捨てたデータグラム | 0 個 | 0 個 |
 
-- 1 行目の 88,418 → 19,666 は、[全体像](speedup.md)が扱うすべての変更を合わせた値である。送信と暗号の変更による減少も含む。
+- 1 行目の 88,418 → 19,666 は、[全体像](README.md)が扱うすべての変更を合わせた値である。送信と暗号の変更による減少も含む。
 - 2 行目から下が、この文書が扱う変更の値である。
 - 割合は、その変更の直前と直後の計測で命令数の合計に占める値で、子の呼び出しを含む。計測ごとに合計が違うので、別の行の割合どうしは足し引きできない。
 

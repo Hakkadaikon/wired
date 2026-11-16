@@ -1,17 +1,17 @@
 # moqt_chat 向けの高速化: ハブの中継
 
-[ドキュメント](../README.md) › [試験と品質](../verification/README.md) › [moqt_chat 向けの高速化](speedup.md) › ハブの中継
+[ドキュメント](../../README.md) › [試験と品質](../../verification/README.md) › [moqt_chat 向けの高速化](README.md) › ハブの中継
 
 | 項目 | 内容 |
 |---|---|
 | 目的 | ストリームで届いた Object(映像、画面共有、チャット)をハブが購読者へ中継する経路について、命令数を減らした 3 か所の今の動作と変更の前後の値を示す |
 | 読む人 | `src/app/moqt/cache/` と `src/app/moqt/run/` の中継の経路を変更するコントリビューター |
-| 前提文書 | [moqt_chat 向けの高速化: 全体像](speedup.md)(計測の条件と指標) |
-| 関連文書 | [毎周の走査](speedup-idle-scans.md)、[受信パケットの処理](speedup-receive.md)、[パケットの保護](speedup-crypto.md)、[送信とシステムコール](speedup-send.md)、[moqt_chat のリソース監視](monitoring.md)、[examples/moqt_chat/README.md](../../examples/moqt_chat/README.md) |
+| 前提文書 | [moqt_chat 向けの高速化: 全体像](README.md)(計測の条件と指標) |
+| 関連文書 | [毎周の走査](idle-scans.md)、[受信パケットの処理](receive.md)、[パケットの保護](crypto.md)、[送信とシステムコール](send.md)、[moqt_chat のリソース監視](../monitoring.md)、[examples/moqt_chat/README.md](../../../examples/moqt_chat/README.md) |
 
 ## 1. 結果
 
-画面共有 4 人の値である。計測の条件は[全体像](speedup.md)の 2.1 に書く。
+画面共有 4 人の値である。計測の条件は[全体像](README.md)の 2.1 に書く。
 
 | 指標 | 前 | 後 |
 |---|---|---|
@@ -31,7 +31,7 @@
 | ストリームの振り分け | `src/app/moqt/run/moqtrun_rx.c` | 中継の表を先に引く | 4 |
 | PUBLISH_DONE の走査 | `src/app/moqt/run/moqtrun_malformed.c` | 対象でない Track を飛ばす | 5 |
 
-データグラムで届く Object は、キャッシュにも中継の表にも入らない。ハブの毎周の tick は[毎周の走査](speedup-idle-scans.md)が扱う。
+データグラムで届く Object は、キャッシュにも中継の表にも入らない。ハブの毎周の tick は[毎周の走査](idle-scans.md)が扱う。
 
 ## 2. 中継の経路
 
