@@ -23684,6 +23684,27 @@ static void test_srvrun_wt_stop_after_fin_reaches_app(void) {
   }
 }
 
+/* draft-ietf-moq-transport-18 11.4.3: a STOP_SENDING on a uni stream this
+ * server opened for a session (a relayed Subgroup stream) has no receive
+ * slot to route by either: it reaches the app once, through the send
+ * part's session, and the send part is reset and freed. */
+static void test_srvrun_wt_stop_on_server_uni_reaches_app(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c = sr_wt_stop_after_fin_fixture(&f, &cfg, &st, &ctx, 0);
+  srvrun_wtsend_find(c, 4)->stream_id = 15;
+  c->l.peer_resets[0].stream_id       = 15;
+  srvrun_answer_peer_stops(&ctx, c);
+  srvrun_deliver_wt_reset_if_owned(&cfg, c);
+  CHECK(g_sr_wt_reset_calls == 1);
+  CHECK(g_sr_wt_reset_stream == 15);
+  CHECK(g_sr_wt_reset_session == srvrun_wt_slot(c, 0));
+  CHECK(srvrun_wtsend_find(c, 15) == 0);
+  *c = (srvrun_conn){0};
+}
+
 /* More resets in one step than the queue holds (two per tracked stream) is
  * a flood: H3_EXCESSIVE_LOAD, never a silent drop of the overflow. */
 static void test_srvrun_reset_queue_overflow_closes(void) {
@@ -29928,6 +29949,7 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_data_no_callback_still_offers();
   test_srvrun_wt_stream_data_no_session_not_delivered();
   test_srvrun_wt_uni_stream_data_delivered_on_offer();
+  test_srvrun_wt_stop_on_server_uni_reaches_app();
   test_srvrun_wt_negotiate_picks_first_client_choice();
   test_srvrun_wt_negotiate_no_common_no_header();
   test_srvrun_wt_negotiate_absent_offer_no_header();

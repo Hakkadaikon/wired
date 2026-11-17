@@ -380,9 +380,10 @@ typedef int (*wired_moqt_authorize_fn)(
     void* ctx, const moqctl_ftn* name, const moqctl_token* token);
 
 /** draft-ietf-moq-transport-19 10.15 / 10.18 namespace authorization
- * hook: the hub calls it once per PUBLISH_NAMESPACE or SUBSCRIBE_NAMESPACE
- * (msg_type MOQNS_T_PUBLISH_NAMESPACE / MOQNS_T_SUBSCRIBE_NAMESPACE) with
- * the Track Namespace or Prefix and the presented AUTHORIZATION TOKEN
+ * hook: the hub calls it once per PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE
+ * or SUBSCRIBE_TRACKS (msg_type MOQNS_T_PUBLISH_NAMESPACE /
+ * MOQNS_T_SUBSCRIBE_NAMESPACE / MOQCTL_T_SUBSCRIBE_TRACKS) with the
+ * Track Namespace or Prefix and the presented AUTHORIZATION TOKEN
  * (Alias Type USE_VALUE; 0 when the message carried none). Return non-zero
  * to grant, 0 to answer REQUEST_ERROR UNAUTHORIZED. */
 typedef int (*wired_moqt_authorize_ns_fn)(
@@ -620,8 +621,8 @@ typedef struct {
   /** Next dd slot to overwrite. */
   u32 dd_at;
   /** Namespace authorizer (draft-ietf-moq-transport-19 10.15, 10.18); 0
-   * (the wired_moqt_init default) grants every PUBLISH_NAMESPACE and
-   * SUBSCRIBE_NAMESPACE, like authorize_subscribe. */
+   * (the wired_moqt_init default) grants every PUBLISH_NAMESPACE,
+   * SUBSCRIBE_NAMESPACE and SUBSCRIBE_TRACKS, like authorize_subscribe. */
   wired_moqt_authorize_ns_fn authorize_namespace;
   /** Opaque first argument handed to authorize_namespace. */
   void* authorize_ns_ctx;
@@ -777,8 +778,10 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s);
  * withdrawn, a PUBLISH_NAMESPACE withdrawn (NAMESPACE_DONE to its
  * subscribers), a SUBSCRIBE_NAMESPACE's pushes stopped -- and frees the
  * stream's slot. On a relayed publisher stream
- * it returns the relay's held fragment buffer to the hub's pool; any other
- * stream is a no-op.
+ * it returns the relay's held fragment buffer to the hub's pool; a
+ * STOP_SENDING on a relayed Subgroup stream the hub opened ends that
+ * Subgroup for the subscriber (draft-18 11.4.3: no new stream for its
+ * later Objects); any other stream is a no-op.
  * mapped/app_error_code are unused. */
 void wired_moqt_on_stream_reset(
     void*             app_ctx,

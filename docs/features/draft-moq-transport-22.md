@@ -12,7 +12,7 @@
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 223/259、間接 35、未テスト 1。**
+**カバレッジ: テスト済み 225/259、間接 34、未テスト 0。**
 
 ## SS8.1 可変長整数
 
@@ -142,8 +142,8 @@
 
 ## SS3.6 プレフィックスによる Track の購読
 
-- [~] MQ22-225 (SS3.6, SS3.1) アプリケーションが名前空間の認可関数を設定している構成では、ハブはすべての SUBSCRIBE_TRACKS をそれに見せ、拒否されたら REQUEST_ERROR UNAUTHORIZED で応答しなければならない。これにより、ハブはそのコンテンツの認可を受けていない購読者へ PUBLISH を決して送らない。
-  - evidence: SUBSCRIBE_TRACKS は、PUBLISH_NAMESPACE と SUBSCRIBE_NAMESPACE と同じ `moqtrun_disc_verdict` を通ります(`moqtrun_row.c`)。`test_moqtrun_ns_authorization` が確かめているのは、この 2 つの名前空間リクエストだけです。
+- [x] MQ22-225 (SS3.6, SS3.1) アプリケーションが名前空間の認可関数を設定している構成では、ハブはすべての SUBSCRIBE_TRACKS をそれに見せ、拒否されたら REQUEST_ERROR UNAUTHORIZED で応答しなければならない。これにより、ハブはそのコンテンツの認可を受けていない購読者へ PUBLISH を決して送らない。
+  - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_authorization`
 
 ## SS3.7 理解が必須の Track プロパティ
 
@@ -429,8 +429,10 @@
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_timeout_accepted`
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_subgroup_timeout_min`
-- [ ] MQ22-070a OBJECT_DELIVERY_TIMEOUT の時計は、Object のヘッダーの最後のバイトを受信した(または渡された)時点から始めなければならない(draft-19 では最初のペイロードのバイトから始まる点が異なる)。
-  - gap: 裁定 4-11(コントローラー、2026-10-04): このハブは Object をひとまとまりでデコードし、ヘッダーの終わりとペイロードの始まりを区別する境界のタイムスタンプを持たないので、draft-19 と draft-22 の違いはこの実装では観測できません(どちらのバージョンでもタイミングの値は同じになり、ここにバージョンの分岐を入れてもデッドコードになる)。タイムスタンプの取得元そのものには本物のバグがありました(リングの経路が `born_ms` ではなく追記の完了時に刻んでいた)。これは `born_ms` を `moqtrun_rel_take` まで通して直しました。この修正はバージョンに依存せず、draft-22 の文言に固有のものではありません。
+- [x] MQ22-070a OBJECT_DELIVERY_TIMEOUT の時計は、Object のヘッダーの最後のバイトを受信した(または渡された)時点から始めなければならない(draft-19 では最初のペイロードのバイトから始まる点が異なる)。
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_timeout_torn_object`
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_timeout_torn_header`
+  - note: 保持している断片がヘッダーを丸ごと含むときはその断片の到着時刻、含まないときはヘッダーを完成させた配送の時刻から測ります。draft-23 も同じ規則です。draft-18/19 の「最初のペイロードのバイト」とは、配送の切れ目がちょうどヘッダーの終わりに来たときだけ異なります(この場合もヘッダーの完成時刻で測る)。
 
 - [x] MQ22-245 (SS5.2) SUBGROUP_DELIVERY_TIMEOUT が 0 でない場合、ハブは上流の Subgroup ストリームが FIN したときにタイマーを始め、タイマーが切れた時点で下流のストリームが「all data committed」に達していなければ、そのストリームをリセットしなければならない。
   - test: `tests/app/moqtrun_sub_test.c` —

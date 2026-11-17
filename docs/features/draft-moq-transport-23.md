@@ -14,7 +14,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 264/299、間接 35、未テスト 0。**
+**カバレッジ: テスト済み 265/299、間接 34、未テスト 0。**
 
 
 ## SS8.1 可変長整数
@@ -158,8 +158,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 
 ## SS3.6 プレフィックスによる Track の購読
 
-- [~] MQ23-225 (SS3.6, SS3.1) アプリケーションが名前空間の認可関数を設定している構成では、ハブはすべての SUBSCRIBE_TRACKS をそれに見せ、拒否されたら REQUEST_ERROR UNAUTHORIZED で応答しなければならない。これにより、ハブはそのコンテンツの認可を受けていない購読者へ PUBLISH を決して送らない。
-  - evidence: SUBSCRIBE_TRACKS は、PUBLISH_NAMESPACE と SUBSCRIBE_NAMESPACE と同じ `moqtrun_disc_verdict` を通ります(`moqtrun_row.c`)。`test_moqtrun_ns_authorization` が確かめているのは、この 2 つの名前空間リクエストだけです。
+- [x] MQ23-225 (SS3.6, SS3.1) アプリケーションが名前空間の認可関数を設定している構成では、ハブはすべての SUBSCRIBE_TRACKS をそれに見せ、拒否されたら REQUEST_ERROR UNAUTHORIZED で応答しなければならない。これにより、ハブはそのコンテンツの認可を受けていない購読者へ PUBLISH を決して送らない。
+  - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_authorization`
 
 ## SS3.7 理解が必須の Track プロパティ
 

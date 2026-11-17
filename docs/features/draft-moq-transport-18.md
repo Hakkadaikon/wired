@@ -12,7 +12,7 @@
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 217/248、間接 29、未テスト 2。**
+**カバレッジ: テスト済み 219/248、間接 29、未テスト 0。**
 
 ## SS1.4.1 可変長整数
 
@@ -713,8 +713,14 @@
     `test_moqtrun_chat_split_data_then_bare_fin_relays_and_closes`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_audio_split_data_then_bare_fin_closes`
-- [ ] MQ18-235 (§11.4.3) 購読者がリレーの Subgroup ストリームで STOP_SENDING を送ったとき、ハブはそのストリームをリセットするべきであり、その Subgroup の後続の Object のために新しいストリームを開くべきではない。
-  - gap: リレーのストリームで STOP_SENDING を送るテストはない。
+- [x] MQ18-235 (§11.4.3) 購読者がリレーの Subgroup ストリームで STOP_SENDING を送ったとき、ハブはそのストリームをリセットするべきであり、その Subgroup の後続の Object のために新しいストリームを開くべきではない。
+  - test: `tests/app/moqtrun_upd_test.c` —
+    `test_moqtrun_stop_sending_ends_subgroup`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_stop_on_server_uni_reaches_app`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_stopped_stream_sends_nothing`
+  - note: ストリームのリセットはトランスポートが STOP_SENDING への応答として送ります(`srvrun_wtsend_stop`、RFC 9000 3.5)。ハブは通知を受けて、その購読者の Subgroup を打ち切ります。
 - [x] MQ18-140 同じ Track で重なり合う 2 本のパブリッシャーのストリームは、それぞれ独立したストリームでリレーしなければならず、それぞれ自分のパブリッシャーの FIN によってだけ閉じなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_interleaved_chat_messages_close_independently`
@@ -798,8 +804,10 @@
     `test_moqtrun_cut_lossy_refusal_mid_object_resets`,
     `test_moqtrun_cut_reliable_resumes_at_byte`
   - note: Object のヘッダーがそろったら、そのバイト列は、それを受け取る開いているすべての Subgroup ストリームへ送り出す。Object の途中で拒否された損失を許すストリームはリセットする(残りを捨てて区切りを保つことはできないため)。リングバッファーを持つストリームは、そのバイトの位置から再試行する。モデル: `tasks/loopeng/MoqtCutThrough.tla`。
-- [ ] MQ18-218 (§5.1) ピアが自分で公開している Track を SUBSCRIBE した場合、ハブはそれをほかの購読と同じように扱い、公開された Object を送り返さなければならない。
-  - gap: テストはない。購読していた名前を改めて PUBLISH したパブリッシャーは、意図的に自分の Track には結び付けない(`test_moqtrun_publisher_is_not_reattached_to_own_track`)。
+- [x] MQ18-218 (§5.1) ピアが自分で公開している Track を SUBSCRIBE した場合、ハブはそれをほかの購読と同じように扱い、公開された Object を送り返さなければならない。
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_own_track_relayed_back`
+  - note: 購読していた名前を改めて PUBLISH したパブリッシャーを自分の Track に暗黙に結び付け直さないこと(`test_moqtrun_publisher_is_not_reattached_to_own_track`)は別の経路で、自分の Track への明示の SUBSCRIBE は受け付けます。
 
 ## SS10 制御メッセージ: セッションの状態機械の望ましくない動作(追加の確認)
 

@@ -232,6 +232,35 @@ static void test_subtracks_ok_once(void) {
   CHECK(mtrq_fin_on(MTRQ_S1) == 0);
 }
 
+/* 10.19: with a namespace authorizer installed every SUBSCRIBE_TRACKS is
+ * shown to it (type, prefix, token): a refusal is REQUEST_ERROR
+ * UNAUTHORIZED and a matching track draws no PUBLISH; a grant is
+ * REQUEST_OK and the PUBLISH follows. */
+static void test_subtracks_authorization(void) {
+  moqctl_ftn     f = mtst_ftn("chat", "room1", "alice");
+  moqctl_publish got[2];
+  mtst_subtracks_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtns_auth_calls              = 0;
+  mtst_hub.authorize_namespace = mtns_authorize;
+  mtst_hub.authorize_ns_ctx    = &mtns_auth_calls;
+  mtns_auth_allow              = 0;
+  mtst_subtracks(SESS_B, MTRQ_S1, "chat");
+  wired_moqt_tick(&mtst_hub, 0);
+  CHECK(mtst_stlog_is(SESS_B, MTRQ_S1, "ERR:01|"));
+  CHECK(mtns_auth_calls == 1 && mtns_auth_type == MOQCTL_T_SUBSCRIBE_TRACKS);
+  CHECK(mtns_auth_fields == 1 && mtns_auth_token_type == (u64)-1);
+  CHECK(mtst_pub_opens(SESS_B, got, 2) == 0);
+  mtns_auth_allow = 1;
+  mtst_subtracks(SESS_B, MTRQ_S2, "chat");
+  wired_moqt_tick(&mtst_hub, 0);
+  CHECK(mtst_stlog_is(SESS_B, MTRQ_S2, "OK|"));
+  CHECK(mtns_auth_calls == 2);
+  CHECK(mtst_pub_opens(SESS_B, got, 2) == 1);
+}
+
 /* T-02: a Track Namespace Prefix overlapping an established
  * SUBSCRIBE_TRACKS is PREFIX_OVERLAP, and the refused one gets no PUBLISH
  * even once a matching track appears. */
@@ -467,6 +496,7 @@ static void test_subtracks_req_table_full_skips(void) {
 static void mtall_subtracks(void) {
   test_subtracks_req_table_full_skips();
   test_subtracks_ok_once();
+  test_subtracks_authorization();
   test_subtracks_publish_match_excludes_self();
   test_subtracks_publish_carries_props();
   test_subtracks_skip_then_no_publish();

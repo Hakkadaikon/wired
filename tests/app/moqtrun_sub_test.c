@@ -736,6 +736,22 @@ static void test_moqtrun_req_subscribe_answered_on_its_stream(void) {
   CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 1);
 }
 
+/* draft-18 5.1: a peer that SUBSCRIBEs to a Track it publishes itself is
+ * a subscriber like any other -- SUBSCRIBE_OK, and the Objects it
+ * publishes come back to it. */
+static void test_moqtrun_sub_own_track_relayed_back(void) {
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_ftn f = mtrq_setup();
+  mtst_subscribe(SESS_A, MTRQ_S1, &f);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(mtst_sub(SESS_A, SESS_A) != 0);
+  moqtrun_test_reset();
+  usz n = mtst_stream(1, 1, 1, buf);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 1);
+  CHECK(moqtrun_test_count_kind(4) == 1);
+  CHECK(moqtrun_test_last_kind(4) && moqtrun_test_last_kind(4)->s == SESS_A);
+}
+
 /* Two requests in flight on two streams, the first split across
  * deliveries around the second: each is reassembled on its own stream and
  * answered there. */
@@ -2383,6 +2399,7 @@ static void mtall_sub(void) {
   test_moqtrun_sub_largest_own_tracks();
   test_moqtrun_sub_live_attach_filter_start();
   test_moqtrun_req_subscribe_answered_on_its_stream();
+  test_moqtrun_sub_own_track_relayed_back();
   test_moqtrun_req_two_streams_answered_apart();
   test_moqtrun_req_update_answered_on_same_stream();
   test_moqtrun_req_reset_unsubscribes();

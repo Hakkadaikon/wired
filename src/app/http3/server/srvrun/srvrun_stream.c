@@ -2,7 +2,6 @@
 
 static int srvrun_resp_not_yet_idle(srvrun_resp* r);
 static int srvrun_wt_rx_live(srvrun_conn* c, u64 stream_id);
-static int srvrun_wtsend_app_bidi(const srvrun_wtsend* w);
 
 /* Feed r's ring: whenever enough acknowledged space has been reclaimed
  * (wired_sendsess_ring_room), run the handler for the next body chunk
@@ -130,21 +129,18 @@ static int srvrun_wt_rx_live(srvrun_conn* c, u64 stream_id) {
   return 0;
 }
 
-/* 1 iff w is the send part of a bidi stream an app session owns. */
-static int srvrun_wtsend_app_bidi(const srvrun_wtsend* w) {
-  return !(w->stream_id & 2) && w->wt_session_slot >= 0;
-}
-
 /* draft-ietf-moq-transport-19 3.3.3: a peer that already FIN'd its half
  * cancels with STOP_SENDING alone. That FIN's delivery reaped the receive
  * slot srvrun_deliver_wt_reset_if_owned routes by, so the stop reaches
- * the app here, through the send part's own session. */
+ * the app here, through the send part's own session. A uni stream this
+ * server opened never had a receive slot, so its stop (draft-18 11.4.3:
+ * a Subgroup stream the subscriber lost interest in) comes this way too. */
 void srvrun_wtsend_stop_notify(
     const srvrun_cfg*          cfg,
     srvrun_conn*               c,
     const srvrun_wtsend*       w,
     const wired_srvloop_reset* e) {
-  if (!srvrun_wtsend_app_bidi(w) || srvrun_wt_rx_live(c, e->stream_id)) {
+  if (w->wt_session_slot < 0 || srvrun_wt_rx_live(c, e->stream_id)) {
     return;
   }
   srvrun_deliver_wt_reset(cfg, c, w->wt_session_slot, e);

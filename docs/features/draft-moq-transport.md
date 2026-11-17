@@ -12,7 +12,7 @@
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 211/248、間接 35、未テスト 2。**
+**カバレッジ: テスト済み 213/248、間接 35、未テスト 0。**
 
 ## SS1.4.1 可変長整数
 
@@ -704,8 +704,14 @@
 - [x] MOQT-140 (SS11.4.3) Subgroup ストリームが始まった後に参加した購読者にも、中継のストリームを開いて届けなければならない。そのストリームは、送信済みの SUBGROUP_HEADER を FIRST_OBJECT を下ろした形で載せて開く。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_late_subscriber_gets_late_opened_stream`
-- [ ] MOQT-247 (SS11.4.3) 購読者が Subgroup の中継ストリームに STOP_SENDING を送ったとき、ハブはそのストリームをリセットし、その Subgroup の残りのために新しいストリームを開くべきではない。
-  - gap: 中継のデータストリームに STOP_SENDING を送るテストはない。
+- [x] MOQT-247 (SS11.4.3) 購読者が Subgroup の中継ストリームに STOP_SENDING を送ったとき、ハブはそのストリームをリセットし、その Subgroup の残りのために新しいストリームを開くべきではない。
+  - test: `tests/app/moqtrun_upd_test.c` —
+    `test_moqtrun_stop_sending_ends_subgroup`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_stop_on_server_uni_reaches_app`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_stopped_stream_sends_nothing`
+  - note: ストリームのリセットはトランスポートが STOP_SENDING への応答として送ります(`srvrun_wtsend_stop`、RFC 9000 3.5)。ハブは通知を受けて、その購読者の Subgroup を打ち切ります。
 
 ## SS11.5.1 パディングのストリーム
 
@@ -1100,8 +1106,9 @@
 - [x] MOQT-219 (SS5.1.3, SS6.3) SUBSCRIBE_TRACKS の TRACK_PROPERTY_FILTER は、Track Property の値が範囲内にある Track だけを購読者へ PUBLISH させなければならない。
   - test: `tests/app/moqtrun_misc_test.c` —
     `test_moqtrun_misc_subtracks_track_prop_filter`
-- [ ] MOQT-230 (SS10.19) 認可関数を組み込んだ構成では、すべての SUBSCRIBE_TRACKS をそれに渡し、拒否は REQUEST_ERROR UNAUTHORIZED としなければならない。
-  - gap: 認可のフックが扱うのは SUBSCRIBE、TRACK_STATUS、PUBLISH、PUBLISH_NAMESPACE、SUBSCRIBE_NAMESPACE だけである。
+- [x] MOQT-230 (SS10.19) 認可関数を組み込んだ構成では、すべての SUBSCRIBE_TRACKS をそれに渡し、拒否は REQUEST_ERROR UNAUTHORIZED としなければならない。
+  - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_authorization`
+  - note: SUBSCRIBE_TRACKS は名前空間の認可関数(`wired_moqt_hub.authorize_namespace`)に、msg_type `MOQCTL_T_SUBSCRIBE_TRACKS` で渡ります。
 - [~] MOQT-241 (SS10.19.1) ハブが SUBSCRIBE_TRACKS のために送る PUBLISH は、その SUBSCRIBE_TRACKS の GROUP_ORDER を持たなければならない。
   - evidence: `test_moqtrun_misc_d22_publish_params` は PUBLISH のバイト列を draft-22 のセッションでしか固定していない。
 - [x] MOQT-203 (SS10.9, SS10.9.2) FETCH、PUBLISH_NAMESPACE、SUBSCRIBE_NAMESPACE に対する、そのリクエストストリームでの REQUEST_UPDATE を処理しなければならない。受け入れた更新には確認応答を返し(SUBSCRIBE_NAMESPACE の新しいプレフィックスは、それ以降のアナウンスから有効になる)、拒否した名前空間の更新(たとえば PREFIX_OVERLAP)ではリクエストストリームを閉じ、古いプレフィックスをそのまま残す。受け入れた FETCH の更新が失敗することはない(Token Alias はデコード時にセッションを閉じる)ので、SS10.9.1 の FETCH データストリームのリセットは起こらない。
@@ -1159,8 +1166,6 @@ draft-19 のリレーの範囲内ですが、まだ実装していないもの�
 次の規則は満たしていません。それぞれ上の未解決の `[ ]` 項目です。
 
 - 制御ストリームをデータより先にスケジュールすること(MOQT-223)。
-- SUBSCRIBE_TRACKS の認可(MOQT-230)。
-- Subgroup の中継ストリームでの STOP_SENDING への対応(MOQT-247)。
 
 ## 対象外
 

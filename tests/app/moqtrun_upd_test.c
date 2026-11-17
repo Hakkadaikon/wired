@@ -557,6 +557,35 @@ static void test_moqtrun_timeout_torn_header(void) {
   }
 }
 
+/* draft-18 11.4.3: B's STOP_SENDING on its relay stream (the transport
+ * answers it with RESET_STREAM and reports it, srvrun_wtsend_stop) ends
+ * that Subgroup for B -- later Objects neither append to the stream nor
+ * open a new one -- while another Subgroup still opens. The lossy relay
+ * (ring 0) and the ring-backed one alike. */
+static void test_moqtrun_stop_sending_ends_subgroup(void) {
+  u8 buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  for (int ring = 0; ring < 2; ring++) {
+    moqctl_ftn f                  = mtrq_setup();
+    mtst_hub.reliable_alias_limit = ring ? 100 : 0;
+    mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+    usz n = mtst_stream(1, 1, 1, buf);
+    mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+    u64 sid = moqtrun_test_last_kind(5)->stream_id;
+    wired_moqt_on_stream_reset(&mtst_hub, SESS_B, sid, 0, 0);
+    moqtrun_test_reset();
+    for (u64 t = 1; t <= 2 * WIRED_MOQTRUN_RESET_AFTER_BUSY; t++) {
+      n = mtst_stream(1, 1, 0, buf);
+      mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+      wired_moqt_tick(&mtst_hub, t);
+    }
+    CHECK(moqtrun_test_count_kind(3) == 0); /* nothing on the stopped one */
+    CHECK(moqtrun_test_count_kind(5) == 0); /* never reopened */
+    n = mtst_stream(2, 1, 1, buf);
+    mt_feed(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 0);
+    CHECK(moqtrun_test_count_kind(5) == 1);
+  }
+}
+
 /* The hub's live track: a Group older than the timeout at send time is
  * not opened; the next one, still fresh, is. */
 static void test_moqtrun_timeout_live(void) {
@@ -994,6 +1023,7 @@ static void mtall_upd(void) {
   test_moqtrun_timeout_torn_object();
   test_moqtrun_timeout_ring_torn_object();
   test_moqtrun_timeout_torn_header();
+  test_moqtrun_stop_sending_ends_subgroup();
   test_moqtrun_timeout_live();
   test_moqtrun_timeout_datagram();
 }
