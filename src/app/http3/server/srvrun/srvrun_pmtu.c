@@ -12,8 +12,7 @@ static usz  srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us);
 static int  srvrun_pmtu_send_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, usz size);
 static int  srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c);
-static void srvrun_pmtu_chunk_cap(wired_sendsess* s, usz mps);
-static void srvrun_pmtu_shrink(srvrun_conn* c);
+static void srvrun_pmtu_chunk_set(wired_sendsess* s, usz mps);
 
 /* Stream bytes per packet at BASE_PLPMTU (srvrun_mps's formula at the base):
  * a slice longer than this needed a packet above the base. */
@@ -276,18 +275,25 @@ int srvrun_pmtu_big_lost(
          pmtu_big_suspect(&c->pmtu, l->pn);
 }
 
-static void srvrun_pmtu_chunk_cap(wired_sendsess* s, usz mps) {
-  s->q.chunk = (usz)u64_min(s->q.chunk, mps);
+/* An armed session (chunk != 0: every arm passes srvrun_mps) slices at mps
+ * from now on. */
+static void srvrun_pmtu_chunk_set(wired_sendsess* s, usz mps) {
+  if (s->q.chunk) {
+    s->q.chunk = mps;
+  }
 }
 
-/* The MPS dropped: every armed send session slices at the new size from
- * now on, retransmissions included (wired_sendsess_take splits). */
-static void srvrun_pmtu_shrink(srvrun_conn* c) {
+/* The MPS changed: every armed send session slices at the new size from
+ * now on. Down (RFC 8899 4.3, a black hole), retransmissions are split to
+ * fit (wired_sendsess_take). Up (RFC 8899 5.1.3, a probe acknowledged), a
+ * response already being sent stops cutting base-size slices -- armed once
+ * at the size of that moment, a long transfer kept it to its last byte. */
+void srvrun_pmtu_rechunk(srvrun_conn* c) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
-    srvrun_pmtu_chunk_cap(&c->resp[i].sess, srvrun_mps(c));
+    srvrun_pmtu_chunk_set(&c->resp[i].sess, srvrun_mps(c));
   }
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    srvrun_pmtu_chunk_cap(&c->wtsend[i].sess, srvrun_mps(c));
+    srvrun_pmtu_chunk_set(&c->wtsend[i].sess, srvrun_mps(c));
   }
 }
 
@@ -301,7 +307,7 @@ void srvrun_pmtu_feed_losses(srvrun_conn* c, usz big) {
   if (c->pmtu.validated == before) {
     return;
   }
-  srvrun_pmtu_shrink(c);
+  srvrun_pmtu_rechunk(c);
   srvrun_pmtu_probe_clear(c);
 }
 
@@ -327,5 +333,5 @@ void srvrun_pmtu_path_reset(
     return;
   }
   srvrun_pmtu_start(c);
-  srvrun_pmtu_shrink(c);
+  srvrun_pmtu_rechunk(c);
 }

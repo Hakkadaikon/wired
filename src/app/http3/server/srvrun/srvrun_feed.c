@@ -45,6 +45,7 @@ void srvrun_pmtu_reap_ack(srvrun_conn* c, u64 lo, u64 hi) {
   }
   pmtu_on_ack(&c->pmtu, c->pmtu_probe_size);
   srvrun_pmtu_probe_clear(c);
+  srvrun_pmtu_rechunk(c); /* sessions already armed use the new size too */
 }
 
 /* Broadcast one ACK range's accounting to every in-flight send session
