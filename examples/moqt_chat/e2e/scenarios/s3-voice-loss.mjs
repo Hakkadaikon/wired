@@ -44,22 +44,31 @@ async function deliveredChatIds(client) {
 	);
 }
 
+// Deliveries per publisher->subscriber pair in one run (20 s of 20 ms frames,
+// less the join stagger; 1100-1140 measured).
+const PAIR_FRAMES = 1100;
+
+/** Expected two-hop voice loss plus 4 sigma of its sampling error. */
+function voiceLossBound(lossRate) {
+	const expected = 1 - (1 - lossRate) ** 2;
+	return expected + 4 * Math.sqrt((expected * (1 - expected)) / PAIR_FRAMES);
+}
+
 export async function run({ pageUrl, server, arg, log }) {
 	const lossRate = Number(arg("loss-rate", "0.01"));
 	const seed = Number(arg("impair-seed", "1"));
 	const messagesPerClient = Number(arg("messages", "15"));
 	const gateOverrides = {
 		// Voice rides datagrams over two lossy hops (publisher->hub,
-		// hub->subscriber), so end-to-end loss compounds: 1-(1-p)^2 (5% -> 9.75%).
-		// The 1.3x factor is relative sampling headroom above that expectation;
-		// the +0.5pt absolute term covers per-pair binomial sampling variance at
-		// small n (~1200 deliveries/run), where relative headroom alone is too
-		// tight (1% loss: 2.59% relative bound vs ~0.4% sigma around a 1.99%
-		// expectation -- a single unlucky run can exceed it). This gate measures
-		// wire loss (seq gaps), not audible gaps: PLC repeats the last frame for
-		// up to 2 consecutive lost frames before going silent, so it masks some
-		// of this loss from the ear without changing the wire count.
-		maxFrameLossRate: Math.max(0.005, (1 - (1 - lossRate) ** 2) * 1.3 + 0.005),
+		// hub->subscriber), so the expected end-to-end loss is 1-(1-p)^2
+		// (1% -> 1.99%, 5% -> 9.75%). The gate sits 4 sigma of the per-pair
+		// binomial sampling error above that (PAIR_FRAMES deliveries per pair:
+		// 0.42pt at 1% loss, so 3.67%). 12 pairs are judged per run, and the old
+		// 2.65-sigma bound (3.09%) failed about one run in three on sampling
+		// noise alone (3.09-3.30% seen with chat fully delivered). This gate
+		// measures wire loss (seq gaps), not audible gaps: PLC repeats the last
+		// frame for up to 2 consecutive lost frames before going silent.
+		maxFrameLossRate: Math.max(0.005, voiceLossBound(lossRate)),
 		maxInterArrivalP99Ms: Number(arg("max-inter-arrival-p99", "150")),
 		minPlcCount: 1, // a lossy profile must actually exercise PLC
 		maxPlcCount: Infinity, // concealment count is reported, not capped, under injected loss
