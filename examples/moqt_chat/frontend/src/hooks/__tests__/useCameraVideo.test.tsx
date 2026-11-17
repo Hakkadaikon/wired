@@ -84,7 +84,7 @@ beforeAll(() => {
 // WebCodecs are not in jsdom; the hook only passes the constructors on.
 beforeEach(() => {
 	for (const name of ["VideoDecoder", "EncodedVideoChunk", "VideoEncoder"])
-		vi.stubGlobal(name, function Ctor() {});
+		vi.stubGlobal(name, function ctor() {});
 });
 
 let root: Root | null = null;
@@ -95,15 +95,23 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
+type ProbeOut = { hook?: ReturnType<typeof useCameraVideo> };
+
+// At module level: a component defined inside renderHook would be a new
+// type on every call.
+function Probe(props: {
+	out: ProbeOut;
+	makeProcessor: Parameters<typeof useCameraVideo>[0];
+}) {
+	props.out.hook = useCameraVideo(props.makeProcessor);
+	return null;
+}
+
 function renderHook() {
-	const out: { hook?: ReturnType<typeof useCameraVideo> } = {};
+	const out: ProbeOut = {};
 	const makeProcessor = vi.fn();
-	function Probe() {
-		out.hook = useCameraVideo(makeProcessor);
-		return null;
-	}
 	root = createRoot(document.createElement("div"));
-	act(() => root?.render(<Probe />));
+	act(() => root?.render(<Probe out={out} makeProcessor={makeProcessor} />));
 	return { hook: out.hook as ReturnType<typeof useCameraVideo>, makeProcessor };
 }
 

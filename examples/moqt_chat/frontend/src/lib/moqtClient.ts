@@ -197,7 +197,7 @@ export function candidateParticipantIds(localId: string): string[] {
 // that same fixed table.
 export function ownTrackAlias(localId: string): bigint {
 	const idx = CANDIDATE_PARTICIPANT_IDS.indexOf(localId);
-	return BigInt(idx < 0 ? 0 : idx);
+	return BigInt(Math.max(idx, 0));
 }
 
 export function participantForTrackAlias(
