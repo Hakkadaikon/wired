@@ -160,6 +160,16 @@ flowchart TD
 - ピアは、上限を増やさない MAX_DATA を無視する(RFC 9000 4.1)。変更前の MAX_DATA は、`initial_max_data`(既定は 10,000,000 バイト)以下の値でも送っていた。
 - 変更後は、接続全体の上限が `initial_max_data` を `SRVRUN_CREDIT_STEP` 以上超えるまで MAX_DATA を送らない。この計測では 1 個も送らなかった。
 
+### 4.1 通知への ACK の同乗
+
+MAX_STREAM_DATA を送るとき、その接続に保留中の ACK があれば、同じパケットの MAX_STREAM_DATA フレームの前に載せる(RFC 9000 13.2.1)。3 章のデータグラムと同じ扱いである。
+
+| 項目 | 前 | 後 |
+|---|---|---|
+| 受信中のストリームへの応答 | ACK だけのパケットと、MAX_STREAM_DATA のパケットを別々に送る | 1 つのパケットで送る |
+
+`tests/app/srvrun_wtflow_test.c` の `test_srvrun_ack_rides_max_stream_data` が、送るパケットが 1 個で、送ったあとに保留が残らないことを確かめる。
+
 ## 5. STREAM フレームへの書き込み
 
 `frame_put_stream` はヘッダーを書いたあと、`frame_write_bytes` でペイロードを書き込む。
