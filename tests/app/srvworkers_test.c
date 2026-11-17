@@ -333,11 +333,13 @@ static void sw_child_exit7(
   wired_arch_exit_group(7);
 }
 
-/* Wait for pid for at most ~5 s; on timeout SIGKILL and reap it.
+/* Wait for pid for at most ~60 s; on timeout SIGKILL and reap it. Only a
+ * failing run waits that long. 5 s was too short for a forked child under
+ * valgrind on a loaded machine (the child then looked hung).
  * @return the wait4 status, or -1 on timeout. */
 static i64 sw_wait_bounded(i64 pid) {
   i64 status = 0;
-  for (int i = 0; i < 500; i++) {
+  for (int i = 0; i < 6000; i++) {
     if (wired_arch_wait4(pid, &status, 1 /* WNOHANG */, 0) == pid) {
       return status & 0xffff;
     }
