@@ -43,23 +43,24 @@ void wired_srvrun_env_wt_usage(
   *out = env->wt_usage;
 }
 
-/* qlog packet_sent (pn/time are not tracked at this layer, so both are logged
- * as 0 — the record still proves a packet of `bytes` size went out). group_id
- * is c's slot (srvrun_conn.qlog_slot's doc). No-op when no qlog path is set.
- */
+/* qlog packet_sent, stamped with the loop's clock (srvrun_now_ms; the same
+ * ms clock the packet_lost records carry). pn is not tracked at this layer
+ * and is logged as 0. group_id is c's slot (srvrun_conn.qlog_slot's doc).
+ * No-op when no qlog path is set. */
 void srvrun_qlog_sent(const srvrun_cfg* cfg, const srvrun_conn* c, usz bytes) {
   char rec[128];
   usz  n;
   if (!cfg->qlog_path) {
     return;
   }
-  n = wired_qlogevent_packet_sent(rec, sizeof rec, 0, c->qlog_slot, 0, bytes);
+  n = wired_qlogevent_packet_sent(
+      rec, sizeof rec, srvrun_now_ms(cfg), c->qlog_slot, 0, bytes);
   if (n) {
     wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, n));
   }
 }
 
-/* qlog packet_received (time not tracked at this layer; bytes is the whole
+/* qlog packet_received, stamped like srvrun_qlog_sent (bytes is the whole
  * datagram, matching packet_sent's granularity). No-op without a qlog path.
  */
 void srvrun_qlog_recv(
@@ -70,7 +71,7 @@ void srvrun_qlog_recv(
     return;
   }
   n = wired_qlogevent_packet_received(
-      rec, sizeof rec, 0, c->qlog_slot, pn, bytes);
+      rec, sizeof rec, srvrun_now_ms(cfg), c->qlog_slot, pn, bytes);
   if (n) {
     wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, n));
   }

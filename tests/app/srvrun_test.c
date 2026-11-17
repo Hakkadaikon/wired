@@ -598,6 +598,8 @@ static void test_srvrun_send_qlog_path_writes_packet_sent(void) {
     CHECK(n > 0);
     CHECK(out[0] == 0x1E); /* JSON-SEQ RS */
     CHECK(out[n - 1] == '\n');
+    /* stamped with the loop's clock, not 0 */
+    CHECK(sr_qlog_count("\"time\":0,") == 0);
   }
   srvrunt_qlog_unlink();
 }
@@ -5844,6 +5846,7 @@ static void test_srvrun_qlog_records_received(void) {
   srvrunt_qlog_unlink();
   sr_serve_onertt(srvrunt_qlog_path, ping, 1, 1);
   CHECK(sr_qlog_count("packet_received") == 1);
+  CHECK(sr_qlog_count("\"time\":0,") == 0);
   srvrunt_qlog_unlink();
 }
 
