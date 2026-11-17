@@ -114,7 +114,7 @@ CI の実行のあとに入れた修正は、同じ日にローカルのラン�
 | `v2` | 判定なし | quic-go クライアントが `unsupported test case: v2` を宣言。ngtcp2、kwik、picoquic、aioquic、neqo、lsquic では合格(2026-11-17)。msquic はローカルの再実行で合格(2.2)。quinn では不合格(6 章) |
 | `rebind-port` / `rebind-addr` | 合格 | これらを実行するクライアント 13 種すべてで合格(2026-11-17) |
 | `connectionmigration` | 不合格 | quic-go とほか 7 種のクライアントで不合格(6 章)。ngtcp2、picoquic、aioquic、neqo、lsquic では合格(2026-11-17) |
-| `crosstraffic`(計測) | 合格 | 競合する TCP cubic フローと並べて 25 MB。quic-go に対して、CI の実行で 1633(± 108)kbps、CUBIC の修正(`ae2474b47`)と経路 MTU の修正(`ca6b6ca30`)のあとのローカルの実行で 4570(± 330)kbps。go-x-net、msquic、xquic では不合格(6 章) |
+| `crosstraffic`(計測) | 合格 | 競合する TCP cubic フローと並べて 25 MB。quic-go に対して、CI の実行で 1633(± 108)kbps、CUBIC の修正(`ae2474b47`)のあとのローカルの実行で 3957(± 101)kbps。go-x-net、msquic、xquic では不合格(6 章) |
 
 ## 4. WebTransport のテストケース(サーバー: wired、クライアント: webtransport-go)
 
@@ -185,7 +185,7 @@ moq-interop-runner は、各クライアントのテストスイートを、リ�
 | `connectionmigration` | quiche、msquic、xquic、quinn、go-x-net、s2n-quic、kwik | `logs_2026-11-17T07:19:54`、`07:20:17`、`07:21:22`、`07:23:03`、`07:24:07`、`07:24:34`、`07:25:12` |
 | `multiplexing` | xquic | `logs_2026-11-17T07:22:08` |
 | `v2` | quinn | `logs_2026-11-17T07:23:39` |
-| `crosstraffic` | msquic | `logs_2026-11-17T09:18:07` |
+| `crosstraffic` | msquic | `logs_2026-11-17T07:49:13` |
 
 シミュレーターの損失で結果が変わる不合格(2.1)は次のとおりである。
 
