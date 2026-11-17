@@ -21,6 +21,8 @@ static int step_np_raises(
     const wired_srvloop* l, const srvloop_opened* o, wired_span pl);
 static void step_note_np(
     wired_srvloop* l, const srvloop_opened* o, wired_span pl);
+static void step_note_ack(
+    wired_srvloop* l, const wired_srvloop_recv_out* ro, u32 kinds);
 static void step_frames(
     const wired_srvloop_conn*     conn,
     const wired_srvloop_recv_out* ro,
@@ -131,6 +133,17 @@ static int step_crypto_ok(
          wired_server_crypto_level_ok(conn->s, o->level, pl);
 }
 
+/* Record the packet just dispatched for acknowledgement -- unless one of
+ * its stray STREAM frames found no room (dispatch_stray.c): that packet is
+ * left unacknowledged, so the peer sends it again. */
+static void step_note_ack(
+    wired_srvloop* l, const wired_srvloop_recv_out* ro, u32 kinds) {
+  if (srvloop_stray_ackable(l)) {
+    srvloop_step_note_ack_owed(
+        l, framewalk_kinds_ack_eliciting(kinds), ro->level);
+  }
+}
+
 static void step_frames(
     const wired_srvloop_conn*     conn,
     const wired_srvloop_recv_out* ro,
@@ -138,11 +151,10 @@ static void step_frames(
   if (step_has_acks(o)) {
     srvloop_collect_acks(conn->l, ro->payload);
   }
-  srvloop_step_note_ack_owed(
-      conn->l, framewalk_kinds_ack_eliciting(o->kinds), ro->level);
   if (step_crypto_ok(conn, o, ro->payload)) {
     srvloop_step_dispatch(conn, ro->payload, o->kinds);
   }
+  step_note_ack(conn->l, ro, o->kinds);
 }
 
 /* RFC 9000 10.2.2: latch the peer's CONNECTION_CLOSE, when pl has one. */

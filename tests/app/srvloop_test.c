@@ -3393,49 +3393,201 @@ static void test_srvloop_wt_uni_stream_data_overtakes_split_type(void) {
   }
 }
 
-/* The stash is a fixed ring: with more overtaken fragments than it holds,
- * the oldest is given up (that stream stalls, as every one did before) and
- * the newest WIRED_SRVLOOP_STRAY_MAX still land. A fragment larger than an
- * entry is not kept, and a stream whose type is already known keeps none. */
-static void test_srvloop_wt_stray_ring_bounds(void) {
+/* 1 if 1-RTT packet pn was recorded for acknowledgement. */
+static int lp_stray_acked(const struct lp_fix* f, u64 pn) {
+  return recvpn_seen(&f->l.ack_recv.r[PNS_APP], pn);
+}
+
+/* The stash never gives up a kept fragment: with more overtaken fragments
+ * than it holds, the one that finds no room is refused and its packet is
+ * left unacknowledged (RFC 9000 13.2), so the peer sends it again -- and by
+ * then the stream's type is here and the fragment lands directly. */
+static void test_srvloop_wt_stray_full_leaves_packet_unacked(void) {
   struct lp_fix f;
-  static u8     big[WIRED_SRVLOOP_STRAY_CAP + 64],
-      bigpl[WIRED_SRVLOOP_STRAY_CAP + 1];
-  u8         sig[16], data[16], out[1024];
-  wired_obuf ob = {out, sizeof out, 0};
-  u64        pn = 3;
-  usz        n;
+  u8            sig[16], data[16], out[1024];
+  wired_obuf    ob   = {out, sizeof out, 0};
+  u64           pn   = 3;
+  u64           over = 2 + 4 * WIRED_SRVLOOP_STRAY_MAX; /* one too many */
+  usz           n;
+  int           i;
   lp_confirm(&f, &ob);
-  for (u64 k = 0; k <= WIRED_SRVLOOP_STRAY_MAX; k++) { /* one too many */
+  for (u64 k = 0; k <= WIRED_SRVLOOP_STRAY_MAX; k++) {
     n = lp_stream_frame_at(
         data, sizeof data, 2 + 4 * k, 3, (const u8*)"AB", 2, 1);
     lp_stray_step(&f, pn++, data, n);
   }
+  CHECK(f.l.strays.n == WIRED_SRVLOOP_STRAY_MAX);
+  CHECK(lp_stray_acked(&f, 3));       /* kept: acknowledged */
+  CHECK(!lp_stray_acked(&f, pn - 1)); /* refused: the peer will resend */
+  /* the same fragment again while it is kept takes no second entry */
+  n = lp_stream_frame_at(data, sizeof data, 2, 3, (const u8*)"AB", 2, 1);
+  lp_stray_step(&f, pn++, data, n);
+  CHECK(f.l.strays.n == WIRED_SRVLOOP_STRAY_MAX);
+  CHECK(lp_stray_acked(&f, pn - 1));
   for (u64 k = 0; k <= WIRED_SRVLOOP_STRAY_MAX; k++) {
     n = lp_stream_frame_at(
         sig, sizeof sig, 2 + 4 * k, 0, (const u8*)"\x40\x54\x02", 3, 0);
     lp_stray_step(&f, pn++, sig, n);
   }
-  {
-    int first = wired_srvloop_wt_uni_slot_find(&f.l, 2);
-    int last =
-        wired_srvloop_wt_uni_slot_find(&f.l, 2 + 4 * WIRED_SRVLOOP_STRAY_MAX);
-    CHECK(first >= 0 && f.l.wt_uni_streams[first].win.frontier == 0);
-    CHECK(last >= 0 && f.l.wt_uni_streams[last].win.frontier == 2);
-    CHECK(f.l.wt_uni_streams[last].fin == 1);
-  }
-  /* too large for an entry: not kept, the ring is left as it was */
+  CHECK(f.l.strays.n == 0);
+  i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
+  CHECK(i >= 0 && f.l.wt_uni_streams[i].win.frontier == 2);
+  CHECK(i >= 0 && f.l.wt_uni_streams[i].fin == 1);
+  i = wired_srvloop_wt_uni_slot_find(&f.l, over);
+  CHECK(i >= 0 && f.l.wt_uni_streams[i].win.frontier == 0);
+  /* the peer's resend of the refused fragment lands in the slot */
+  n = lp_stream_frame_at(data, sizeof data, over, 3, (const u8*)"AB", 2, 1);
+  lp_stray_step(&f, pn++, data, n);
+  CHECK(lp_stray_acked(&f, pn - 1));
+  CHECK(i >= 0 && f.l.wt_uni_streams[i].win.frontier == 2);
+  CHECK(i >= 0 && f.l.wt_uni_streams[i].fin == 1);
+}
+
+/* A fragment larger than an entry is refused the same way. A stream whose
+ * type is already known keeps none, and a stream that proves not to be
+ * WebTransport gives its entries back. */
+static void test_srvloop_wt_stray_bounds(void) {
+  struct lp_fix f;
+  static u8     big[WIRED_SRVLOOP_STRAY_CAP + 64],
+      bigpl[WIRED_SRVLOOP_STRAY_CAP + 1];
+  u8         sig[16], data[16], out[1024];
+  wired_obuf ob = {out, sizeof out, 0};
+  usz        n;
+  lp_confirm(&f, &ob);
   bytes_memset(bigpl, 'x', sizeof bigpl);
   n = lp_stream_frame_at(big, sizeof big, 402, 3, bigpl, sizeof bigpl, 0);
   CHECK(n != 0);
-  {
-    u8 next = f.l.strays.next;
-    lp_stray_step(&f, pn++, big, n);
-    CHECK(f.l.strays.next == next);
-    /* a later chunk of a stream whose type is known is not a stray */
-    n = lp_stream_frame_at(data, sizeof data, 2, 9, (const u8*)"CD", 2, 0);
-    lp_stray_step(&f, pn++, data, n);
-    CHECK(f.l.strays.next == next);
+  lp_stray_step(&f, 3, big, n);
+  CHECK(f.l.strays.n == 0);
+  CHECK(!lp_stray_acked(&f, 3));
+  /* kept for uni stream 6, whose type then arrives and is not WT */
+  n = lp_stream_frame_at(data, sizeof data, 6, 1, (const u8*)"CD", 2, 0);
+  lp_stray_step(&f, 4, data, n);
+  CHECK(f.l.strays.n == 1);
+  n = lp_stream_frame_at(sig, sizeof sig, 6, 0, (const u8*)"\x21", 1, 0);
+  lp_stray_step(&f, 5, sig, n);
+  CHECK(f.l.strays.n == 0);
+  /* a later chunk of a stream whose type is known is not a stray */
+  n = lp_stream_frame_at(data, sizeof data, 6, 3, (const u8*)"EF", 2, 0);
+  lp_stray_step(&f, 6, data, n);
+  CHECK(f.l.strays.n == 0);
+  CHECK(lp_stray_acked(&f, 6));
+}
+
+/* One STREAM frame of the random-arrival model below. */
+typedef struct {
+  u64 sid;  /* client uni stream */
+  u64 off;  /* stream offset (0: the type and session id) */
+  u16 len;  /* bytes */
+  u8  fin;  /* the frame's FIN bit */
+  u8  done; /* the packet that carried it was acknowledged */
+} lp_stray_fr;
+
+#define LP_STRAY_STREAMS 4
+#define LP_STRAY_FRAMES 160
+
+static u32 g_lp_stray_seed;
+
+static u32 lp_stray_rnd(void) {
+  g_lp_stray_seed = g_lp_stray_seed * 1664525u + 1013904223u;
+  return g_lp_stray_seed >> 8;
+}
+
+/* Byte p of stream sid's payload. */
+static u8 lp_stray_byte(u64 sid, usz p) { return (u8)(p * 7u + sid); }
+
+/* Cut each stream into its leading frame and random-size payload frames. */
+static usz lp_stray_plan(lp_stray_fr* fr, u16* total) {
+  usz n = 0;
+  for (u64 k = 0; k < LP_STRAY_STREAMS; k++) {
+    u64 sid  = 2 + 4 * k;
+    u16 at   = 0;
+    total[k] = (u16)(400 + lp_stray_rnd() % 5000);
+    fr[n++]  = (lp_stray_fr){sid, 0, 3, 0, 0};
+    while (at < total[k]) {
+      u16 len = (u16)(60 + lp_stray_rnd() % 1100);
+      len     = (u16)u64_min(len, (u64)(total[k] - at));
+      fr[n++] = (lp_stray_fr){sid, 3u + at, len, (u8)(at + len == total[k]), 0};
+      at      = (u16)(at + len);
+    }
+  }
+  return n;
+}
+
+/* Send frame e as its own packet; 1 if the packet was acknowledged. */
+static int lp_stray_send(struct lp_fix* f, u64 pn, const lp_stray_fr* e) {
+  u8  data[1200], frame[1300];
+  usz n;
+  for (usz i = 0; i < e->len; i++) {
+    data[i] = lp_stray_byte(e->sid, (usz)e->off - 3u + i);
+  }
+  if (e->off == 0) {
+    bytes_memcpy(data, "\x40\x54\x02", 3);
+  }
+  n = lp_stream_frame_at(
+      frame, sizeof frame, e->sid, e->off, data, e->len, e->fin);
+  lp_stray_step(f, pn, frame, n);
+  return lp_stray_acked(f, pn);
+}
+
+/* The next frame the model peer sends: a random one still unacknowledged
+ * (a leading frame is passed over three times in four, so the rest of its
+ * stream overtakes it), or now and then one already acknowledged again. */
+static lp_stray_fr* lp_stray_pick(lp_stray_fr* fr, usz n) {
+  usz at = lp_stray_rnd() % n;
+  for (usz i = 0; i < n; i++) {
+    lp_stray_fr* e = &fr[(at + i) % n];
+    if (!e->done && (e->off != 0 || lp_stray_rnd() % 4 == 0)) {
+      return e;
+    }
+  }
+  return &fr[at];
+}
+
+static usz lp_stray_pending(const lp_stray_fr* fr, usz n) {
+  usz left = 0;
+  for (usz i = 0; i < n; i++) {
+    left += !fr[i].done;
+  }
+  return left;
+}
+
+/* RFC 9000 13.2 / 2.2: whatever order the frames of a few WT uni streams
+ * arrive in -- the leading frames mostly last -- a peer that resends every
+ * packet left unacknowledged ends with every stream whole. No acknowledged
+ * byte is ever given up, however full the stash gets. */
+static void lp_stray_random_round(u32 seed) {
+  struct lp_fix      f;
+  static lp_stray_fr fr[LP_STRAY_FRAMES];
+  u16                total[LP_STRAY_STREAMS];
+  u8                 out[1024];
+  wired_obuf         ob = {out, sizeof out, 0};
+  u64                pn = 3;
+  usz                n;
+  g_lp_stray_seed = seed;
+  n               = lp_stray_plan(fr, total);
+  CHECK(n <= LP_STRAY_FRAMES);
+  lp_confirm(&f, &ob);
+  for (usz step = 0; step < 20000 && lp_stray_pending(fr, n); step++) {
+    lp_stray_fr* e = lp_stray_pick(fr, n);
+    e->done        = (u8)(e->done | lp_stray_send(&f, pn++, e));
+  }
+  CHECK(lp_stray_pending(fr, n) == 0);
+  CHECK(f.l.strays.n == 0);
+  for (u64 k = 0; k < LP_STRAY_STREAMS; k++) {
+    int i = wired_srvloop_wt_uni_slot_find(&f.l, 2 + 4 * k);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_uni_streams[i].win.frontier == total[k]);
+    CHECK(f.l.wt_uni_streams[i].fin == 1);
+    for (usz p = 0; p < total[k]; p++) {
+      CHECK(f.l.wt_uni_streams[i].buf[p] == lp_stray_byte(2 + 4 * k, p));
+    }
+  }
+}
+
+static void test_srvloop_wt_stray_random_arrival_loses_nothing(void) {
+  for (u32 seed = 1; seed <= 12; seed++) {
+    lp_stray_random_round(seed);
   }
 }
 
@@ -8264,7 +8416,9 @@ void test_srvloop(void) {
   test_srvloop_wt_uni_stream_data_overtakes_type();
   test_srvloop_wt_bidi_stream_data_overtakes_signal();
   test_srvloop_wt_uni_stream_data_overtakes_split_type();
-  test_srvloop_wt_stray_ring_bounds();
+  test_srvloop_wt_stray_full_leaves_packet_unacked();
+  test_srvloop_wt_stray_bounds();
+  test_srvloop_wt_stray_random_arrival_loses_nothing();
   test_srvloop_wt_uni_stream_split_data_then_bare_fin();
   test_srvloop_uni_control_qpack_still_ignored();
   test_srvloop_second_qpack_encoder_stream_violation();

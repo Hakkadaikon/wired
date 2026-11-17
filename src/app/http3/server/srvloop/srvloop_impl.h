@@ -94,6 +94,8 @@ int  srvloop_app_ack_urgent(const wired_srvloop* l);
 void srvloop_step_dispatch(
     const wired_srvloop_conn* conn, wired_span payload, u32 kinds);
 void srvloop_step_note_ack_owed(wired_srvloop* l, int eliciting, int level);
+/* dispatch_stray.c: 1 if the packet just dispatched may be acknowledged. */
+int  srvloop_stray_ackable(wired_srvloop* l);
 int  srvloop_step_dup(const wired_srvloop* l, int level);
 void srvloop_step_opened(
     const wired_srvloop_conn*     conn,

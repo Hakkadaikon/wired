@@ -117,6 +117,7 @@ void srvloop_stray_keep_uni(wired_srvloop* l, const stream_frame* sf);
 void srvloop_stray_keep_bidi(wired_srvloop* l, const stream_frame* sf);
 void srvloop_stray_adopt_uni(wired_srvloop* l, u64 stream_id);
 void srvloop_stray_adopt_bidi(wired_srvloop* l, u64 stream_id);
+int  srvloop_stray_is(const wired_srvloop_stray* e, u64 stream_id);
 void srvloop_gather_wt_uni_classify(wired_srvloop* l, const stream_frame* sf);
 void srvloop_gather_wt_uni_frame(wired_srvloop* l, const stream_frame* sf);
 int  srvloop_gather_uni_stream(wired_srvloop* l, const u8* payload, usz len);

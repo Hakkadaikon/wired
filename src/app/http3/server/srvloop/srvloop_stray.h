@@ -7,12 +7,13 @@
  * Halstead file cap. */
 
 /** Entries in the stray stash (wired_srvloop.strays): eight covers a short
- * message's data and FIN on a few streams at once. A stream that sends more
- * ahead of its lost first packet than fits loses the oldest fragments and
- * stalls, as every such stream did before the stash existed. */
+ * message's data and FIN on a few streams at once. A frame that finds every
+ * entry in use is not kept and its packet is not acknowledged, so the peer
+ * sends it again (by then the stream's first bytes have usually arrived). */
 #define WIRED_SRVLOOP_STRAY_MAX 8
 
-/** Bytes one stray entry holds: one STREAM frame of a full-size packet. */
+/** Bytes one stray entry holds: one STREAM frame of a full-size packet. A
+ * larger frame is refused the same way as one that finds no entry. */
 #define WIRED_SRVLOOP_STRAY_CAP 1400
 
 /** RFC 9000 2.2: one STREAM frame that arrived ahead of its stream's first
@@ -28,11 +29,14 @@ typedef struct {
   u8  data[WIRED_SRVLOOP_STRAY_CAP]; /**< the frame's bytes */
 } wired_srvloop_stray;
 
-/** The stash: a ring of stray frames, the oldest overwritten first. */
+/** The stash: stray frames, each kept until its stream's leading bytes
+ * arrive. No entry in use is ever overwritten. */
 typedef struct {
   wired_srvloop_stray e[WIRED_SRVLOOP_STRAY_MAX]; /**< the entries */
-  u8                  next; /**< the entry the next stray frame goes into */
   u8 n; /**< entries in use: 0 lets every landing skip the stash */
+  /** 1 when a frame of the packet being dispatched found no room: that
+   * packet is then not acknowledged (srvloop_stray_refused_take). */
+  u8 refused;
 } wired_srvloop_strays;
 
 #endif
