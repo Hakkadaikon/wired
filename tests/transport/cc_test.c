@@ -128,6 +128,34 @@ static void test_cc_cubic_mode(void) {
   CHECK(c.cwnd == 72000); /* K+5s: 10 + 50 segments, convex growth */
 }
 
+/* RFC 9438 4.3 (Reno-friendly region): after a loss at a small window the
+ * cubic curve needs K = 1.3 s to regain one segment; W_est grows per ACK
+ * like an AIMD sender (alpha 9/17, then 1 once back at the window the loss
+ * cut), and cwnd follows it. Without it a 2% loss link pins the window at
+ * two to three packets (seen against xquic, interop transfercorruption). */
+static void test_cc_cubic_reno_friendly_region(void) {
+  cc c;
+  cc_init_algo(&c, CC_ALGO_CUBIC);
+  c.cwnd = 3600;
+  cc_on_loss(&c, 1000, 1000);
+  CHECK(c.cwnd == 2520 && c.w_est == 2520 && c.cwnd_prior == 3600);
+  /* 40 ms later the curve is still at 2 segments (2400): W_est leads */
+  cc_on_ack(&c, 1177, 1001, 1040);
+  CHECK(c.cwnd == 2816); /* 2520 + (1200 * 1177 / 2520) * 9 / 17 */
+  for (u64 t = 1080; c.w_est < c.cwnd_prior; t += 40) {
+    cc_on_ack(&c, 1177, t - 30, t);
+  }
+  CHECK(c.cwnd >= 3600); /* back at the prior window within a few RTTs */
+  {
+    u64 before = c.cwnd;
+    cc_on_ack(&c, 1177, 2000, 2030);
+    CHECK(c.cwnd == before + MAX_DATAGRAM * 1177 / before); /* alpha = 1 */
+  }
+  /* RFC 9002 B.8: persistent congestion restarts W_est with the window */
+  cc_on_persistent(&c);
+  CHECK(c.cwnd == CC_MIN_WINDOW && c.w_est == CC_MIN_WINDOW);
+}
+
 /* BBR mode: acks feed the delivery-rate sampler; once a round closes, cwnd
  * becomes cwnd_gain x BDP (btl_bw x rtprop) and pacing follows
  * pacing_gain x btl_bw. The drain handoff needs the caller's inflight. */
@@ -255,6 +283,7 @@ void test_cc(void) {
   test_cc_bbr_cwnd_floor_four_packets();
   test_cc_bbr_cycle_advances_per_round_not_per_tick();
   test_cc_cubic_mode();
+  test_cc_cubic_reno_friendly_region();
   test_cc_slow_start();
   test_cc_loss_halves_floor();
   test_cc_no_grow_in_recovery();

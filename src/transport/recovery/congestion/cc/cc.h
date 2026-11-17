@@ -27,6 +27,10 @@ typedef struct {
   u64 w_max_seg;      /* CUBIC: window at the last loss, in segments */
   u64 k_ms;           /* CUBIC: plateau offset for the current epoch */
   u64 epoch_ms;       /* CUBIC: when the current epoch (loss) began */
+  /** CUBIC, RFC 9438 4.3: W_est in bytes -- what an AIMD (Reno-like) sender
+   * would have reached since the last loss. cwnd is never left below it. */
+  u64 w_est;
+  u64 cwnd_prior;     /* CUBIC: cwnd just before the last reduction (4.3) */
   bbr bbr;            /* BBR: phase machine and estimators */
   u64 round_bytes;    /* BBR: bytes acked in the current sample round */
   u64 round_start_ms; /* BBR: when the current sample round began */

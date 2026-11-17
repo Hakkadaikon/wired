@@ -16,6 +16,8 @@ void cc_init_algo(cc* c, int algo) {
   c->w_max_seg      = 0;
   c->k_ms           = 0;
   c->epoch_ms       = 0;
+  c->w_est          = 0;
+  c->cwnd_prior     = 0;
   c->round_bytes    = 0;
   c->round_start_ms = 0;
   c->app_limited    = 0;
@@ -37,15 +39,27 @@ static void maybe_exit_recovery(cc* c, u64 sent_time) {
   }
 }
 
-/* RFC 9438 4.1: lift cwnd onto the cubic curve at `now`; before the first
- * loss (no epoch) CUBIC slow-starts like NewReno. */
+/* RFC 9438 4.3 Figure 4, in bytes: W_est += alpha * SMSS * acked / cwnd.
+ * alpha is 3 * (1 - beta) / (1 + beta) = 9/17 until W_est is back at the
+ * window the last loss cut (cwnd_prior), then 1 -- Reno's own increase. */
+static void cubic_west_grow(cc* c, u64 acked) {
+  u64 inc = MAX_DATAGRAM * acked / c->cwnd;
+  c->w_est += (c->w_est >= c->cwnd_prior) ? inc : inc * 9 / 17;
+}
+
+/* RFC 9438 4.1 / 4.3: lift cwnd onto the cubic curve at `now`, or onto
+ * W_est where the curve is below it (the Reno-friendly region: with a small
+ * window or a short RTT the curve alone takes seconds to regain a segment).
+ * Before the first loss (no epoch) CUBIC slow-starts like NewReno. */
 static void grow_cubic(cc* c, u64 acked, u64 now) {
   u64 target;
   if (!c->w_max_seg) {
     grow(c, acked);
     return;
   }
+  cubic_west_grow(c, acked);
   target = cubic_w(now - c->epoch_ms, c->k_ms, c->w_max_seg) * MAX_DATAGRAM;
+  target = u64_max(target, c->w_est);
   if (target > c->cwnd) {
     c->cwnd = target;
   }
@@ -80,39 +94,6 @@ void cc_on_ack(cc* c, u64 acked, u64 sent_time, u64 now) {
   if (cc_may_grow(c)) {
     grow_algo(c, acked, now);
   }
-}
-
-/* RFC 9438 4.6/4.7: remember W_max (fast convergence), re-anchor the cubic
- * epoch at this loss, shrink by beta_cubic (0.7). */
-static u64 loss_window_cubic(cc* c, u64 now) {
-  u64 w_seg    = c->cwnd / MAX_DATAGRAM;
-  c->w_max_seg = cubic_wmax_fastconv(w_seg, c->w_max_seg);
-  c->k_ms      = cubic_k_ms(c->w_max_seg);
-  c->epoch_ms  = now;
-  return u64_max(c->cwnd * 7 / 10, CC_MIN_WINDOW);
-}
-
-static u64 loss_window(cc* c, u64 now) {
-  if (c->algo == CC_ALGO_CUBIC) {
-    return loss_window_cubic(c, now);
-  }
-  return u64_max(c->cwnd / 2, CC_MIN_WINDOW);
-}
-
-/* RFC 9002 B.5 InCongestionRecovery: sent at or before the current period
- * began (recovery_start 0: no period, B.8). */
-static int cc_in_period(const cc* c, u64 sent_time) {
-  return c->recovery_start && cc_in_recovery(sent_time, c->recovery_start);
-}
-
-void cc_on_loss(cc* c, u64 sent_time, u64 now) {
-  if (c->in_recovery || cc_in_period(c, sent_time)) {
-    return; /* once/window */
-  }
-  c->ssthresh       = loss_window(c, now);
-  c->cwnd           = c->ssthresh;
-  c->in_recovery    = 1;
-  c->recovery_start = now;
 }
 
 /* The bandwidth-delay product in bytes (btl_bw B/ms x rtprop ms). */
