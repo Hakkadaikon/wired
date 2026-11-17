@@ -58,6 +58,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   /* also zeroes wt_uni_closed/uni_typed */
   srvloop_wt_uni_streams_reset(l);
   srvloop_pending_priority_reset(l);
+  bytes_memset(&l->strays, 0, sizeof l->strays); /* no stray frame kept */
   srvloop_rxacct_reset(l);
   return 1;
 }

@@ -6,6 +6,8 @@ void kuswitch_init(kuswitch_state* state, const initial_keys* gen0) {
   state->cur        = *gen0;
   state->generation = 0;
   state->have_old   = 0;
+  /* recv_onertt expands old's keys whether or not one is retained */
+  state->old = (initial_keys){0};
 }
 
 void kuswitch_rotate(kuswitch_state* state, const initial_keys* next) {

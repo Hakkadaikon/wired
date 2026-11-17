@@ -1,7 +1,7 @@
 #include "test.h"
 
 static ticket tf_sample_ticket(void) {
-  ticket t;
+  ticket t = {0}; /* ticket_seal encrypts every field */
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     t.secret[i] = (u8)i;
   }

@@ -7,7 +7,7 @@ static void fill_key(u8 key[TICKET_KEY_LEN], u8 v) {
 }
 
 static ticket sample_ticket(void) {
-  ticket t;
+  ticket t = {0}; /* ticket_seal encrypts every field */
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     t.secret[i] = (u8)i;
   }

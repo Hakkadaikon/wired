@@ -146,8 +146,11 @@ void test_kuswitch_twogen(void) {
   gen2.key[0] = 0xA2;
 
   kuswitch_state st;
+  bytes_memset(&st, 0xff, sizeof st);
   kuswitch_init(&st, &gen0);
   CHECK(st.generation == 0 && st.cur.key[0] == 0xA0 && !st.have_old);
+  /* no old generation yet: its slot holds nothing (recv_onertt expands it) */
+  CHECK(st.old.key[0] == 0 && st.old.hp[AEAD_KEY_MAX - 1] == 0);
 
   kuswitch_rotate(&st, &gen1);
   /* current (gen 1) available immediately; gen 0 retained for in-flight

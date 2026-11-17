@@ -148,6 +148,40 @@ static void test_srvloop_priupdate_on_request_stream_unexpected(void) {
   CHECK(l.h3peer.error == H3_FRAME_UNEXPECTED);
 }
 
+/* RFC 9204 2.2.3: a freshly claimed slot whose request has not decoded yet
+ * reports no QPACK failure, whatever the slot's storage held before. */
+static void test_srvloop_fresh_slot_no_stale_qpack_failure(void) {
+  wired_srvloop l;
+  u8            frame[32];
+  const u8      partial[1] = {0x01}; /* HEADERS type, its length still due */
+  usz           flen;
+
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
+    l.streams[i].req.qpack_failed = 1; /* an earlier occupant's outcome */
+  }
+  flen = priupdate_stream_frame(frame, sizeof frame, 0, 0, partial, 1, 0);
+  CHECK(flen > 0);
+  priupdate_dispatch(&l, frame, flen);
+
+  CHECK(l.qpack_stream_violation == 0);
+}
+
+/* wired_srvloop_init resets the stray stash too: whatever the storage held,
+ * no entry is in use. */
+static void test_srvloop_init_resets_strays(void) {
+  wired_srvloop l;
+  bytes_memset(&l.strays, 0xff, sizeof l.strays);
+
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+
+  CHECK(l.strays.n == 0);
+  CHECK(l.strays.e[0].used == 0);
+  CHECK(l.strays.e[WIRED_SRVLOOP_STRAY_MAX - 1].used == 0);
+}
+
 /* 9218-014: a request-variant PRIORITY_UPDATE naming an element id outside
  * the client bidi id space is H3_ID_ERROR, and no priority is applied. */
 static void test_srvloop_priupdate_bad_id_error(void) {
@@ -575,6 +609,8 @@ void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_bad_value_defaults();
   test_srvloop_priupdate_buffers_for_unopened_stream();
   test_srvloop_priupdate_on_request_stream_unexpected();
+  test_srvloop_fresh_slot_no_stale_qpack_failure();
+  test_srvloop_init_resets_strays();
   test_srvloop_priupdate_bad_id_error();
   test_srvloop_priupdate_past_stream_limit();
   test_srvloop_priupdate_push_unpromised();
