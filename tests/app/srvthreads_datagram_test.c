@@ -255,6 +255,13 @@ static void sdt_client_init(struct sdt_client* cx) {
  * across a wall-clock deadline, not a fixed attempt count, since a slow
  * worker's PTO retransmits consume the same recv budget as fresh replies. */
 
+/* How long each stage waits for the worker thread's answer. Only a failing
+ * run waits this long: a stage returns as soon as its answer arrives. The
+ * clock starts before the worker has bound its socket (the server gives no
+ * ready signal), and 5 s was not always enough for thread start, bind and
+ * the handshake's crypto on a loaded CI runner or under ASan. */
+#define SDT_WAIT_MS 30000
+
 /* Wait for one reply datagram into buf; on arrival, records its length via
  * *out_len and returns 1. */
 static int sdt_recv_one(i64 fd, u8* buf, usz cap, usz* out_len) {
@@ -354,7 +361,7 @@ static int sdt_retry_initial(
     usz                hcap,
     usz*               hlen) {
   sdt_flight_slots s  = {ini_reply, cap, ilen, hs_reply, hcap, hlen};
-  u64              dl = clock_mono_ms() + 5000;
+  u64              dl = clock_mono_ms() + SDT_WAIT_MS;
   *ilen               = 0;
   *hlen               = 0;
   while (sdt_flight_pending(&s, dl)) {
@@ -805,7 +812,7 @@ static int sdt_try_recv_hs_done(struct sdt_client* cx) {
  * attempt count instead double-counts a loaded server's PTO retransmits and
  * duplicate flights against the same budget meant for genuine replies. */
 static int sdt_wait_hs_done(struct sdt_client* cx) {
-  u64 dl = clock_mono_ms() + 5000;
+  u64 dl = clock_mono_ms() + SDT_WAIT_MS;
   while (clock_mono_ms() < dl) {
     if (sdt_try_recv_hs_done(cx)) {
       return 1;
@@ -1066,7 +1073,7 @@ static int sdt_try_recv_2xx(struct sdt_client* cx) {
  * wall-clock deadline elapses (a fixed attempt count instead spends the same
  * budget on a loaded server's retransmits as on genuine replies). */
 static int sdt_wait_connect_2xx(struct sdt_client* cx) {
-  u64 dl = clock_mono_ms() + 5000;
+  u64 dl = clock_mono_ms() + SDT_WAIT_MS;
   while (clock_mono_ms() < dl) {
     if (sdt_try_recv_2xx(cx)) {
       return 1;
@@ -1265,7 +1272,7 @@ static int sdt_echo_round(
  * start (see sdt_send_connect's own comment). */
 static int sdt_wait_datagram_echo(
     struct sdt_client* cx, const u8* payload, usz plen) {
-  u64 dl = clock_mono_ms() + 5000;
+  u64 dl = clock_mono_ms() + SDT_WAIT_MS;
   u64 pn = 1;
   while (clock_mono_ms() < dl) {
     int r = sdt_echo_round(cx, pn++, payload, plen);

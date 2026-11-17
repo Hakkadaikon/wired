@@ -17,7 +17,7 @@
 | MoQT の相互運用性はこのプロジェクト自身の実行による | 相互運用性のダッシュボードを読む人 | MoQT のリレーの結果は、wired を加えた MoQT interop runner をこのプロジェクトが実行したもので、<https://moq-interop-runner-wired.vercel.app> で公開している。runner の公式の公開結果には含まれない。QUIC と WebTransport の状況は [相互運用性の検証結果](../../verification/interop.md) にある |
 | ペーシングに従うデータグラムの送り出しは相互運用性テストを待っている | 損失のあるパスでデータグラムをまとめて送るアプリケーション | リングの送り出しは、interop のシミュレーターでの損失をもとに調整した 16 データグラム / 3000 バイトの固定の区切りではなく、今は接続のペーサーに従う。確かめているのは単体テストだけで、データグラムの相互運用性テストではまだ確認していない。参照: `srvrun_dgring_drain` |
 | Valgrind | valgrind の出力を読む人 | BPF の attr 構造体についての 7 件の報告は、想定どおりの誤検出である(カーネルが渡した大きさより後ろをゼロで埋めるため)。`srvworkers_test` の 5 件の報告は valgrind のもとでのタイミングに左右される |
-| 不安定なテスト | CI の再実行 | `sdt_run_wt_stages`(`tests/app/srvthreads_datagram_test.c` の中)の段階ごとの CHECK はまれに失敗する。ハンドシェイクの CHECK(`hs_ok`)も負荷がかかると失敗する。5 秒の Initial の期限がワーカースレッドのソケットの bind より前に始まり、サーバーには期限の起点にできる準備完了の合図がないためである。参照: `sdt_retry_initial` |
+| 時間に依存するテスト | CI の再実行 | `tests/app/srvthreads_datagram_test.c` は、実際のソケットとワーカースレッドでハンドシェイク、WebTransport の接続、データグラムの折り返しを順に待つ。各段階の期限(`SDT_WAIT_MS`、30 秒)は、ワーカースレッドがソケットを bind するより前に始まる。サーバーには期限の起点にできる準備完了の合図がない。参照: `sdt_retry_initial` |
 | テストのビルドが異なる | コントリビューター | `just test-fast` の分割した翻訳単位は、単一の翻訳単位の `just test` だけが見つける `static`/`typedef` の名前の衝突を見逃すことがある([ビルド](../../standards/build.md#3-test-と-test-fast)) |
 | ファジングの範囲 | ハブのループの頑健さ | `fuzz_moqt` はコーデック、`moqdg`、`moqcache` を対象にする。ハブの実行ループ(`moqtrun`)はコーデックではないので、ファジングしていない |
 | 台帳の件数 | 網羅率の合計 | まだテストしていない要件がある。件数は [要件台帳](../../features/README.md) にあり、残りは各台帳の `[ ]` の項目である。実験的な Track 切り替えの節(MQ22-X13 を含む)は数えない |
