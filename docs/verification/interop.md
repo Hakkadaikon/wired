@@ -49,30 +49,42 @@ MoQT は [moq-interop-runner](https://github.com/englishm/moq-interop-runner) �
 
 | 項目 | 内容 |
 |---|---|
-| 実行 | 2026-10-27 の CI 実行 |
-| wired | `d32fccff5` |
-| QUIC と WebTransport | [Hakkadaikon/quic-interop-runner の実行](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40475049893) |
-| MoQT | [Hakkadaikon/moq-interop-runner の実行](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/40475054806) |
+| 実行 | 2026-11-17 の CI 実行 |
+| wired | `ed23f1470` |
+| QUIC と WebTransport | [Hakkadaikon/quic-interop-runner の実行](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/44030242030) |
+| MoQT | [Hakkadaikon/moq-interop-runner の実行](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/44030247172) |
 
 | 対象 | クライアント | 結果 |
 |---|---|---|
-| QUIC | 15 種 | 合格 249、不合格 28、未対応 53(テストケースのセルだけ。計測 2 つは別に数える) |
+| QUIC | 14 種 | 合格 239、不合格 22、未対応 47(テストケースのセルだけ。計測 2 つは別に数える)。mvfst はクライアントのイメージを取得できず、実行していない |
 | QUIC のうち quic-go | 1 種 | 22 テストケースのうち 19 が合格。計測 2 つも合格。`ecn` と `v2` は quic-go クライアントが未対応、`connectionmigration` は不合格 |
-| WebTransport | 5 種 | 合格 26、不合格 9 |
-| MoQT リレー | 14 種 | WebTransport 経由で 11、raw QUIC 経由で 13 が合格 |
+| WebTransport | 5 種 | 合格 27、不合格 8 |
+| MoQT リレー | 14 種 | WebTransport 経由で 12、raw QUIC 経由で 13 が合格 |
+
+CI の実行のあとに入れた修正は、同じ日にローカルのランナーで確かめた(2.2)。
 
 ### 2.1 損失と破損のテストケースの揺れ
 
-`handshakeloss`(L1)、`transferloss`(L2)、`handshakecorruption`(C1)は、実行ごとに不合格になるクライアントが変わる。シミュレーターのランダムな損失パターンで結果が変わるので、1 回の実行の `✕` は合否どちらの根拠としても弱い。2026-10-27 の 2 回の CI 実行の不合格は次のとおりである。
+`handshakeloss`(L1)と `handshakecorruption`(C1)は、実行ごとに不合格になるクライアントが変わる。シミュレーターのランダムな損失パターンで結果が変わるので、1 回の実行の `✕` は合否どちらの根拠としても弱い。3 回の CI 実行で不合格になったクライアントは次のとおりである。
 
-| テストケース | [先の実行](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40448020712) | 後の実行 |
-|---|---|---|
-| `handshakeloss` | ngtcp2、mvfst、quiche、picoquic、msquic、xquic、quinn | ngtcp2、mvfst、quiche、kwik、msquic、quinn |
-| `handshakecorruption` | ngtcp2、mvfst、quiche、xquic、quinn | ngtcp2、mvfst、quinn、s2n-quic |
-| `transferloss` | なし | xquic |
-| `transfercorruption` | xquic | xquic |
+| テストケース | [2026-10-27 の先の実行](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40448020712) | [2026-10-27 の後の実行](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40475049893) | 2026-11-17 の実行 |
+|---|---|---|---|
+| `handshakeloss` | ngtcp2、mvfst、quiche、picoquic、msquic、xquic、quinn | ngtcp2、mvfst、quiche、kwik、msquic、quinn | ngtcp2、quiche、picoquic、msquic、xquic |
+| `handshakecorruption` | ngtcp2、mvfst、quiche、xquic、quinn | ngtcp2、mvfst、quinn、s2n-quic | ngtcp2、kwik、msquic、s2n-quic |
+| `transferloss` | なし | xquic | なし |
 
-`transfercorruption` は 2 回とも xquic で不合格なので、再現する不合格として扱う。
+### 2.2 CI の実行のあとにローカルで確かめたもの
+
+2026-11-17 に、作業ツリーから作ったイメージでローカルの quic-interop-runner を実行した。ログは `~/.cache/wired-interop/quic-interop-runner/` の下にある。
+
+| テストケース | クライアント | CI の結果 | ローカルの結果 | ログ |
+|---|---|---|---|---|
+| `v2` | msquic | 不合格 | 合格。サーバーが自分の優先順(v2、v1)で版を選ぶようにした(`d8f61b688`) | `logs_2026-11-17T07:33:02` |
+| `v2` | ngtcp2 | 合格 | 合格 | `logs_2026-11-17T07:33:15` |
+| `transfercorruption` | xquic | 不合格 | 合格。CUBIC に Reno と同等の成長を下限にする領域(RFC 9438 4.3)を足した | `logs_2026-11-17T07:45:10` |
+| `transferloss` | xquic | 合格 | 合格 | `logs_2026-11-17T07:45:29` |
+| `transfercorruption` | quic-go | 合格 | 合格 | `logs_2026-11-17T07:45:46` |
+| `zerortt` | quinn | 不合格 | 合格 | `logs_2026-11-17T07:23:52` |
 
 ## 3. QUIC のテストケース(サーバー: wired、クライアント: quic-go)
 
@@ -87,22 +99,22 @@ MoQT は [moq-interop-runner](https://github.com/englishm/moq-interop-runner) �
 | `chacha20` | 合格 | TLS_CHACHA20_POLY1305_SHA256 のエンドツーエンドのネゴシエーション。そのスイートでの転送途中の Key Update を含む |
 | `keyupdate` | 合格 | RFC 9001 §6 の鍵更新、両方向 |
 | `transferloss` | 合格 | パケット損失のもとでのファイル転送 |
-| `transfercorruption` | 合格 | パケット破損のもとでのファイル転送 |
-| `amplificationlimit` | 合格 | 証明書 9 枚で大きくしたサーバーフライトに、RFC 9000 §8.1 の増幅攻撃対策の上限を適用する。msquic での結果は 6 章にある |
-| `goodput`(計測) | 合格 | ランナーの模擬 10 Mbps リンクで 10 MB、9418±14 kbps(2026-10-27)。これを実行するクライアント 14 種で 9169〜9418 kbps |
+| `transfercorruption` | 合格 | パケット破損のもとでのファイル転送。xquic は CI の実行で不合格、ローカルの再実行で合格(2.2) |
+| `amplificationlimit` | 合格 | 証明書 9 枚で大きくしたサーバーフライトに、RFC 9000 §8.1 の増幅攻撃対策の上限を適用する。これを実行するクライアント 13 種すべてで合格(2026-11-17) |
+| `goodput`(計測) | 合格 | ランナーの模擬 10 Mbps リンクで 10 MB、9417±13 kbps(2026-11-17)。これを実行するクライアント 13 種で 8917〜9448 kbps |
 | `blackhole` | 合格 | 2 秒間の模擬リンク断のあと再開する |
-| `multiplexing` | 合格 | 1 つの接続で多数のストリームを並行して転送する |
+| `multiplexing` | 合格 | 1 つの接続で多数のストリームを並行して転送する。xquic では不合格(6 章) |
 | `handshakeloss` | 合格 | 30% のバースト損失のもとで 50 回のハンドシェイクがすべて完了 |
 | `handshakecorruption` | 合格 | 同じシナリオを破損のもとで実行 |
 | `retry` | 合格 | `--force-retry` による RFC 9000 §8.1.2 の強制アドレス検証 |
 | `resumption` | 合格 | 実際の 2 回目のハンドシェイクでの PSK によるセッション再開 |
-| `zerortt` | 合格 | 0-RTT データを受け取って処理する。msquic では不合格([#177](https://github.com/Hakkadaikon/wired/issues/177))。mvfst と quiche は未調査 |
-| `ecn` | 判定なし | quic-go クライアントが `unsupported test case: ecn` を宣言。ngtcp2、picoquic、neqo、lsquic、quinn、s2n-quic では合格(2026-10-27) |
+| `zerortt` | 合格 | 0-RTT データを受け取って処理する。quinn は CI の実行で不合格、ローカルの再実行で合格(2.2)。mvfst は実行していない |
+| `ecn` | 判定なし | quic-go クライアントが `unsupported test case: ecn` を宣言。ngtcp2、picoquic、neqo、lsquic、quinn、s2n-quic では合格(2026-11-17) |
 | `ipv6` | 合格 | ネイティブ IPv6 での転送 |
-| `v2` | 判定なし | quic-go クライアントが `unsupported test case: v2` を宣言。ngtcp2、kwik、picoquic、aioquic、neqo、lsquic では合格、msquic と quinn では不合格(2026-10-27) |
-| `rebind-port` / `rebind-addr` | 合格 | これらを実行するクライアント 14 種すべてで合格(2026-10-27) |
-| `connectionmigration` | 不合格 | quic-go とほか 8 種のクライアントで不合格。ngtcp2、picoquic、aioquic、neqo、lsquic では合格(2026-10-27) |
-| `crosstraffic`(計測) | 合格 | 競合する TCP cubic フローと並べて 25 MB。quic-go に対して 1453(± 111)kbps(2026-10-27)。msquic と xquic では不合格 |
+| `v2` | 判定なし | quic-go クライアントが `unsupported test case: v2` を宣言。ngtcp2、kwik、picoquic、aioquic、neqo、lsquic では合格(2026-11-17)。msquic はローカルの再実行で合格(2.2)。quinn では不合格(6 章) |
+| `rebind-port` / `rebind-addr` | 合格 | これらを実行するクライアント 13 種すべてで合格(2026-11-17) |
+| `connectionmigration` | 不合格 | quic-go とほか 7 種のクライアントで不合格(6 章)。ngtcp2、picoquic、aioquic、neqo、lsquic では合格(2026-11-17) |
+| `crosstraffic`(計測) | 合格 | 競合する TCP cubic フローと並べて 25 MB。quic-go に対して、CI の実行で 1633(± 108)kbps、CUBIC の修正(`ae2474b47`)のあとのローカルの実行で 3957(± 101)kbps。go-x-net、msquic、xquic では不合格(6 章) |
 
 ## 4. WebTransport のテストケース(サーバー: wired、クライアント: webtransport-go)
 
@@ -115,35 +127,39 @@ MoQT は [moq-interop-runner](https://github.com/englishm/moq-interop-runner) �
 | `transfer-bidirectional-receive` | 合格 | サーバーが双方向ストリームで応答する |
 | `transfer-datagram-receive` | 合格 | サーバーが DATAGRAM で送る |
 | `transfer-unidirectional-send` | 合格 | ngtcp2 と webtransport-go で合格 |
-| `transfer-bidirectional-send` | 不合格 | webtransport-go でファイルが途中で切れる([#180](https://github.com/Hakkadaikon/wired/issues/180))。現在のコードはローカルで 5 回中 5 回合格し、CI ではまだ実行していない |
+| `transfer-bidirectional-send` | 合格 | 受信したバイトをビットマップで記録する |
 | `transfer-datagram-send` | 合格 | `transfer-unidirectional-send` と同じ修正。2026-08-23 のローカルでの逐次再実行で webtransport-go に合格 |
 
-2026-10-27 の CI 実行のクライアント 5 種の結果は次のとおりである。
+2026-11-17 の CI 実行のクライアント 5 種の結果は次のとおりである。
 
 | クライアント | 合格 | 不合格 |
 |---|---|---|
 | flupke-webtransport | 7 | 0 |
 | ngtcp2 | 7 | 0 |
-| webtransport-go | 6 | 1(`transfer-bidirectional-send`) |
+| webtransport-go | 7 | 0 |
 | Firefox | 6 | 1(`handshake`) |
 | Chrome | 0 | 7 |
 
-Chrome と Firefox の不合格は調査していない。
+Chrome と Firefox の不合格は、ローカルの再実行で次のように確かめた。
+
+| クライアント | 観測したこと | ログ |
+|---|---|---|
+| Chrome | クライアントのイメージの中で ChromeDriver(Chrome 146 向け)と Chrome(151.0.7922.47)の版が合わず、ブラウザーが起動しない。サーバーへの接続は始まらない | `logs_2026-11-17T08:31:12` |
+| Firefox | セッションは確立する。クライアントは選ばれたプロトコルを返さない(`session established, negotiated protocol: None`)。サーバーが `WT-Available-Protocols` を受け取ったかは確かめていない | `logs_2026-11-17T08:31:34` |
 
 ## 5. MoQT リレー(サーバー: wired、クライアント 14 種)
 
 moq-interop-runner は、各クライアントのテストスイートを、リレーとして動かした `examples/moqt_interop` に対して WebTransport 経由と raw QUIC 経由で 1 回ずつ実行する。
 
-下の表は [2026-10-27 の実行](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/40475054806) の結果である。
+下の表は [2026-11-17 の実行](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/44030247172) の結果である。
 
 | トランスポート | 合格 | 不合格のクライアント |
 |---|---|---|
-| WebTransport | 14 中 11 | moq-dev-js、xquic-draft-18、moqtopus |
+| WebTransport | 14 中 12 | xquic-draft-18、moqtopus |
 | raw QUIC | 14 中 13 | moq-dev-js |
 
 | クライアント | トランスポート | 不合格の理由 |
 |---|---|---|
-| moq-dev-js | WebTransport | `subscribe-namespace-lifecycle` に不合格([#179](https://github.com/Hakkadaikon/wired/issues/179))。このクライアントの @moq/net 0.4.4 は PUBLISH_NAMESPACE を FIN だけで取り下げる。draft-ietf-moq-transport-22 §6.4.2.2 はこれをキャンセルとしないので、リレーが名前空間を保持し NAMESPACE_DONE を送らないのは仕様どおりである。@moq/net 0.4.7 はリクエストをキャンセルし、ローカルの実行で同じリレーに対して 8 テストすべてに合格する |
 | moq-dev-js | raw QUIC | `setup-only` を含むすべてのテストで不合格。このクライアントは raw QUIC のトランスポートを持たず、URL スキームにかかわらず WebTransport のセッションを開く |
 | xquic-draft-18、moqtopus | WebTransport | raw QUIC のリレー URL にだけ対応する(それぞれのログに記載)。raw QUIC 経由では合格 |
 
@@ -151,29 +167,32 @@ moq-interop-runner は、各クライアントのテストスイートを、リ�
 
 ## 6. 未解決の失敗
 
-2026-10-27 の実行の失敗と、それを追う issue である。
+2026-11-17 の実行で残った不合格と、ローカルの再実行で分かった原因である。
 
-| 失敗 | issue | 状態 |
+| 不合格 | クライアント | 原因 | 追跡 |
+|---|---|---|---|
+| `connectionmigration` | quic-go、go-x-net、kwik、msquic、quiche、quinn、s2n-quic、xquic | クライアントが、サーバーの知らせた推奨アドレスへ移行しない。転送は元のパスだけで完了し、ランナーは `Server saw only a single path in use` と記録する | なし(クライアントの動作) |
+| `multiplexing` | xquic | クライアントが、サーバーの知らせた上限(`initial_max_streams_bidi` 40)を超えて 128 本のストリームを開く。サーバーは STREAM_LIMIT_ERROR で接続を閉じる | なし(クライアントの動作) |
+| `v2` | quinn | クライアントが version_information を送らないので、サーバーは版を切り替えられない(RFC 9368 §2.3) | なし(クライアントの動作) |
+| `crosstraffic`(計測) | go-x-net、msquic、xquic | クライアントの制限時間までに 25 MB を送り終えない。msquic では約 50 秒で打ち切られ、その時点で約 96% を送っている | [#286](https://github.com/Hakkadaikon/wired/issues/286) |
+| WebTransport の全 7 ケース | Chrome | クライアントのイメージでブラウザーが起動しない(4 章) | なし(クライアントのイメージ) |
+| WebTransport の `handshake` | Firefox | クライアントが、選ばれたプロトコルを返さない(4 章) | なし |
+
+`connectionmigration`、`multiplexing`、`v2` の原因は、ローカルの再実行のログとキャプチャで確かめた。
+
+| テストケース | クライアント | ログ |
 |---|---|---|
-| msquic での `zerortt`("client sent too much data in 1-RTT") | [#177](https://github.com/Hakkadaikon/wired/issues/177) | 作り直した msquic のイメージは最初の 0-RTT パケット(約 600 バイト)だけを送り、残りを 1-RTT で送る。quic-go のサーバーに対しても同じである。wired は PSK と early data を受け入れている |
-| msquic での `amplificationlimit`(ファイルの欠落) | [#178](https://github.com/Hakkadaikon/wired/issues/178) | 原因はサーバー側の停止。現在のコードはローカルで 5 回中 5 回合格し、CI ではまだ実行していない |
-| webtransport-go での WebTransport の `transfer-bidirectional-send` | [#180](https://github.com/Hakkadaikon/wired/issues/180) | 受信したバイトをビットマップで記録する。現在のコードは CI ではまだ実行していない |
-| moq-dev-js での MoQT の `subscribe-namespace-lifecycle` | [#179](https://github.com/Hakkadaikon/wired/issues/179) | クライアントの動作。@moq/net 0.4.7 で修正されている |
+| `connectionmigration` | quiche、msquic、xquic、quinn、go-x-net、s2n-quic、kwik | `logs_2026-11-17T07:19:54`、`07:20:17`、`07:21:22`、`07:23:03`、`07:24:07`、`07:24:34`、`07:25:12` |
+| `multiplexing` | xquic | `logs_2026-11-17T07:22:08` |
+| `v2` | quinn | `logs_2026-11-17T07:23:39` |
+| `crosstraffic` | msquic | `logs_2026-11-17T07:49:13` |
 
-issue のない未調査の失敗は次のとおりである。
+シミュレーターの損失で結果が変わる不合格(2.1)は次のとおりである。
 
-- mvfst と quiche での `zerortt`
-- 9 種のクライアントでの `connectionmigration`
-- xquic での `multiplexing` と `transfercorruption`(2 回とも)
-- msquic と quinn での `v2`
-- msquic と xquic での `crosstraffic`
-- WebTransport 経由の Chrome(7 つすべて)と Firefox(`handshake`)
+- ngtcp2、quiche、picoquic、msquic、xquic での `handshakeloss`
+- ngtcp2、kwik、msquic、s2n-quic での `handshakecorruption`
 
-シミュレーターの損失で結果が変わる失敗(2.1)は次のとおりである。
-
-- ngtcp2、mvfst、quiche、kwik、msquic、quinn での `handshakeloss`
-- ngtcp2、mvfst、quinn、s2n-quic での `handshakecorruption`
-- xquic での `transferloss`
+mvfst は、クライアントのイメージを取得できず、2026-11-17 の実行に含まれていない。
 
 ## 7. 未達の点
 
