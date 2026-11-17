@@ -23,7 +23,7 @@ jobs:
         run: nix develop -c just cov
 
       - name: upload to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: build/lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
