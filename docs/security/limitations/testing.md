@@ -27,7 +27,7 @@
 
 Issue #24 では、何からも呼ばれないコードを削除し、ファズハーネス、guide のスニペット、例、出荷する経路の動作テストが使うものだけを残すと決めた。
 
-以下の 47 個のソースファイルはライブラリにコンパイルされるが、`examples/` のどのサーバーからも関数が 1 つも到達しない。呼び出し元は、サーバーを相手にするテストのピア(TLS と HTTP/3 のクライアント側)、ファズハーネス、`examples/` が使わない公開 API、単体テストである。
+以下の 46 個のソースファイルはライブラリにコンパイルされるが、`examples/` のどのサーバーからも関数が 1 つも到達しない。呼び出し元は、サーバーを相手にするテストのピア(TLS と HTTP/3 のクライアント側)、ファズハーネス、`examples/` が使わない公開 API、単体テストである。
 
 これらのどれか 1 つだけを根拠に挙げている台帳の行は、出荷するサーバーの裏付けにならない。
 
@@ -59,7 +59,6 @@ Issue #24 では、何からも呼ばれないコードを削除し、ファズ�
 - `tls/handshake/roles/client/`: `clientwire.c`
 - `tls/handshake/roles/server/`: `serverio.c`
 - `tls/keys/keyupdate/`: `kuderive.c`
-- `transport/conn/lifecycle/conn/`: `pnspace.c`
 - `transport/conn/pnspace/crypto_stream/`: `crypto_rx.c`
 - `transport/io/socket/poll/`: `nonblock.c`
 - `transport/packet/build/initpkt/`: `initpkt.c`
