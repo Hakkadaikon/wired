@@ -68,13 +68,24 @@ if ! kill -0 "$SRV_PID" 2>/dev/null; then
 fi
 
 printf 'hello over af_xdp' >"$WORK/body"
-if ! ip netns exec "$NS" timeout 20 "$PROBE" h3req "localhost:$PORT" \
-  POST / --body-file "$WORK/body" >"$WORK/out" 2>&1; then
-  echo "::error::HTTP/3 request over the AF_XDP path failed"
+# Up to three tries: about one run in three, on main and on branches alike,
+# the first request got no response within the probe's 5 s (measured over
+# eleven runs on 2026-11-17; the cause is not known). The try that succeeded
+# is printed so the rate stays visible in the logs.
+try=1
+until ip netns exec "$NS" timeout 20 "$PROBE" h3req "localhost:$PORT" \
+  POST / --body-file "$WORK/body" >"$WORK/out" 2>&1; do
+  echo "::warning::AF_XDP request try $try failed"
   cat "$WORK/out"
-  show_log
-  exit 1
-fi
+  if [ "$try" -ge 3 ]; then
+    echo "::error::HTTP/3 request over the AF_XDP path failed"
+    show_log
+    exit 1
+  fi
+  try=$((try + 1))
+  sleep 1
+done
+echo "AF_XDP request answered on try $try"
 cat "$WORK/out"
 if ! grep -q '^status 200$' "$WORK/out" ||
   ! grep -q '^hello over af_xdp$' "$WORK/out"; then
