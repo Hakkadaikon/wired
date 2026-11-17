@@ -745,7 +745,7 @@ static void test_srvrun_pto_probe_retransmits_when_no_new_data(void) {
 static void test_srvrun_datagram_carries_pending_ack(void) {
   struct lp_fix f;
   srvrun_conn   c;
-  u8            obuf[1024], dg[1500];
+  u8            obuf[1024], dg[1500] = {0};
   wired_obuf    ob  = {obuf, sizeof obuf, 0};
   wired_obuf    dob = obuf_of(dg, sizeof dg);
   srvrun_cfg    cfg = srvrec_cfg();
@@ -776,7 +776,7 @@ static void test_srvrun_datagram_carries_pending_ack(void) {
 static void test_srvrun_pto_pings_datagram_only(void) {
   struct lp_fix f;
   srvrun_conn   c;
-  u8            obuf[1024], dg[1500];
+  u8            obuf[1024], dg[1500] = {0};
   wired_obuf    ob  = {obuf, sizeof obuf, 0};
   wired_obuf    dob = obuf_of(dg, sizeof dg);
   srvrun_cfg    cfg = srvrec_cfg();
@@ -802,7 +802,7 @@ static void test_srvrun_pto_pings_datagram_only(void) {
 static void test_srvrun_dg_blocked_by_cwnd(void) {
   struct lp_fix f;
   srvrun_conn   c;
-  u8            obuf[1024], dg[1500];
+  u8            obuf[1024], dg[1500] = {0};
   wired_obuf    ob  = {obuf, sizeof obuf, 0};
   wired_obuf    dob = obuf_of(dg, sizeof dg);
   srvrun_cfg    cfg = srvrec_cfg();

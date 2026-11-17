@@ -31,6 +31,9 @@ typedef struct {
   u64               payload_hash; /* FNV-1a 64 over the untruncated bytes */
   int               refused;      /* stream_send only: returned 0 */
   usz               wire_len;     /* the untruncated length */
+  /* draft of s when the call was recorded (the hub was alive then; a test
+   * reads the record after its helper's hub is gone) */
+  int ver;
 } moqtrun_test_call;
 
 static moqtrun_test_call g_calls[MOQTRUN_TEST_MAX_CALLS];
@@ -177,14 +180,19 @@ static u32 mt_cc(u32 d23) {
  * unchanged. */
 static u8 mt_respell_buf[MOQCTL_MAX_MSG_LEN + 64];
 
-/* The draft of the session whose recorded call buf points into, when
- * g_mt_hub still holds it; else the scenario's. */
+/* The draft of session s in the hub being fed, else the scenario's. */
+static int mt_ver_of_sess(wired_wt_session* s) {
+  const wired_moqtrun_peer* q = g_mt_hub ? moqtrun_find_by_wt(g_mt_hub, s) : 0;
+  return q ? q->ver : g_moqtrun_test_ver;
+}
+
+/* The draft of the session whose recorded call buf points into (taken
+ * when the call was recorded); else the scenario's. */
 static int mt_ver_of_buf(const u8* p) {
-  for (usz i = 0; g_mt_hub && i < g_n_calls; i++) {
-    const moqtrun_test_call*  c = &g_calls[i];
-    const wired_moqtrun_peer* q = moqtrun_find_by_wt(g_mt_hub, c->s);
-    if (p >= c->payload && p < c->payload + MOQTRUN_TEST_MAX_PAYLOAD && q) {
-      return q->ver;
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c = &g_calls[i];
+    if (p >= c->payload && p < c->payload + MOQTRUN_TEST_MAX_PAYLOAD) {
+      return c->ver;
     }
   }
   return g_moqtrun_test_ver;
@@ -346,6 +354,7 @@ static void moqtrun_test_record(
   c->stream_id         = stream_id;
   c->fin               = fin;
   c->refused           = 0;
+  c->ver               = mt_ver_of_sess(s);
   c->payload_len =
       p.n < MOQTRUN_TEST_MAX_PAYLOAD ? p.n : MOQTRUN_TEST_MAX_PAYLOAD;
   for (usz i = 0; i < c->payload_len; i++) {

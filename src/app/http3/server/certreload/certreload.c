@@ -135,10 +135,14 @@ int wired_certreload_load(
   wired_certreload_store stage; /* decoded here first, committed whole */
   ssz cn = certreload_read_file(cert_path, cert_pem, sizeof cert_pem);
   ssz kn = certreload_read_file(key_path, key_pem, sizeof key_pem);
-  int ok = cn >= 0 && kn >= 0 &&
-           certreload_decode(
-               wired_span_of(cert_pem, (usz)cn),
-               wired_span_of(key_pem, (usz)kn), &stage, store, id);
+  int ok;
+  /* committed whole: the parts a short chain leaves unused must not carry
+   * this frame's old bytes into the long-lived store */
+  bytes_memset(&stage, 0, sizeof stage);
+  ok = cn >= 0 && kn >= 0 &&
+       certreload_decode(
+           wired_span_of(cert_pem, (usz)cn), wired_span_of(key_pem, (usz)kn),
+           &stage, store, id);
   bytes_wipe(stage.priv, sizeof stage.priv); /* the key's scratch copies */
   bytes_wipe(key_pem, sizeof key_pem);
   return ok;
