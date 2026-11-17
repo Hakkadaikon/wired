@@ -25,6 +25,11 @@ include the RFC section you believe is violated where possible.
 
 ## Security
 
-Do not open a public issue for a suspected security vulnerability. See
-[docs/security/](docs/security/README.md) for what the SDK guarantees and what it
-leaves to the caller, then contact the maintainers privately.
+Do not open a public issue for a suspected security vulnerability. Report it
+privately as described in [SECURITY.md](SECURITY.md).
+
+## Versions
+
+There are no release tags and no changelog. APIs change together with
+`examples/` and `guide/` in the same commit, without a compatibility layer, so
+pin a commit hash and read `git log` when moving it forward.
