@@ -114,7 +114,7 @@ CI の実行のあとに入れた修正は、同じ日にローカルのラン�
 | `v2` | 判定なし | quic-go クライアントが `unsupported test case: v2` を宣言。ngtcp2、kwik、picoquic、aioquic、neqo、lsquic では合格(2026-11-17)。msquic はローカルの再実行で合格(2.2)。quinn では不合格(6 章) |
 | `rebind-port` / `rebind-addr` | 合格 | これらを実行するクライアント 13 種すべてで合格(2026-11-17) |
 | `connectionmigration` | 不合格 | quic-go とほか 7 種のクライアントで不合格(6 章)。ngtcp2、picoquic、aioquic、neqo、lsquic では合格(2026-11-17) |
-| `crosstraffic`(計測) | 合格 | 競合する TCP cubic フローと並べて 25 MB。quic-go に対して、CI の実行で 1633(± 108)kbps、CUBIC と経路 MTU の修正(`ae2474b47`、`e83e35035`)と、ウィンドウの増分を経路の最大データグラムサイズに合わせる修正のあとのローカルの実行で 4870(± 373)kbps。go-x-net、msquic、xquic では不合格(6 章) |
+| `crosstraffic`(計測) | 合格 | 競合する TCP cubic フローと並べて 25 MB。quic-go に対して、CI の実行で 1633(± 108)kbps、輻輳制御と送信の修正(`ae2474b47`、`e83e35035`、`52f772d7e`)のあとのローカルの実行で 4870(± 373)kbps。go-x-net に対しては修正後に 3661(± 41)kbps で合格。msquic と xquic では不合格(6 章) |
 
 ## 4. WebTransport のテストケース(サーバー: wired、クライアント: webtransport-go)
 
@@ -174,9 +174,8 @@ moq-interop-runner は、各クライアントのテストスイートを、リ�
 | `connectionmigration` | quic-go、go-x-net、kwik、msquic、quiche、quinn、s2n-quic、xquic | クライアントが、サーバーの知らせた推奨アドレスへ移行しない。転送は元のパスだけで完了し、ランナーは `Server saw only a single path in use` と記録する | なし(クライアントの動作) |
 | `multiplexing` | xquic | クライアントが、サーバーの知らせた上限(`initial_max_streams_bidi` 40)を超えて 128 本のストリームを開く。サーバーは STREAM_LIMIT_ERROR で接続を閉じる | なし(クライアントの動作) |
 | `v2` | quinn | クライアントが version_information を送らないので、サーバーは版を切り替えられない(RFC 9368 §2.3) | なし(クライアントの動作) |
-| `crosstraffic`(計測) | msquic | クライアントが 50 秒で打ち切る。25 MB を送り終えるには 4.2 Mbps が要り、TCP 1 本と分け合う公平な取り分(約 5 Mbps)の 84% に当たる。その時点で約 98% を受け取っており、6 回の試行のうち 2 回は完了した | [#286](https://github.com/Hakkadaikon/wired/issues/286) |
+| `crosstraffic`(計測) | msquic | クライアントが 50 秒で打ち切る。25 MB を送り終えるには 4.2 Mbps が要り、TCP 1 本と分け合う公平な取り分(約 5 Mbps)の 84% に当たる。修正後のサーバーは 4.0〜4.3 Mbps で、反復ごとに完了と打ち切りが分かれる(完了は 48.9 秒、打ち切りは 95〜98%) | なし |
 | `crosstraffic`(計測) | xquic | クライアントが接続を 30 秒で閉じる(受信は 13.6 MB)。25 MB を送り終えるには 7 Mbps が要り、公平な取り分を超える | なし(クライアントの制限時間) |
-| `crosstraffic`(計測) | go-x-net | CI の実行で不合格。修正後は測っていない | [#286](https://github.com/Hakkadaikon/wired/issues/286) |
 | WebTransport の全 7 ケース | Chrome | クライアントのイメージでブラウザーが起動しない(4 章) | なし(クライアントのイメージ) |
 | WebTransport の `handshake` | Firefox | クライアントが、選ばれたプロトコルを返さない(4 章) | なし |
 
@@ -187,7 +186,8 @@ moq-interop-runner は、各クライアントのテストスイートを、リ�
 | `connectionmigration` | quiche、msquic、xquic、quinn、go-x-net、s2n-quic、kwik | `logs_2026-11-17T07:19:54`、`07:20:17`、`07:21:22`、`07:23:03`、`07:24:07`、`07:24:34`、`07:25:12` |
 | `multiplexing` | xquic | `logs_2026-11-17T07:22:08` |
 | `v2` | quinn | `logs_2026-11-17T07:23:39` |
-| `crosstraffic` | msquic | `logs_2026-11-17T18:15:58`、`18:30:52`、`18:32:14`、`18:35:57` |
+| `crosstraffic` | msquic | `logs_2026-11-17T18:15:58`、`18:32:14`、`19:16:30` |
+| `crosstraffic` | go-x-net(合格) | `logs_2026-11-17T18:58:10` |
 | `crosstraffic` | xquic | `logs_2026-11-17T18:47:50` |
 
 シミュレーターの損失で結果が変わる不合格(2.1)は次のとおりである。

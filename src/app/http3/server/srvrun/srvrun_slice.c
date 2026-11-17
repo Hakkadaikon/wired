@@ -1,5 +1,7 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
+static usz srvrun_slice_ack_room(srvrun_conn* c, const wired_sendsess* s);
+
 /* Seal one slice of sess as its own 1-RTT packet (a STREAM frame on
  * stream_id, RFC 9000 19.8) and send it -- the shared body under both a
  * resp[] slot's send (srvrun_send_slice) and a WT send slot's
@@ -18,6 +20,33 @@ usz srvrun_slice_ack_peek(srvrun_conn* c, const wired_sendq_slice* sl, u8* pl) {
   }
   al = wired_srvloop_ack_peek(&c->l, pl, SRVRUN_ACK_ROOM);
   return sl->len + al <= srvrun_mps(c) ? al : 0;
+}
+
+/* Bytes to leave free in the next slice so the pending ACK can ride it. 0
+ * when no ACK is being deferred to this step's slices, or a resend is
+ * queued (a requeued slice keeps the size it was first cut at). */
+static usz srvrun_slice_ack_room(srvrun_conn* c, const wired_sendsess* s) {
+  u8 pl[SRVRUN_ACK_ROOM];
+  if (!c->l.ackst.ack_defer || s->requeue_n) {
+    return 0;
+  }
+  return wired_srvloop_ack_peek(&c->l, pl, sizeof pl);
+}
+
+/* wired_sendsess_take, cut short by the pending ACK's length. A slice cut
+ * at the full packet size has no room for the ACK (srvrun_slice_ack_peek),
+ * so during a bulk transfer every ACK the peer was owed went out as a
+ * packet of its own: about 4200 of them in a 50 s download by a client
+ * whose own packets are ack-eliciting. */
+int srvrun_take_slice(
+    srvrun_conn* c, wired_sendsess* s, wired_sendq_slice* out) {
+  usz chunk = s->q.chunk;
+  usz room  = srvrun_slice_ack_room(c, s);
+  int ok;
+  s->q.chunk = room < chunk ? chunk - room : chunk;
+  ok         = wired_sendsess_take(s, out);
+  s->q.chunk = chunk;
+  return ok;
 }
 
 /* Seal pl as one 1-RTT packet under pn, send it, and -- once it is on the

@@ -137,7 +137,7 @@ static int srvrun_pump_one_slice(
         ctx, c, r->stream_id, &r->sess, r->stream_credit, &r->sdb);
     return 0;
   }
-  if (!wired_sendsess_take(&r->sess, &sl)) {
+  if (!srvrun_take_slice(c, &r->sess, &sl)) {
     return 0;
   }
   return srvrun_send_slice(ctx, c, r, &sl);

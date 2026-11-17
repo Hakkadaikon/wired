@@ -28,7 +28,7 @@ static int srvrun_pump_one_wt_slice(
         ctx, c, w->stream_id, &w->sess, w->stream_credit, &w->sdb);
     return 0;
   }
-  if (wired_sendsess_take(&w->sess, &sl)) {
+  if (srvrun_take_slice(c, &w->sess, &sl)) {
     return srvrun_send_taken(
         ctx, c, &w->sess, w->stream_id, &sl, srvrun_wt_slice_fin(w, &sl));
   }

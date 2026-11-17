@@ -75,6 +75,8 @@ void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot);
 u8   srvrun_slice_fin(
     const srvrun_conn* c, const srvrun_resp* r, const wired_sendq_slice* sl);
 usz srvrun_slice_ack_peek(srvrun_conn* c, const wired_sendq_slice* sl, u8* pl);
+int srvrun_take_slice(
+    srvrun_conn* c, wired_sendsess* s, wired_sendq_slice* out);
 int srvrun_seal_send_slice(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_span pl, u64 pn, usz al);
 

@@ -521,6 +521,33 @@ static void test_srvrun_ack_rides_max_stream_data(void) {
   CHECK(wired_srvloop_ack_peek(&c->l, ack, sizeof ack) == 0);
 }
 
+/* RFC 9000 13.2.1: during a bulk send the next slice is cut short by the
+ * pending ACK's length, so the ACK rides it instead of costing a packet of
+ * its own. Nothing pending, or a resend queued: the slice keeps its size. */
+static void test_srvrun_slice_leaves_room_for_pending_ack(void) {
+  static const u8   pl[] = {0x0a, 6, 1, 0x21}; /* client uni stream 6 */
+  static u8         body[8192];
+  srvrun_conn*      c = sr_sl_fixture();
+  u8                ack[SRVRUN_ACK_ROOM];
+  wired_sendq_slice sl;
+  usz               mps = srvrun_mps(c), al;
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, mps);
+  c->l.ackst.ack_defer = 1;
+  CHECK(srvrun_take_slice(c, &c->resp[0].sess, &sl) == 1);
+  CHECK(sl.len == mps); /* no ACK pending */
+  sr_sl_step(c, pl, sizeof pl);
+  c->l.ackst.ack_defer = 1;
+  al                   = wired_srvloop_ack_peek(&c->l, ack, sizeof ack);
+  CHECK(al > 0);
+  CHECK(srvrun_take_slice(c, &c->resp[0].sess, &sl) == 1);
+  CHECK(sl.len == mps - al);
+  CHECK(srvrun_slice_ack_peek(c, &sl, ack) == al); /* it fits */
+  CHECK(c->resp[0].sess.q.chunk == mps);           /* restored */
+  c->l.ackst.ack_defer = 0;
+  CHECK(srvrun_take_slice(c, &c->resp[0].sess, &sl) == 1);
+  CHECK(sl.len == mps); /* not deferring: nothing to make room for */
+}
+
 /* resp_idle is set by a refresh that finds no response in use and cleared
  * by the next claim, so the pump's response half is skipped only while
  * there is nothing for it to visit. */
@@ -584,6 +611,7 @@ void test_srvrun_wtflow(void) {
   test_srvrun_wtsend_live_matches_in_use();
   test_srvrun_dgring_best_matches_full_walk();
   test_srvrun_ack_rides_max_stream_data();
+  test_srvrun_slice_leaves_room_for_pending_ack();
   test_srvrun_ack_walk_reaches_live_sessions();
   test_srvrun_wt_replies_leave_relay_slots();
   test_srvrun_wt_fair_pass_equal_per_session();
