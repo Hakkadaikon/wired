@@ -28520,6 +28520,13 @@ static void test_srvrun_wt_stop_refuses_peer_h3_uni_streams(void) {
   CHECK(c->wt_stream_reset_n == 0);
   CHECK(wired_server_wt_stream_stop(&c->wt, 14, 1) == 1);
   CHECK(c->wt_stream_reset_n == 1 && c->wtx.reset_id[0] == 14);
+  /* the typed set is keyed by stream index: bidi 8, 24 and 40 share theirs
+   * with uni 10, 26 and 42 and must not be taken for them (a reply on a
+   * client bidi stream was refused this way) */
+  wired_srvloop_closed_mark(&c->l.uni_typed, 26);
+  CHECK(srvrun_wt_foreign(c, 0, 26) == 1);
+  CHECK(srvrun_wt_foreign(c, 0, 24) == 0);
+  CHECK(srvrun_wt_foreign(c, 0, 8) == 0);
   sr_reset_global_table();
 }
 

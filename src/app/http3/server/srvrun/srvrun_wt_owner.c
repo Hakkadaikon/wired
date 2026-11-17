@@ -3,6 +3,7 @@
 static int srvrun_wt_owner(srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_owner_other(int owner, int sidx);
 static int srvrun_wt_uni_seen(const srvrun_conn* c, u64 stream_id);
+static int srvrun_wt_uni_typed(const srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_h3_uni(const srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_h3_bidi(const srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_h3_internal(const srvrun_conn* c, u64 stream_id);
@@ -33,13 +34,20 @@ static int srvrun_wt_uni_seen(const srvrun_conn* c, u64 stream_id) {
          wired_srvloop_closed_has(&c->l.wt_uni_closed, stream_id);
 }
 
+/* 1 iff stream_id is a client uni stream whose type has been read. The
+ * typed set is keyed by the stream's index among client uni streams, so a
+ * bidi id is checked for its kind first (RFC 9000 2.1: low bits 0b10). */
+static int srvrun_wt_uni_typed(const srvrun_conn* c, u64 stream_id) {
+  return (stream_id & 3u) == 2u &&
+         wired_srvloop_closed_has(&c->l.uni_typed, stream_id);
+}
+
 /* RFC 9114 6.2.1 / RFC 9204 4.2: the peer's control and QPACK streams --
  * client uni streams whose type is known and is not WebTransport. Closing
  * one is a connection error, and an endpoint "MUST NOT" ask the peer to
  * (a STOP_SENDING would). */
 static int srvrun_wt_h3_uni(const srvrun_conn* c, u64 stream_id) {
-  return wired_srvloop_closed_has(&c->l.uni_typed, stream_id) &&
-         !srvrun_wt_uni_seen(c, stream_id);
+  return srvrun_wt_uni_typed(c, stream_id) && !srvrun_wt_uni_seen(c, stream_id);
 }
 
 /* 1 iff stream_id is an HTTP/3 stream no session may touch: a session's
