@@ -19,7 +19,7 @@
 | Valgrind | valgrind の出力を読む人 | BPF の attr 構造体についての 7 件の報告は、想定どおりの誤検出である(カーネルが渡した大きさより後ろをゼロで埋めるため)。`srvworkers_test` の 5 件の報告は valgrind のもとでのタイミングに左右される |
 | 時間に依存するテスト | CI の再実行 | `tests/app/srvthreads_datagram_test.c` は、実際のソケットとワーカースレッドでハンドシェイク、WebTransport の接続、データグラムの折り返しを順に待つ。各段階の期限(`SDT_WAIT_MS`、30 秒)は、ワーカースレッドがソケットを bind するより前に始まる。サーバーには期限の起点にできる準備完了の合図がない。参照: `sdt_retry_initial` |
 | テストのビルドが異なる | コントリビューター | `just test-fast` の分割した翻訳単位は、単一の翻訳単位の `just test` だけが見つける `static`/`typedef` の名前の衝突を見逃すことがある([ビルド](../../standards/build.md#3-test-と-test-fast)) |
-| ファジングの範囲 | ハブのループの頑健さ | `fuzz_moqt` はコーデック、`moqdg`、`moqcache` を対象にする。ハブの実行ループ(`moqtrun`)はコーデックではないので、ファジングしていない |
+| ファジングの範囲 | ハブのループの頑健さ | `fuzz_moqt` はコーデック、`moqdg`、`moqcache` を対象にする。`fuzz_moqtrun` はハブの実行ループ(`moqtrun`)を対象にし、セッションの開始と終了、ストリームとデータグラムの受信、ストリームのリセット、時刻の進行、GOAWAY を入力のバイト列から順に与える。ハブの送信はスタブの `wired_moqt_io` が受け、入力のビットに従って受け付けるか断る。その下のトランスポート(`srvrun`、`srvloop`、QUIC のフロー制御と ACK)と実際の時間の経過は対象にしない。同時に開くセッションは 3 つまでで、省略できるコールバックを欠いた `wired_moqt_io` も対象にしない |
 | 台帳の件数 | 網羅率の合計 | まだテストしていない要件がある。件数は [要件台帳](../../features/README.md) にあり、残りは各台帳の `[ ]` の項目である。実験的な Track 切り替えの節(MQ22-X13 を含む)は数えない |
 | BoringSSL による照合 | なし | 失敗はない。スキップは ECDSA の P-224/secp224k1 が 91 件、HMAC の MD5/SHA1/SHA224 が 12 件、96 ビットでない nonce の AES-GCM が 7 件、1,000,000 回反復する X25519 のケースである。参照: [BoringSSL のベクター](../boringssl-vectors.md) |
 

@@ -12,6 +12,7 @@
 /fuzz/fuzz_frames
 /fuzz/fuzz_capsule
 /fuzz/fuzz_moqt
+/fuzz/fuzz_moqtrun
 /fuzz/fuzz_mp4frag
 /fuzz/crash-*
 /fuzz/leak-*
