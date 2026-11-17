@@ -14,15 +14,15 @@
     "verify-snippets": "node runner/run.ts"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.42.5",
-    "astro": "^7.3.5"
+    "@astrojs/starlight": "^0.43.1",
+    "astro": "^7.4.12"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.10",
-    "@types/node": "^26.6.3",
-    "eslint": "^10.11.0",
+    "@astrojs/check": "^0.9.12",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.15.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.0",
-    "vitest": "^5.0.3"
+    "typescript-eslint": "^8.72.2",
+    "vitest": "^5.1.0"
   }
 }
