@@ -211,6 +211,6 @@ DPLPMTUD(プローブを送って使える最大のパケットサイズを探�
 
 影響: 移動するクライアント。
 
-[相互運用性の検証結果](../../verification/interop.md) は `connectionmigration` を部分的な対応として記録している。ngtcp2 との組み合わせでは通り、quic-go のクライアントはパスの変更を一度も起こさない。
+[相互運用性の検証結果](../../verification/interop.md) は `connectionmigration` を、クライアント 5 種(ngtcp2、picoquic、aioquic、neqo、lsquic)で合格、8 種で不合格と記録している。不合格の 8 種は、サーバーの知らせた推奨アドレスへ移行せず、パスの変更を一度も起こさない。
 
 quic-go のクライアントは `ecn` と `v2` のテストケースに対応していない。どちらも ngtcp2 との組み合わせでは通る(`v2` は picoquic とも通る)。
