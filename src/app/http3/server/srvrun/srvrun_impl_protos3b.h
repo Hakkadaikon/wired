@@ -101,7 +101,6 @@ int  srvrun_pump_round_gated(const srvrun_step_ctx* ctx, srvrun_conn* c);
 int  srvrun_pmtu_probe_outstanding(const srvrun_conn* c);
 usz  srvrun_pmtu_probe_len(usz size);
 void srvrun_pmtu_probe_clear(srvrun_conn* c);
-void srvrun_pmtu_rechunk(srvrun_conn* c);
 void srvrun_pmtu_note_ack(srvrun_conn* c, usz bytes, u64 hits, u64 hi);
 int  srvrun_pmtu_big_lost(
     const srvrun_conn* c, const wired_sendsess_lost_slice* l);

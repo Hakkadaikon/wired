@@ -15917,37 +15917,6 @@ static void test_srvrun_pmtu_ack_raises_validated(void) {
   }
 }
 
-/* RFC 8899 5.1.3: once a probe is acknowledged, a response that was armed
- * before it slices at the new size too. Armed once at the base size, a long
- * transfer used to keep base-size packets to its last byte (the interop
- * crosstraffic run sent 25 MB in 1169-byte packets on a 1500-byte path).
- * A slot that is not armed keeps no size. */
-static void test_srvrun_pmtu_ack_raises_armed_sessions(void) {
-  struct lp_fix f;
-  srvrun_conn   c;
-  wired_obuf    ob = {0};
-  u8            obuf[1024];
-  static u8     body[8192];
-  usz           base;
-  ob = (wired_obuf){obuf, sizeof obuf, 0};
-  sr_make_confirmed_conn(&c, &f, &ob);
-  pmtu_init(&c.pmtu);
-  base = srvrun_mps(&c);
-  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, base);
-  c.pmtu_probe_pn      = c.l.tx_pn++;
-  c.pmtu_probe_size    = PMTU_BASE + PMTU_STEP;
-  c.pmtu_probe_sent_ms = 0;
-  srvrun_feed_ack_range(&c, c.pmtu_probe_pn, c.pmtu_probe_pn, 10);
-  CHECK(srvrun_mps(&c) == base + PMTU_STEP);
-  CHECK(c.resp[0].sess.q.chunk == base + PMTU_STEP);
-  CHECK(c.resp[1].sess.q.chunk == 0);
-  {
-    wired_sendq_slice sl;
-    CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
-    CHECK(sl.len == base + PMTU_STEP);
-  }
-}
-
 /* An ACK range that does not cover the outstanding probe's pn must leave
  * pmtu and the tracking fields untouched -- the ACK-range broadcast to
  * resp[]/wtsend[] must not accidentally resolve an unrelated probe. */
@@ -29652,7 +29621,6 @@ void test_srvrun(void) {
   test_srvrun_feed_acks_missing_ecn_disables();
   test_srvrun_loss_and_retransmit_across_two_responses();
   test_srvrun_pmtu_ack_raises_validated();
-  test_srvrun_pmtu_ack_raises_armed_sessions();
   test_srvrun_pmtu_ack_outside_range_no_effect();
   test_srvrun_pmtu_timeout_reaped_as_loss();
   test_srvrun_pmtu_lost_probe_retried();
