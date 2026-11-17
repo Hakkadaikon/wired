@@ -57,6 +57,13 @@ jobs:
       - name: clone quic-interop-runner
         run: git clone --depth 1 https://github.com/quic-interop/quic-interop-runner.git runner
 
+      # The runner's pyshark calls asyncio.get_event_loop() with no running
+      # loop, which Python 3.14 (ubuntu-latest's python3) turned into an
+      # error: every trace check died with "There is no current event loop".
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
       - name: install runner requirements
         run: |
           python3 -m venv runner/.venv
