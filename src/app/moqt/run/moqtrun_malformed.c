@@ -95,13 +95,19 @@ int moqtrun_pubdone_try(
   return 1;
 }
 
+/* t is in use and has a PUBLISH_DONE waiting or was found Malformed. A
+ * free slot's flags are whatever its last occupant left. */
+static int moqtrun_pubdone_maybe(const wired_moqtrun_track* t) {
+  return t->in_use && (t->pubdone_pending | t->malformed);
+}
+
 /* moqtrun_pubdone_try for a track that can be due at all: only one with a
  * PUBLISH_DONE waiting or found Malformed is ever ready
  * (moqtrun_pubdone_ready), and this runs for every track on every
  * delivery and tick. */
 static int moqtrun_pubdone_track(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t) {
-  if (!(t->pubdone_pending | t->malformed)) {
+  if (!moqtrun_pubdone_maybe(t)) {
     return 0;
   }
   return moqtrun_pubdone_try(hub, p, t);

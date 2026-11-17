@@ -106,6 +106,10 @@ static void moqtrun_hub_pools_clear(wired_moqt_hub* hub) {
 }
 
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
+  /* every field starts from zero, whatever memory the caller handed in: the
+   * scans keep "known free" hints (req_free) and per-slot flags that a
+   * stale byte would turn into a skipped slot */
+  bytes_memset(hub, 0, sizeof *hub);
   moqtrun_hub_tracks_clear(hub);
   moqtrun_hub_auth_clear(hub);
   moqtrun_hub_relay_stats_clear(hub);

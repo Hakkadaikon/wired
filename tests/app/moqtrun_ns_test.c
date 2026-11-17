@@ -624,7 +624,29 @@ static void test_moqtrun_req_tick_idle_matches_tick(void) {
   CHECK(idle > 0 && idle < 512);
 }
 
+/* wired_moqt_init starts every field from zero whatever the memory held: a
+ * hub on a stack or a heap is not zeroed by the caller, and a stale "known
+ * free" bit (req_free) would hide an in-use request from every scan. */
+static void test_moqtrun_init_clears_stale_memory(void) {
+  static wired_moqt_hub hub;
+  u64                   mask[WIRED_MOQTRUN_REQ_WORDS] = {0};
+  wired_moqtrun_req*    q;
+  bytes_memset(&hub, 0xa5, sizeof hub);
+  wired_moqt_init(&hub, moqtrun_test_io());
+  for (usz w = 0; w < WIRED_MOQTRUN_REQ_WORDS; w++) {
+    CHECK(hub.req_free[w] == 0);
+  }
+  q = moqtrun_req_free_slot(&hub);
+  CHECK(q == &hub.reqs[0]);
+  q->in_use = 1;
+  q->live   = 1;
+  q->kind   = MOQNS_T_SUBSCRIBE_NAMESPACE;
+  CHECK(moqtrun_disc_live_mask(&hub, MOQNS_T_SUBSCRIBE_NAMESPACE, mask));
+  CHECK(mask[0] == 1);
+}
+
 void test_moqtrun_ns(void) {
+  test_moqtrun_init_clears_stale_memory();
   test_moqtrun_disc_live_mask_matches_scan();
   test_moqtrun_req_tick_idle_matches_tick();
   test_moqtrun_ns_fin_cancels_d18();
