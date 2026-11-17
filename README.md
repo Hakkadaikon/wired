@@ -153,6 +153,7 @@ push のたびに次の検査を実行する。
 | 9,118〜9,535 kbps | 9,434 kbps |
 
 機能の比較表、すべての計測レーン、再現方法は [実装の比較](docs/performance/comparison.md) にある。
+サーバーのループ、パケットの保護、MoQT のハブで命令数を減らした変更と、その前後の値は [サーバーの高速化](docs/performance/tuning/README.md) にある。
 
 
 ## 5. 構成
