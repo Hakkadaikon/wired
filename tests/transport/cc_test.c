@@ -156,6 +156,24 @@ static void test_cc_cubic_reno_friendly_region(void) {
   CHECK(c.cwnd == CC_MIN_WINDOW && c.w_est == CC_MIN_WINDOW);
 }
 
+/* RFC 9002 7.2 / 7.3.3: the window grows by the path's maximum datagram
+ * size per window acknowledged, not by the 1200-byte floor, once DPLPMTUD
+ * has validated a larger one; a smaller request keeps the floor. */
+static void test_cc_mss_scales_avoidance_growth(void) {
+  cc c;
+  cc_init(&c);
+  c.cwnd     = 14000;
+  c.ssthresh = 7000; /* congestion avoidance */
+  cc_on_ack(&c, 1400, 10, 20);
+  CHECK(c.cwnd == 14000 + 1200 * 1400 / 14000);
+  cc_set_mss(&c, 1400);
+  c.cwnd = 14000;
+  cc_on_ack(&c, 1400, 30, 40);
+  CHECK(c.cwnd == 14000 + 1400 * 1400 / 14000);
+  cc_set_mss(&c, 500);
+  CHECK(c.mss == MAX_DATAGRAM);
+}
+
 /* BBR mode: acks feed the delivery-rate sampler; once a round closes, cwnd
  * becomes cwnd_gain x BDP (btl_bw x rtprop) and pacing follows
  * pacing_gain x btl_bw. The drain handoff needs the caller's inflight. */
@@ -284,6 +302,7 @@ void test_cc(void) {
   test_cc_bbr_cycle_advances_per_round_not_per_tick();
   test_cc_cubic_mode();
   test_cc_cubic_reno_friendly_region();
+  test_cc_mss_scales_avoidance_growth();
   test_cc_slow_start();
   test_cc_loss_halves_floor();
   test_cc_no_grow_in_recovery();

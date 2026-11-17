@@ -24,7 +24,7 @@ void cc_on_persistent(cc* c) {
 /* RFC 9438 4.6/4.7: remember W_max (fast convergence), re-anchor the cubic
  * epoch at this loss, shrink by beta_cubic (0.7). */
 static u64 loss_window_cubic(cc* c, u64 now) {
-  u64 w_seg     = c->cwnd / MAX_DATAGRAM;
+  u64 w_seg     = c->cwnd / c->mss;
   c->w_max_seg  = cubic_wmax_fastconv(w_seg, c->w_max_seg);
   c->k_ms       = cubic_k_ms(c->w_max_seg);
   c->epoch_ms   = now;

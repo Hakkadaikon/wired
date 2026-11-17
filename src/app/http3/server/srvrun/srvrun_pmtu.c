@@ -289,6 +289,7 @@ static void srvrun_pmtu_chunk_set(wired_sendsess* s, usz mps) {
  * response already being sent stops cutting base-size slices -- armed once
  * at the size of that moment, a long transfer kept it to its last byte. */
 void srvrun_pmtu_rechunk(srvrun_conn* c) {
+  cc_set_mss(&c->cc, c->pmtu.validated); /* RFC 9002 7.2 */
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
     srvrun_pmtu_chunk_set(&c->resp[i].sess, srvrun_mps(c));
   }

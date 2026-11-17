@@ -18,17 +18,19 @@ void cc_init_algo(cc* c, int algo) {
   c->epoch_ms       = 0;
   c->w_est          = 0;
   c->cwnd_prior     = 0;
+  c->mss            = MAX_DATAGRAM;
   c->round_bytes    = 0;
   c->round_start_ms = 0;
   c->app_limited    = 0;
   bbr_init(&c->bbr);
 }
 
+void cc_set_mss(cc* c, u64 size) { c->mss = u64_max(size, MAX_DATAGRAM); }
+
 /* Grow the window: exponential in slow start, linear in avoidance. */
 static void grow(cc* c, u64 acked) {
-  u64 inc = (c->cwnd < c->ssthresh)
-                ? acked                                /* slow start */
-                : (u64)MAX_DATAGRAM * acked / c->cwnd; /* avoidance */
+  u64 inc = (c->cwnd < c->ssthresh) ? acked                     /* slow start */
+                                    : c->mss * acked / c->cwnd; /* avoidance */
   c->cwnd += inc;
 }
 
@@ -43,7 +45,7 @@ static void maybe_exit_recovery(cc* c, u64 sent_time) {
  * alpha is 3 * (1 - beta) / (1 + beta) = 9/17 until W_est is back at the
  * window the last loss cut (cwnd_prior), then 1 -- Reno's own increase. */
 static void cubic_west_grow(cc* c, u64 acked) {
-  u64 inc = MAX_DATAGRAM * acked / c->cwnd;
+  u64 inc = c->mss * acked / c->cwnd;
   c->w_est += (c->w_est >= c->cwnd_prior) ? inc : inc * 9 / 17;
 }
 
@@ -58,7 +60,7 @@ static void grow_cubic(cc* c, u64 acked, u64 now) {
     return;
   }
   cubic_west_grow(c, acked);
-  target = cubic_w(now - c->epoch_ms, c->k_ms, c->w_max_seg) * MAX_DATAGRAM;
+  target = cubic_w(now - c->epoch_ms, c->k_ms, c->w_max_seg) * c->mss;
   target = u64_max(target, c->w_est);
   if (target > c->cwnd) {
     c->cwnd = target;

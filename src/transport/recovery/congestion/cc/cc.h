@@ -30,7 +30,12 @@ typedef struct {
   /** CUBIC, RFC 9438 4.3: W_est in bytes -- what an AIMD (Reno-like) sender
    * would have reached since the last loss. cwnd is never left below it. */
   u64 w_est;
-  u64 cwnd_prior;     /* CUBIC: cwnd just before the last reduction (4.3) */
+  u64 cwnd_prior; /* CUBIC: cwnd just before the last reduction (4.3) */
+  /** RFC 9002 7.2 / B.2 max_datagram_size: the largest datagram the path is
+   * known to carry (MAX_DATAGRAM until DPLPMTUD validates more). The unit
+   * the window grows by; the initial and minimum windows stay at their
+   * MAX_DATAGRAM multiples. */
+  u64 mss;
   bbr bbr;            /* BBR: phase machine and estimators */
   u64 round_bytes;    /* BBR: bytes acked in the current sample round */
   u64 round_start_ms; /* BBR: when the current sample round began */
@@ -43,6 +48,10 @@ void cc_init(cc* c); /* NewReno */
 
 /* Init with an explicit algorithm (CC_ALGO_*). */
 void cc_init_algo(cc* c, int algo);
+
+/* RFC 9002 7.2: the path's maximum datagram size changed (DPLPMTUD raised
+ * or lowered it); never below MAX_DATAGRAM. */
+void cc_set_mss(cc* c, u64 size);
 
 /* On ACK of `acked` bytes for a packet sent at time `sent_time`, observed at
  * `now`. Grows the window unless we are in recovery or app_limited; an ack of a
