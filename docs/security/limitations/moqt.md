@@ -36,9 +36,11 @@ MoQT のデータモデルの用語(Track、Group、Subgroup、Object)は guide 
 
 既定では Full Track Name ごとに Track を 1 つ持ち、最も新しいセッションが所有する。d22 7.6 の「一致するすべてのパブリッシャーに SUBSCRIBE メッセージを送らなければならない (MUST)」が成り立つのは、`wired_moqt_hub.multi_publisher = 1` のとき(examples/moqt_interop が設定)だけである。
 
-`multi_publisher = 1` では、あとから告知したものを含め、一致するパブリッシャーすべてを購読し、各 Object を各購読へ合流させる。重複の除去は Subgroup のストリーム単位とデータグラム単位で、64 項目の窓で行う。最初のパブリッシャーが途中で終えた Subgroup を、もう一方のコピーで補うことはしない。
+`multi_publisher = 1` では、あとから告知したものを含め、一致するパブリッシャーすべてを購読し、各 Object を各購読へ合流させる。最初のパブリッシャーが途中で終えた Subgroup を、もう一方のコピーで補うことはしない。
 
-参照: `moqtrun_supersede_name`、`moqtrun_mpub.c`、`moqtrun_mpub_dd.c`、`moqtrun_up_fan.c`
+重複の除去は Subgroup のストリーム単位とデータグラム単位で行う。記録は `WIRED_MOQTRUN_DD_MAX`(64)項目の FIFO で、購読ごとに分けずハブ全体で共有する。記録が上書きされたあとに届いた重複は、再び転送する。
+
+参照: `moqtrun_supersede_name`、`moqtrun_mpub.c`、`moqtrun_mpub_dd.c`、`moqtrun_up_fan.c`、`WIRED_MOQTRUN_DD_MAX`(shortcut)
 
 ### 2.2 フェイルオーバーで待つのは最大 1.5 秒
 
@@ -201,13 +203,13 @@ REGISTER はセッションを AUTH_TOKEN_CACHE_OVERFLOW で、DELETE と USE_AL
 
 参照: `moqtrun_take_tok_or_close`
 
-### 2.16 OBJECT_DELIVERY_TIMEOUT は Object の先頭バイトから数える
+### 2.16 OBJECT_DELIVERY_TIMEOUT は Object のヘッダーが揃った時点から数える
 
-影響: 別のバイトからタイムアウトを測る相手。
+影響: 最初のペイロードのバイトからタイムアウトを測る相手(d18、d19)。
 
-d19 は最初のペイロードのバイト、d22 は最後のヘッダーのバイトで時計を始める。ハブは Object をまとめて復号するので、どちらも同じ時点になる。
+d22 と draft-23 は Object のヘッダーの最後のバイト、d18 と d19 は最初のペイロードのバイトで時計を始める。ハブはどのドラフトでも、Object のヘッダーが揃った配送の時刻から数える。2 つの時点が異なるのは、配送がヘッダーの末尾ちょうどで終わったときだけである。
 
-参照: `moqtrun_relay_born`(ponytail)、[draft-moq-transport-22.md](../../features/draft-moq-transport-22.md) MQ22-070a(テストなし)
+参照: `moqtrun_relay_born`(shortcut)、[draft-moq-transport-22.md](../../features/draft-moq-transport-22.md) MQ22-070a
 
 ### 2.17 優先度によるスケジューリング
 
@@ -230,8 +232,10 @@ d19 は最初のペイロードのバイト、d22 は最後のヘッダーのバ
 
 次の Properties は解釈せずにそのまま中継する。
 
-- MAX_CACHE_DURATION、DEFAULT_PUBLISHER_GROUP_ORDER、DYNAMIC_GROUPS、Immutable Properties、Prior Group/Object ID Gap
+- DEFAULT_PUBLISHER_GROUP_ORDER、DYNAMIC_GROUPS、Immutable Properties、Prior Group/Object ID Gap
 - d22 の TIMESTAMP、VIDEO_FRAME_MARKING、AUDIO_CONFIG、ENCRYPTED_LIST、PADDING
+
+MAX_CACHE_DURATION はキャッシュの期限として使う(2.32)。
 
 参照: MoQT の台帳の対象外の節
 
@@ -309,3 +313,57 @@ TRACK_NAMESPACE_PREFIX と FORWARD は、その後に生成する PUBLISH に適
 `WIRED_MOQTRUN_GOAWAY_GRACE_MS`(1000 ミリ秒)がPUBLISH_DONE の送り出しと GOAWAY_TIMEOUT による切断の間隔になる。確認応答を待たず、決まった時間だけ待つ。
 
 参照: `WIRED_MOQTRUN_GOAWAY_GRACE_MS`(ponytail)
+
+### 2.27 使用済みの Request ID の窓は 64 個
+
+影響: リクエストを 64 個以上追い越して送るセッション。
+
+ハブは使用済みの Request ID を、セッションごとに 64 個の窓で覚える。窓より先の ID が届くと窓を進め、通り過ぎた ID は未使用でも使用済みとして扱う。
+
+通り過ぎた ID のリクエストがあとから届くと重複と判定し、セッションを INVALID_REQUEST_ID で閉じる。
+
+参照: `moqtrun_rid_slot`(shortcut)、`moqtrun_rid_fresh`
+
+### 2.28 終わった上流の SUBSCRIBE と FETCH のストリームは、項目が使われるまで覚えている
+
+影響: 終わった上流のリクエストストリームへ送り続けるパブリッシャー。
+
+ハブは、終わった上流の SUBSCRIBE と FETCH のストリーム ID を、その項目が次のリクエストに使われるまで覚えている。項目が使われたあとにそのストリームへ届いたバイトは、応答を返さずに捨てる。そこに届いた REQUEST_UPDATE でセッションを閉じる動作(draft-23 9.5)も行わない。
+
+参照: `moqtrun_dispatch_other`(shortcut)、`moqtrun_up_rx_ended`、`moqtrun_upf_rx_ended`
+
+### 2.29 SUBGROUP_DELIVERY_TIMEOUT のタイマーはハブ全体で 32 個
+
+影響: 確認応答されない Subgroup のストリームが多く残るハブ。
+
+SUBGROUP_DELIVERY_TIMEOUT のタイマーは、上流の FIN が届いた下流の Subgroup のストリームごとに 1 つ使う。タイマーの表はハブ全体で `WIRED_MOQTRUN_MAX_SGT`(32)個である。
+
+表が埋まっているときに届いた FIN ではタイマーを始めない。そのストリームはこのタイムアウトではリセットされない。
+
+参照: `moqtrun_sgt_put`、`WIRED_MOQTRUN_MAX_SGT`(shortcut)
+
+### 2.30 最初の配送に FIN が付いたストリームは、存在しない Object の手前までを中継する
+
+影響: ハブが存在しないと記録した Object を含むストリームを、1 回の配送で FIN まで送るパブリッシャーの購読者。
+
+存在しない Object は、閉じた Group の中で、ハブのキャッシュが存在しないと記録した Object である(d18/d19 9.1)。最初の配送に FIN が付いたストリームは、最初の存在しない Object の手前までを中継する。
+
+それより後ろの Object は、存在するものも中継しない。ストリームの最初の Object が存在しない Object なら、そのストリームを中継しない。
+
+参照: `moqtrun_relay_object_cut`(shortcut)、`moqtrun_gone_head_cut`
+
+### 2.31 ハブの REQUEST_UPDATE は専用のリクエストストリームの PUBLISH にだけ送る
+
+影響: 従来の単一の双方向の制御ストリームで PUBLISH を送るパブリッシャー。
+
+ハブは、一時停止した PUBLISH の再開(d22 7.6)と NEW_GROUP_REQUEST の中継に REQUEST_UPDATE を使う。送る先は、専用のリクエストストリームで届いた PUBLISH だけである。従来の単一の双方向の制御ストリームで届いた PUBLISH には送らない。
+
+参照: `moqtrun_pub_req`、`moqtrun_pubupd.c`(shortcut)
+
+### 2.32 キャッシュの期限は直前の tick の時計から数える
+
+影響: MAX_CACHE_DURATION を付けた Track の Object を FETCH する購読者。
+
+キャッシュした Object は、届いた時刻から Track の MAX_CACHE_DURATION が過ぎると期限が切れる。届いた時刻には直前の `wired_moqt_tick` の時計を使い、Object の最初のバイトが届いた時刻は使わない。そのため期限は、直前の tick から Object が届くまでの時間だけ早く切れる。
+
+参照: `moqtrun_cache_exp`(shortcut)

@@ -83,11 +83,13 @@ MAX_DATA は接続全体のフロー制御の上限である。この上限で�
 |---|---|
 | 保持する断片 | 接続あたり `WIRED_SRVLOOP_STRAY_MAX`(8)個 |
 | 断片 1 個の大きさ | `WIRED_SRVLOOP_STRAY_CAP`(1,400)バイトまで |
-| あふれたとき | 古い断片から上書きする |
+| 入りきらないとき | その断片を運んだパケットに ACK を返さない |
 
-上限を超えた分と、1,400 バイトを超える断片は保持しない。相手は ACK 済みのバイトを再送しないので、その断片を失ったストリームは欠落で止まる。短いメッセージ(本体と FIN)は収まるが、先頭のパケットを失った大きいストリームは、先頭の再送が届くまでに 8 個を超える断片が先に届くと止まる。
+保持した断片は上書きしない。空きがない断片と 1,400 バイトを超える断片は受け取らず、そのパケットを ACK の対象から外す。相手はそのパケットを損失と判定して STREAM フレームを再送するので、データは失われない。相手の輻輳制御は、その分を損失として数える。
 
-参照: `srvloop_stray_keep_uni`、`srvloop_stray_keep_bidi`、`srvloop_stray_adopt_uni`、`srvloop_stray_adopt_bidi`、`wt_drop_overtaken`
+WebTransport ではないと分かったストリームの断片は、その時点で領域から外す。
+
+参照: `srvloop_stray_keep_uni`、`srvloop_stray_keep_bidi`、`srvloop_stray_adopt_uni`、`srvloop_stray_adopt_bidi`、`srvloop_stray_ackable`、`wt_drop_overtaken`
 
 ### 1.9 HTTP/2 上の WebTransport と、カプセルだけの WebTransport はない
 
@@ -112,6 +114,32 @@ SDK は CONNECT のリクエストを `h3_connect_req_ok` で検査するだけ�
 QUIC DATAGRAM があることを前提にしている。
 
 参照: [rfc9297.md](../../features/rfc9297.md)
+
+### 1.12 カプセルの禁止フィールドは先頭の 32 行だけを調べる
+
+影響: 32 行を超えるフィールドを付けた WebTransport の CONNECT。
+
+RFC 9297 3.2 は Content-Length か Content-Type を持つメッセージに Capsule Protocol を使うことを禁じている。SDK が保持するリクエストのフィールドは先頭の `WIRED_H3REQDRIVE_MAX_HDRS`(32)行である。それより後ろの行にある禁止フィールドは検出せず、そのリクエストを不正として扱わない。
+
+参照: `wt_capsule_fields_absent`(shortcut)、`srvrun_wt_request_ok`
+
+### 1.13 RESET_STREAM_AT は届いた時点でリセットとして扱う
+
+影響: アプリケーションのデータを含む範囲を Reliable Size に指定してリセットする相手。
+
+受信した RESET_STREAM_AT は、同じストリーム ID、エラーコード、最終サイズの RESET_STREAM として、届いた時点で処理する。Reliable Size より手前でまだ届いていないバイトは受け取らない。
+
+参照: `srvloop_reset_at_frame`(shortcut)、`srvloop_wt_reset_frame`
+
+### 1.14 WT_CLOSE_SESSION のあとの CONNECT ストリームの監視は接続あたり 1 つ
+
+影響: 1 つの接続で 2 つのセッションを続けて閉じるクライアント。
+
+WT_CLOSE_SESSION のあとに CONNECT ストリームへデータが届くと、そのストリームを H3_MESSAGE_ERROR でリセットする(draft-ietf-webtrans-http3-16 6)。FIN がまだ届いていないストリームは、セッションを解放したあとも監視する。
+
+監視できるストリームは接続あたり 1 本である。監視中に 2 つ目のセッションが閉じると、監視の対象は 2 つ目の CONNECT ストリームに替わる。1 つ目のストリームにあとから届いたデータではリセットしない。
+
+参照: `srvrun_wt_watch_arm`(shortcut)、`srvrun_wt_watch_drain`
 
 ## 2. HTTP/3 と QPACK
 
@@ -150,7 +178,7 @@ TCP への CONNECT のプロキシ(RFC 9220 の Extended CONNECT だけはある
 - サーバー自身のエンコーダーテーブルは min(相手の容量, 2016) を使う(`QPACKENC_LOCAL_CAP`。`-DQPACKENC_LOCAL_CAP=0` でビルドすると無効)。
 - レスポンスのほかのフィールドは静的テーブルかリテラルのままで、リテラルの名前と値は短くなるときにハフマン符号化する。
 - 挿入するのは、そのレスポンスのフィールドセクションができあがり、命令がエンコーダーストリームの送信リングに収まるときだけである。そうでなければそのフィールドはリテラルで送る。
-- 追い出すのは、すべての挿入が確認応答され、保留中のセクションがないときだけである。取り消されたストリームのセクションは保留のまま残るので、一度取り消しがあるとテーブルは追い出しをしなくなる。
+- 追い出すのは、すべての挿入が確認応答され、保留中のセクションがないときだけである。取り消されたストリームのセクションは保留のまま残るので、一度取り消しがあるとテーブルは追い出しをしなくなる(`decrx_cancel`、shortcut)。
 
 参照: [rfc9204.md](../../features/rfc9204.md)、[rfc7541.md](../../features/rfc7541.md)
 
@@ -268,3 +296,29 @@ RFC 9110 4.1 は少なくとも 8000 オクテットの URI を受け付ける�
 `WIRED_SRVRUN_IDLE_MS` は 30000、`WIRED_SRVRUN_EVICT_GRACE_MS` は 1000 である。
 
 参照: これらのマクロ
+
+### 2.13 authority が IPv6 リテラルのリクエストには 421 を返さない
+
+影響: authority に IPv6 リテラルを書く https のリクエスト。
+
+https のリクエストでは authority のホストを接続のリーフ証明書の SAN と照合し、一致しなければ 421 で応答する(RFC 9110 7.4)。ホストが `[` で始まる IPv6 リテラルのときは照合しない。SAN の iPAddress と照合できるのは IPv4 のアドレスだけである。
+
+参照: `srvrun_origin_skip`(shortcut)、`srvrun_origin_status`
+
+### 2.14 SDK が作るレスポンスの大きさの検査は SDK 自身の行を数えない
+
+影響: 小さい SETTINGS_MAX_FIELD_SECTION_SIZE を広告する相手。
+
+SDK が自分で作るレスポンス(WebTransport のセッションへの 2xx と 403、405、413、431、501)は、フィールドセクションが相手の SETTINGS_MAX_FIELD_SECTION_SIZE を超えると作らない(RFC 9114 4.2.2)。この比較で数えるのは `:status` と追加の 1 行だけである。
+
+SDK 自身が付ける行は数えない。content-type と、capsule-protocol、Allow、Content-Length、Date のうち最大 3 つで、合わせて約 150 バイトである。
+
+参照: `srvrun_wt_status_build`(shortcut)
+
+### 2.15 Structured Fields の Byte Sequence は復号しない
+
+影響: なし。SDK が読むメンバーに Byte Sequence はない。
+
+Dictionary の中の Byte Sequence(RFC 8941 4.2.7)は、文字が base64 のアルファベットに入るかだけを調べる。復号しないので、パディングと長さの誤りは検出しない。
+
+参照: `sfd_b64`(shortcut)

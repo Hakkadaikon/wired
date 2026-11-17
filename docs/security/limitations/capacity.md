@@ -42,6 +42,7 @@
 | `WIRED_MOQTRUN_RESET_AFTER_BUSY` | 8 | lossy な経路で拒まれた回数 | 購読者のストリームをリセット |
 | `WIRED_MOQTRUN_GOAWAY_GRACE_MS` | 1000 | 終了時の猶予 | 確認応答の有無にかかわらず 1 秒後にセッションを閉じる |
 | `WIRED_MOQTRUN_PUBDONE_WAIT_MS` | 2000 | PUBLISH_DONE のあとの待ち時間 | 残りのストリームをリセット |
+| `WIRED_MOQTRUN_MAX_SGT` | 32 | ハブ全体の SUBGROUP_DELIVERY_TIMEOUT のタイマー | タイマーを始めず、そのストリームをこのタイムアウトでリセットしない |
 | `WIRED_MOQTRUN_SSTS_SETS` | 8 | 切り替えセット | SWITCHING_SET_ASSIGNMENT を INTERNAL_ERROR で拒否 |
 | `MOQSSTS_MAX_MEMBERS` | 4 | 切り替えセットあたりのメンバー数 | SWITCHING_SET_ASSIGNMENT を INTERNAL_ERROR で拒否 |
 | `MOQCTL_SSTS_MAX_ALGS` | 4 | SSTS_ALGORITHMS の ID | 超えた ID は保持も送信もしない |

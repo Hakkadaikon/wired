@@ -112,6 +112,16 @@ max_fragment_length、client_certificate_url、trusted_ca_keys、truncated_hmac�
 
 参照: `wired_srvboot_acc`(ponytail)、`retry_tag.c`(ponytail)
 
+### 1.10 NewSessionTicket は接続を受け入れた時点の鍵で封じる
+
+影響: 鍵が替わった直後にチケットを受け取り、あとで再開するクライアント。
+
+チケットの鍵は `KEYRING_PERIOD_SECS`(7200 秒)ごとに替わる。封じるのは今の鍵で、開けるのは今の鍵と 1 つ前の鍵である。
+
+NewSessionTicket は発行の時点ではなく、接続を受け入れた時点の鍵で封じる。受け入れから発行までの間に鍵が替わると、そのチケットを開けられる期間は 7200 秒短くなる。開けられなかったクライアントは完全なハンドシェイクに戻る。
+
+参照: `encode_tickets`(shortcut)、`keyring.h`
+
 ## 2. 証明書
 
 ### 2.1 証明書パスの処理
