@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directories:
+      - /guide
+      - /examples/moqt_chat/frontend
+      - /examples/moqt_chat/e2e
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ["*"]

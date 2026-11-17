@@ -2,6 +2,8 @@ name: Interop
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 19 * * 6" # Sunday 04:00 JST
 
 jobs:
   quic-interop-runner:
