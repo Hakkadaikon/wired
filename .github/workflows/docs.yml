@@ -34,7 +34,7 @@ jobs:
       - name: Generate API reference
         run: nix develop -c just docs
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: examples/moqt_chat/frontend/package.json
 
