@@ -6,10 +6,19 @@ static void test_verselect_chosen_ok(void) {
   CHECK(verinfo_chosen_ok(VERSION_1, VERSION_2) == 0);
 }
 
-/* RFC 9368 3: Available Versions is in the client's preference order --
- * a client preferring v1 stays on v1 even though we also support v2. */
-static void test_verselect_pick_client_order(void) {
+/* RFC 9368 3: the client's order is advisory. A client that lists v1 first
+ * is still moved to v2, the first version in our own order that it lists. */
+static void test_verselect_pick_server_order(void) {
   version_information vi   = {VERSION_1, 2, {VERSION_1, VERSION_2}};
+  u32                 we[] = {VERSION_2, VERSION_1};
+  u32                 out  = 0;
+  CHECK(verinfo_pick_compatible(&vi, verlist_of(we, 2), &out) == 1);
+  CHECK(out == VERSION_2);
+}
+
+/* A client that does not list v2 stays on its Chosen Version. */
+static void test_verselect_v1_only_client_stays(void) {
+  version_information vi   = {VERSION_1, 1, {VERSION_1}};
   u32                 we[] = {VERSION_2, VERSION_1};
   u32                 out  = 0;
   CHECK(verinfo_pick_compatible(&vi, verlist_of(we, 2), &out) == 1);
@@ -45,7 +54,8 @@ static void test_verselect_none(void) {
 
 void test_verselect(void) {
   test_verselect_chosen_ok();
-  test_verselect_pick_client_order();
+  test_verselect_pick_server_order();
+  test_verselect_v1_only_client_stays();
   test_verselect_pick_v2_first();
   test_verselect_skips_grease();
   test_verselect_none();
