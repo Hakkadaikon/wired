@@ -33,7 +33,7 @@ jobs:
     env:
       QUICHE_TAG: "0.29.3"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install toolchain
         run: |
           sudo apt-get update
@@ -136,7 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The network simulator's compose setup needs a recent docker engine
       # and the ip6table_filter module -- the same two prerequisites the
       # interop runner's own CI installs (its interop-test.yml).
