@@ -76,7 +76,7 @@ jobs:
           mkdir -p pages-site/guide
           cp -r guide/dist/. pages-site/guide/
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: pages-site
 
