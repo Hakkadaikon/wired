@@ -11,6 +11,10 @@ updates:
       - /examples/moqt_chat/e2e
     schedule:
       interval: weekly
+    # minor and patch updates arrive as one PR; a major version gets its own,
+    # so one breaking bump (an engine requirement, an API change) does not
+    # hold the rest back
     groups:
       npm:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
