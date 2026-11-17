@@ -174,7 +174,9 @@ moq-interop-runner は、各クライアントのテストスイートを、リ�
 | `connectionmigration` | quic-go、go-x-net、kwik、msquic、quiche、quinn、s2n-quic、xquic | クライアントが、サーバーの知らせた推奨アドレスへ移行しない。転送は元のパスだけで完了し、ランナーは `Server saw only a single path in use` と記録する | なし(クライアントの動作) |
 | `multiplexing` | xquic | クライアントが、サーバーの知らせた上限(`initial_max_streams_bidi` 40)を超えて 128 本のストリームを開く。サーバーは STREAM_LIMIT_ERROR で接続を閉じる | なし(クライアントの動作) |
 | `v2` | quinn | クライアントが version_information を送らないので、サーバーは版を切り替えられない(RFC 9368 §2.3) | なし(クライアントの動作) |
-| `crosstraffic`(計測) | go-x-net、msquic、xquic | クライアントの制限時間までに 25 MB を送り終えない。msquic は 50 秒で打ち切り、その時点で約 98% を受け取っている(6 回の試行のうち 2 回は完了)。go-x-net と xquic は修正後に測っていない | [#286](https://github.com/Hakkadaikon/wired/issues/286) |
+| `crosstraffic`(計測) | msquic | クライアントが 50 秒で打ち切る。25 MB を送り終えるには 4.2 Mbps が要り、TCP 1 本と分け合う公平な取り分(約 5 Mbps)の 84% に当たる。その時点で約 98% を受け取っており、6 回の試行のうち 2 回は完了した | [#286](https://github.com/Hakkadaikon/wired/issues/286) |
+| `crosstraffic`(計測) | xquic | クライアントが接続を 30 秒で閉じる(受信は 13.6 MB)。25 MB を送り終えるには 7 Mbps が要り、公平な取り分を超える | なし(クライアントの制限時間) |
+| `crosstraffic`(計測) | go-x-net | CI の実行で不合格。修正後は測っていない | [#286](https://github.com/Hakkadaikon/wired/issues/286) |
 | WebTransport の全 7 ケース | Chrome | クライアントのイメージでブラウザーが起動しない(4 章) | なし(クライアントのイメージ) |
 | WebTransport の `handshake` | Firefox | クライアントが、選ばれたプロトコルを返さない(4 章) | なし |
 
@@ -186,6 +188,7 @@ moq-interop-runner は、各クライアントのテストスイートを、リ�
 | `multiplexing` | xquic | `logs_2026-11-17T07:22:08` |
 | `v2` | quinn | `logs_2026-11-17T07:23:39` |
 | `crosstraffic` | msquic | `logs_2026-11-17T18:15:58`、`18:30:52`、`18:32:14`、`18:35:57` |
+| `crosstraffic` | xquic | `logs_2026-11-17T18:47:50` |
 
 シミュレーターの損失で結果が変わる不合格(2.1)は次のとおりである。
 
