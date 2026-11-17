@@ -38,7 +38,7 @@ jobs:
         with:
           package_json_file: examples/moqt_chat/frontend/package.json
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: pnpm
@@ -55,7 +55,7 @@ jobs:
       # guide/'s astro.config.mjs base ('/wired/guide') must match the
       # pages-site/guide/ path below. pnpm itself is already set up above
       # (both packages pin the same pnpm version).
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
