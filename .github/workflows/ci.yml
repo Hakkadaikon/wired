@@ -71,7 +71,7 @@ jobs:
         run: nix develop -c just ninja san
 
       # Outside nix: the runner only needs go and node on PATH.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: guide/go.mod
           cache-dependency-path: guide/go.sum

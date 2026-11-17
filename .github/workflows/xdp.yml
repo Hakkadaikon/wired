@@ -33,7 +33,7 @@ jobs:
       - name: build server
         run: nix develop -c just ninja examples/word_list/wired_server
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: guide/go.mod
 

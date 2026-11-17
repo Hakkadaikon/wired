@@ -41,7 +41,7 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
             | bash -s -- --tag 1.40.0 --to "$HOME/.local/bin"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: stable
       - name: Run bench unit tests
