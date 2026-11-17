@@ -24400,6 +24400,43 @@ static void test_srvrun_qenc_repeat_status_references_without_reinsert(void) {
   CHECK(sr_qenc_field_is_dynamic_indexed(f2, fob2.len) == 1);
 }
 
+/* RFC 9114 10.6 (9114-097): a field an application supplied -- a secret, or
+ * text a request made it echo -- is never put into the encoder's dynamic
+ * table. The only line the encoder inserts is :status, a number the server
+ * chose, so the two kinds of data never share a compression context: the
+ * application's field goes out as a literal in its own field section. */
+static void test_srvrun_qenc_never_inserts_app_fields(void) {
+  static const u8        name[] = "set-cookie", val[] = "sid=hunter2";
+  srvrun_conn            c = {0};
+  qpackenc_status_result ins;
+  u8                     field[256];
+  wired_obuf             fob    = obuf_of(field, sizeof field);
+  qpack_field            secret = {
+      wired_span_of(name, sizeof name - 1), wired_span_of(val, sizeof val - 1)};
+  qpackenc_init(&c.l.h3.qenc, 4096);
+  srvrun_open_qenc_stream(&c);
+  /* :status 200 is in the static table: nothing is inserted at all */
+  CHECK(h3resp_encode_headers_field_qenc(
+      200, "text/html", &secret, srvrun_qenc_active(&c), &ins, &fob));
+  CHECK(ins.insert_len == 0);
+  srvrun_qenc_send_insert(&c, &ins);
+  CHECK(c.l.h3.qenc.total_inserts == 0);
+  /* :status 201 is not: exactly one insert, the :status line alone */
+  fob = obuf_of(field, sizeof field);
+  CHECK(h3resp_encode_headers_field_qenc(
+      201, "text/html", &secret, srvrun_qenc_active(&c), &ins, &fob));
+  CHECK(ins.insert_len > 0 && ins.insert_len < sizeof val);
+  srvrun_qenc_send_insert(&c, &ins);
+  CHECK(c.l.h3.qenc.total_inserts == 1);
+  /* the same response again inserts nothing more */
+  fob = obuf_of(field, sizeof field);
+  CHECK(h3resp_encode_headers_field_qenc(
+      201, "text/html", &secret, srvrun_qenc_active(&c), &ins, &fob));
+  CHECK(ins.insert_len == 0);
+  srvrun_qenc_send_insert(&c, &ins);
+  CHECK(c.l.h3.qenc.total_inserts == 1);
+}
+
 /* BOUNDARY: before the encoder stream opens (qenc_stream_opened == 0,
  * srvrun_qenc_active returns 0 -- the same state a connection sits in for
  * its very first step, and permanently if every wtsend slot ever stays
@@ -28460,6 +28497,32 @@ static void test_srvrun_wt_stream_api_rejects_plumbing(void) {
   sr_reset_global_table();
 }
 
+/* RFC 9204 4.2 (9204-061) / RFC 9114 6.2.1: the peer's QPACK encoder and
+ * decoder streams and its control stream are client uni streams whose type
+ * is known and is not WebTransport. No session can ask the peer to stop
+ * them: wired_server_wt_stream_stop refuses and no STOP_SENDING is latched.
+ * A client uni stream that is a WebTransport stream is still stopped. */
+static void test_srvrun_wt_stop_refuses_peer_h3_uni_streams(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  wired_srvloop_closed_mark(&c->l.uni_typed, 2);  /* control */
+  wired_srvloop_closed_mark(&c->l.uni_typed, 6);  /* QPACK encoder */
+  wired_srvloop_closed_mark(&c->l.uni_typed, 10); /* QPACK decoder */
+  wired_srvloop_closed_mark(&c->l.uni_typed, 14); /* a WT stream, done */
+  wired_srvloop_closed_mark(&c->l.wt_uni_closed, 14);
+  CHECK(wired_server_wt_stream_stop(&c->wt, 2, 1) == 0);
+  CHECK(wired_server_wt_stream_stop(&c->wt, 6, 1) == 0);
+  CHECK(wired_server_wt_stream_stop(&c->wt, 10, 1) == 0);
+  CHECK(c->wt_stream_reset_n == 0);
+  CHECK(wired_server_wt_stream_stop(&c->wt, 14, 1) == 1);
+  CHECK(c->wt_stream_reset_n == 1 && c->wtx.reset_id[0] == 14);
+  sr_reset_global_table();
+}
+
 /* A stream the session opened itself stays fully usable. */
 static void test_srvrun_wt_stream_api_accepts_own_stream(void) {
   struct lp_fix f;
@@ -29886,6 +29949,7 @@ void test_srvrun(void) {
   test_srvrun_wt_reset_unrelated_stream_not_delivered();
   test_srvrun_wt_two_resets_one_step_both_delivered();
   test_srvrun_wt_stop_after_fin_reaches_app();
+  test_srvrun_wt_stop_on_server_uni_reaches_app();
   test_srvrun_reset_queue_overflow_closes();
   test_srvrun_ecn_failed_conn_sends_not_ect();
   test_srvrun_ecn_failed_conn_stages_gso_not_ect();
@@ -29949,7 +30013,6 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_data_no_callback_still_offers();
   test_srvrun_wt_stream_data_no_session_not_delivered();
   test_srvrun_wt_uni_stream_data_delivered_on_offer();
-  test_srvrun_wt_stop_on_server_uni_reaches_app();
   test_srvrun_wt_negotiate_picks_first_client_choice();
   test_srvrun_wt_negotiate_no_common_no_header();
   test_srvrun_wt_negotiate_absent_offer_no_header();
@@ -30137,6 +30200,7 @@ void test_srvrun(void) {
   test_srvrun_qenc_stream_open_is_idempotent();
   test_srvrun_qenc_first_use_inserts_and_references_dynamic();
   test_srvrun_qenc_repeat_status_references_without_reinsert();
+  test_srvrun_qenc_never_inserts_app_fields();
   test_srvrun_qenc_inactive_falls_back_to_literal();
   test_srvrun_qenc_failed_section_commits_nothing();
   test_srvrun_qenc_stage_full_commits_nothing();
@@ -30267,6 +30331,7 @@ void test_srvrun(void) {
   test_srvrun_wt_200_capsule_protocol();
   test_srvrun_status_no_capsule_protocol();
   test_srvrun_wt_stream_api_rejects_plumbing();
+  test_srvrun_wt_stop_refuses_peer_h3_uni_streams();
   test_srvrun_wt_stream_api_accepts_own_stream();
   test_srvrun_wt_stream_routed_by_session_id();
   test_srvrun_grant_retry_skips_freed_slot();

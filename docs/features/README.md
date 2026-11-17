@@ -71,16 +71,16 @@ flowchart TD
 
 ## 5. 仕様ごとのカバレッジ
 
-**合計: 2550/2559 件の要件を確認済み(99.6%)。内訳は直接テスト 2209 件、
-間接 341 件、未テスト 9 件。**
+**合計: 2559/2559 件の要件を確認済み(100.0%)。内訳は直接テスト 2220 件、
+間接 339 件、未テスト 0 件。**
 
 
 ### 5.1 QUIC のコア
 
 | 仕様 | 確認済み | テスト済み | 間接 | 未テスト |
 |---|---|---|---|---|
-| [RFC 9000: QUIC トランスポート](rfc9000.md) | 272/273 | 250 | 22 | 1 |
-| [RFC 9001: TLS を使った QUIC の保護](rfc9001.md) | 77/78 | 71 | 6 | 1 |
+| [RFC 9000: QUIC トランスポート](rfc9000.md) | 273/273 | 251 | 22 | 0 |
+| [RFC 9001: TLS を使った QUIC の保護](rfc9001.md) | 78/78 | 72 | 6 | 0 |
 | [RFC 9002: 損失検出と輻輳制御](rfc9002.md) | 75/75 | 62 | 13 | 0 |
 | [RFC 8999: バージョンに依存しない性質](rfc8999.md) | 16/16 | 14 | 2 | 0 |
 
@@ -134,9 +134,9 @@ flowchart TD
 
 | 仕様 | 確認済み | テスト済み | 間接 | 未テスト |
 |---|---|---|---|---|
-| [RFC 9114: HTTP/3](rfc9114.md) | 96/97 | 81 | 15 | 1 |
+| [RFC 9114: HTTP/3](rfc9114.md) | 97/97 | 82 | 15 | 0 |
 | [RFC 9110: HTTP のセマンティクス](rfc9110.md) | 43/43 | 42 | 1 | 0 |
-| [RFC 9204: QPACK](rfc9204.md) | 66/67 | 57 | 9 | 1 |
+| [RFC 9204: QPACK](rfc9204.md) | 67/67 | 58 | 9 | 0 |
 | [RFC 7541: HPACK(QPACK が再利用)](rfc7541.md) | 18/18 | 18 | 0 | 0 |
 | [RFC 9218: 拡張可能な優先度](rfc9218.md) | 22/22 | 18 | 4 | 0 |
 
@@ -154,10 +154,10 @@ flowchart TD
 
 | 仕様 | 確認済み | テスト済み | 間接 | 未テスト |
 |---|---|---|---|---|
-| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 246/248 | 217 | 29 | 2 |
-| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 246/248 | 211 | 35 | 2 |
-| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 258/259 | 223 | 35 | 1 |
-| [draft-ietf-moq-transport-23](draft-moq-transport-23.md) | 299/299 | 264 | 35 | 0 |
+| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 248/248 | 219 | 29 | 0 |
+| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 248/248 | 213 | 35 | 0 |
+| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 259/259 | 225 | 34 | 0 |
+| [draft-ietf-moq-transport-23](draft-moq-transport-23.md) | 299/299 | 265 | 34 | 0 |
 
 上の表は実験的な機能を数えない。[MoQT の Track 切り替え](moqt-track-switching.md) は moqtail 互換のオプトインの拡張(SWITCH_FROM 0x24、SWITCHING_SET_ASSIGNMENT 0x41、SSTS_ALGORITHMS 0x09)で、draft-22 のセッションで使える。draft-23 のセッションでは SSTS_ALGORITHMS を 0x3F01 に移す。
 

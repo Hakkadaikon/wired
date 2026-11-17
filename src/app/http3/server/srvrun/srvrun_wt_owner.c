@@ -2,6 +2,9 @@
 
 static int srvrun_wt_owner(srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_owner_other(int owner, int sidx);
+static int srvrun_wt_uni_seen(const srvrun_conn* c, u64 stream_id);
+static int srvrun_wt_h3_uni(const srvrun_conn* c, u64 stream_id);
+static int srvrun_wt_h3_bidi(const srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_h3_internal(const srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_send_taken(srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_reply_refused(srvrun_conn* c, int sidx, u64 stream_id);
@@ -24,11 +27,31 @@ static int srvrun_wt_owner_other(int owner, int sidx) {
   return owner != SRVRUN_WT_UNTRACKED && owner != sidx;
 }
 
+/* 1 iff client uni stream_id is, or was, a WebTransport stream. */
+static int srvrun_wt_uni_seen(const srvrun_conn* c, u64 stream_id) {
+  return wired_srvloop_wt_uni_slot_find(&c->l, stream_id) >= 0 ||
+         wired_srvloop_closed_has(&c->l.wt_uni_closed, stream_id);
+}
+
+/* RFC 9114 6.2.1 / RFC 9204 4.2: the peer's control and QPACK streams --
+ * client uni streams whose type is known and is not WebTransport. Closing
+ * one is a connection error, and an endpoint "MUST NOT" ask the peer to
+ * (a STOP_SENDING would). */
+static int srvrun_wt_h3_uni(const srvrun_conn* c, u64 stream_id) {
+  return wired_srvloop_closed_has(&c->l.uni_typed, stream_id) &&
+         !srvrun_wt_uni_seen(c, stream_id);
+}
+
 /* 1 iff stream_id is an HTTP/3 stream no session may touch: a session's
  * CONNECT stream, or a request stream. */
-static int srvrun_wt_h3_internal(const srvrun_conn* c, u64 stream_id) {
+static int srvrun_wt_h3_bidi(const srvrun_conn* c, u64 stream_id) {
   return srvrun_wt_slot_by_connect_id(c, stream_id) >= 0 ||
          srvrun_req_slot_of(c, stream_id) != 0;
+}
+
+/* 1 iff stream_id is HTTP/3's own, bidi or uni. */
+static int srvrun_wt_h3_internal(const srvrun_conn* c, u64 stream_id) {
+  return srvrun_wt_h3_bidi(c, stream_id) || srvrun_wt_h3_uni(c, stream_id);
 }
 
 /* 1 iff stream_id belongs to something other than session slot sidx. */
