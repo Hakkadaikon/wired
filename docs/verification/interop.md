@@ -114,7 +114,7 @@ CI の実行のあとに入れた修正は、同じ日にローカルのラン�
 | `v2` | 判定なし | quic-go クライアントが `unsupported test case: v2` を宣言。ngtcp2、kwik、picoquic、aioquic、neqo、lsquic では合格(2026-11-17)。msquic はローカルの再実行で合格(2.2)。quinn では不合格(6 章) |
 | `rebind-port` / `rebind-addr` | 合格 | これらを実行するクライアント 13 種すべてで合格(2026-11-17) |
 | `connectionmigration` | 不合格 | quic-go とほか 7 種のクライアントで不合格(6 章)。ngtcp2、picoquic、aioquic、neqo、lsquic では合格(2026-11-17) |
-| `crosstraffic`(計測) | 合格 | 競合する TCP cubic フローと並べて 25 MB。quic-go に対して、CI の実行で 1633(± 108)kbps、輻輳制御と送信の修正(`ae2474b47`、`e83e35035`、`52f772d7e`)のあとのローカルの実行で 4870(± 373)kbps。go-x-net に対しては修正後に 3661(± 41)kbps で合格。msquic と xquic では不合格(6 章) |
+| `crosstraffic`(計測) | 合格 | 競合する TCP cubic フローと並べて 25 MB。quic-go に対して、CI の実行で 1633(± 108)kbps、輻輳制御と送信の修正(`ae2474b47`、`e83e35035`、`52f772d7e`)のあとのローカルの実行で 4870(± 373)kbps、ACK の同乗の修正(`4a0d5542c`)も入れた最終の状態で 4370〜4676 kbps(4 回)。go-x-net に対しては修正後に 3661(± 41)kbps で合格。msquic と xquic では不合格(6 章) |
 
 ## 4. WebTransport のテストケース(サーバー: wired、クライアント: webtransport-go)
 
