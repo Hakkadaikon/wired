@@ -72,6 +72,12 @@ jobs:
           CONNTABLE_CAP=64 nix develop -c just ninja examples/word_list/wired_server
           docker build -t wired-interop -f interop/Dockerfile .
 
+      # The runner fails on Python 3.14 (asyncio's get_event_loop); the
+      # interop workflow pins 3.12 for the same reason.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
       - name: set up the interop runner
         run: |
           bench/goodput-setup.sh "$HOME/quic-interop-runner"
