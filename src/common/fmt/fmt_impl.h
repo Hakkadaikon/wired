@@ -39,7 +39,7 @@ typedef struct {
   int         zpad; /* pad with zeros instead of spaces (ignored with '-') */
 } fmt_piece;
 
-typedef void (*fmt_handler)(fmt_sink*, const fmt_spec*, wired_va_list);
+typedef void (*fmt_handler)(fmt_sink*, const fmt_spec*, wired_va_list*);
 
 /* ---- integers ---- */
 
@@ -63,23 +63,23 @@ void fmt_put(fmt_sink* s, char c);
 void fmt_rep(fmt_sink* s, char c, usz count);
 void fmt_field(fmt_sink* s, const fmt_spec* sp, const fmt_piece* pc);
 char fmt_sign(const fmt_spec* sp, int neg);
-u64  fmt_get(const fmt_spec* sp, wired_va_list ap, int sgn);
+u64  fmt_get(const fmt_spec* sp, wired_va_list* ap, int sgn);
 usz  fmt_idigits(char* tmp, const fmt_spec* sp, const fmt_int* a);
-void fmt_h_d(fmt_sink* s, const fmt_spec* sp, wired_va_list ap);
-void fmt_h_u(fmt_sink* s, const fmt_spec* sp, wired_va_list ap);
-void fmt_h_x(fmt_sink* s, const fmt_spec* sp, wired_va_list ap);
-void fmt_h_p(fmt_sink* s, const fmt_spec* sp, wired_va_list ap);
+void fmt_h_d(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap);
+void fmt_h_u(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap);
+void fmt_h_x(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap);
+void fmt_h_p(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap);
 usz  fmt_nlen(const char* p, usz lim);
-void fmt_h_s(fmt_sink* s, const fmt_spec* sp, wired_va_list ap);
-void fmt_h_c(fmt_sink* s, const fmt_spec* sp, wired_va_list ap);
-void fmt_h_pct(fmt_sink* s, const fmt_spec* sp, wired_va_list ap);
+void fmt_h_s(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap);
+void fmt_h_c(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap);
+void fmt_h_pct(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap);
 void fmt_split(fmt_fparts* r, u64 bits);
 int  fmt_round_up(const fmt_fparts* r, char last);
 void fmt_carry(char* b, usz end);
 usz  fmt_ip_digits(char* b, u64 v);
-void fmt_run(fmt_sink* s, const char* fmt, wired_va_list ap);
+void fmt_run(fmt_sink* s, const char* fmt, wired_va_list* ap);
 
-void fmt_h_hex(fmt_sink* s, const fmt_spec* sp, wired_va_list ap);
+void fmt_h_hex(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap);
 extern const fmt_handler fmt_tab[128];
 
 #endif

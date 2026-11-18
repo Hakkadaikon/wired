@@ -4,21 +4,21 @@ static void fmt_split_frac(fmt_fparts* r, u64 mant, int ex);
 static u64  fmt_mant(u64 bits, u64 e);
 static char fmt_carry_fix(char c);
 
-void fmt_h_s(fmt_sink* s, const fmt_spec* sp, wired_va_list ap) {
-  const char* p  = wired_va_arg(ap, const char*);
+void fmt_h_s(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap) {
+  const char* p  = wired_va_arg(*ap, const char*);
   fmt_piece   pc = {.pre = 0};
   pc.body        = p ? p : "(null)";
   pc.bodylen     = fmt_nlen(pc.body, sp->prec < 0 ? ~(usz)0 : (usz)sp->prec);
   fmt_field(s, sp, &pc);
 }
 
-void fmt_h_c(fmt_sink* s, const fmt_spec* sp, wired_va_list ap) {
-  char      c  = (char)wired_va_arg(ap, int);
+void fmt_h_c(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap) {
+  char      c  = (char)wired_va_arg(*ap, int);
   fmt_piece pc = {.body = &c, .bodylen = 1};
   fmt_field(s, sp, &pc);
 }
 
-void fmt_h_pct(fmt_sink* s, const fmt_spec* sp, wired_va_list ap) {
+void fmt_h_pct(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap) {
   (void)sp;
   (void)ap;
   fmt_put(s, '%');

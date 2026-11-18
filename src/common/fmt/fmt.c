@@ -52,9 +52,9 @@ char fmt_sign(const fmt_spec* sp, int neg) {
 
 static const u8 fmt_len_bits[] = {32, 16, 8, 64, 64, 64};
 
-u64 fmt_get(const fmt_spec* sp, wired_va_list ap, int sgn) {
-  u64 v     = sp->len >= FMT_LEN_L ? wired_va_arg(ap, u64)
-                                   : (u64)wired_va_arg(ap, unsigned);
+u64 fmt_get(const fmt_spec* sp, wired_va_list* ap, int sgn) {
+  u64 v     = sp->len >= FMT_LEN_L ? wired_va_arg(*ap, u64)
+                                   : (u64)wired_va_arg(*ap, unsigned);
   u32 shift = 64u - fmt_len_bits[sp->len];
   v <<= shift;
   return sgn ? (u64)((i64)v >> shift) : v >> shift;

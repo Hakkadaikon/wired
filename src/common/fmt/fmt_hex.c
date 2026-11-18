@@ -29,8 +29,8 @@ static void fmt_hex_padded(
   fmt_rep(s, ' ', pad - left);
 }
 
-void fmt_h_hex(fmt_sink* s, const fmt_spec* sp, wired_va_list ap) {
-  const u8* p = wired_va_arg(ap, const u8*);
+void fmt_h_hex(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap) {
+  const u8* p = wired_va_arg(*ap, const u8*);
   usz       n = fmt_hex_len(sp);
   if (fmt_hex_is_null(p, n)) {
     fmt_piece pc = {.body = "(null)", .bodylen = 6};

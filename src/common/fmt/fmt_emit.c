@@ -4,7 +4,7 @@ static usz  fmt_dec_body(char* b, fmt_fparts* r, int prec, int dot);
 static int  fmt_fprec(const fmt_spec* sp);
 static void fmt_emit_dec(fmt_sink* s, const fmt_spec* sp, u64 bits, int neg);
 static void fmt_emit_special(fmt_sink* s, const fmt_spec* sp, u64 bits, int n);
-static void fmt_h_f(fmt_sink* s, const fmt_spec* sp, wired_va_list ap);
+static void fmt_h_f(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap);
 
 /* b[0] is a reserved '0'; returns the index of the last body char. */
 static usz fmt_dec_body(char* b, fmt_fparts* r, int prec, int dot) {
@@ -51,11 +51,11 @@ static void fmt_emit_special(fmt_sink* s, const fmt_spec* sp, u64 bits, int n) {
   fmt_field(s, sp, &pc);
 }
 
-static void fmt_h_f(fmt_sink* s, const fmt_spec* sp, wired_va_list ap) {
+static void fmt_h_f(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap) {
   union {
     double d;
     u64    u;
-  } x      = {wired_va_arg(ap, double)};
+  } x      = {wired_va_arg(*ap, double)};
   int neg  = (int)(x.u >> 63);
   u64 bits = x.u & ~((u64)1 << 63);
   if (((bits >> 52) & 0x7ff) == 0x7ff) {

@@ -42,6 +42,8 @@ typedef __builtin_va_list wired_va_list;
 #define wired_va_arg(ap, type) __builtin_va_arg(ap, type)
 /** End variadic argument reading. */
 #define wired_va_end(ap) __builtin_va_end(ap)
+/** Copy src's position into dst (end both with wired_va_end). */
+#define wired_va_copy(dst, src) __builtin_va_copy(dst, src)
 
 /**
  * Format into out like C99 vsnprintf.

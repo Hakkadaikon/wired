@@ -46,25 +46,25 @@ static void fmt_emit_int(fmt_sink* s, const fmt_spec* sp, const fmt_int* a) {
   fmt_field(s, sp, &pc);
 }
 
-void fmt_h_d(fmt_sink* s, const fmt_spec* sp, wired_va_list ap) {
+void fmt_h_d(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap) {
   u64     v = fmt_get(sp, ap, 1);
   int     n = (i64)v < 0;
   fmt_int a = {n ? -v : v, n, 10, 0, 0};
   fmt_emit_int(s, sp, &a);
 }
 
-void fmt_h_u(fmt_sink* s, const fmt_spec* sp, wired_va_list ap) {
+void fmt_h_u(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap) {
   fmt_int a = {fmt_get(sp, ap, 0), 0, 10, 0, 0};
   fmt_emit_int(s, sp, &a);
 }
 
-void fmt_h_x(fmt_sink* s, const fmt_spec* sp, wired_va_list ap) {
+void fmt_h_x(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap) {
   fmt_int a = {fmt_get(sp, ap, 0), 0, 16, sp->conv == 'X', 0};
   fmt_emit_int(s, sp, &a);
 }
 
-void fmt_h_p(fmt_sink* s, const fmt_spec* sp, wired_va_list ap) {
-  fmt_int a = {(u64)wired_va_arg(ap, void*), 0, 16, 0, 1};
+void fmt_h_p(fmt_sink* s, const fmt_spec* sp, wired_va_list* ap) {
+  fmt_int a = {(u64)wired_va_arg(*ap, void*), 0, 16, 0, 1};
   fmt_emit_int(s, sp, &a);
 }
 

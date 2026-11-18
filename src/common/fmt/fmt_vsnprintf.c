@@ -3,8 +3,14 @@
 static i64 fmt_write_all(i64 fd, const char* buf, usz n);
 
 usz wired_vsnprintf(char* out, usz cap, const char* fmt, wired_va_list ap) {
-  fmt_sink s = {out, cap, 0};
-  fmt_run(&s, fmt, ap);
+  fmt_sink      s = {out, cap, 0};
+  wired_va_list cp;
+  /* The helpers below share one position through a pointer: va_list is an
+   * array on x86-64 (passing it by value already shares it) but a struct
+   * on aarch64 (passing it by value copies it). */
+  wired_va_copy(cp, ap);
+  fmt_run(&s, fmt, &cp);
+  wired_va_end(cp);
   if (cap) {
     out[s.n < cap ? s.n : cap - 1] = 0;
   }

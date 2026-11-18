@@ -3,13 +3,13 @@
 static int         fmt_idx(const char* set, char c);
 static const char* fmt_flags(const char* p, fmt_spec* sp);
 static const char* fmt_num(const char* p, int* out);
-static const char* fmt_width(const char* p, fmt_spec* sp, wired_va_list ap);
-static const char* fmt_prec(const char* p, fmt_spec* sp, wired_va_list ap);
+static const char* fmt_width(const char* p, fmt_spec* sp, wired_va_list* ap);
+static const char* fmt_prec(const char* p, fmt_spec* sp, wired_va_list* ap);
 static const char* fmt_len(const char* p, fmt_spec* sp);
 static const char* fmt_spec_parse(
-    const char* p, fmt_spec* sp, wired_va_list ap);
+    const char* p, fmt_spec* sp, wired_va_list* ap);
 static fmt_handler fmt_lookup(char c);
-static const char* fmt_directive(fmt_sink* s, const char* p, wired_va_list ap);
+static const char* fmt_directive(fmt_sink* s, const char* p, wired_va_list* ap);
 
 /* ---- spec parsing ---- */
 
@@ -40,24 +40,24 @@ static const char* fmt_num(const char* p, int* out) {
   return p;
 }
 
-static const char* fmt_width(const char* p, fmt_spec* sp, wired_va_list ap) {
+static const char* fmt_width(const char* p, fmt_spec* sp, wired_va_list* ap) {
   if (*p != '*') {
     return fmt_num(p, &sp->width);
   }
-  sp->width = wired_va_arg(ap, int);
+  sp->width = wired_va_arg(*ap, int);
   sp->flags |= FMT_MINUS * (u32)(sp->width < 0);
   sp->width = sp->width < 0 ? -sp->width : sp->width;
   return p + 1;
 }
 
-static const char* fmt_prec(const char* p, fmt_spec* sp, wired_va_list ap) {
+static const char* fmt_prec(const char* p, fmt_spec* sp, wired_va_list* ap) {
   if (*p != '.') {
     return p;
   }
   if (p[1] != '*') {
     return fmt_num(p + 1, &sp->prec);
   }
-  sp->prec = wired_va_arg(ap, int);
+  sp->prec = wired_va_arg(*ap, int);
   return p + 2;
 }
 
@@ -78,7 +78,7 @@ static const char* fmt_len(const char* p, fmt_spec* sp) {
 }
 
 static const char* fmt_spec_parse(
-    const char* p, fmt_spec* sp, wired_va_list ap) {
+    const char* p, fmt_spec* sp, wired_va_list* ap) {
   *sp      = (fmt_spec){0, 0, -1, FMT_LEN_INT, 0};
   p        = fmt_flags(p, sp);
   p        = fmt_width(p, sp, ap);
@@ -93,7 +93,8 @@ static fmt_handler fmt_lookup(char c) {
 }
 
 /* One directive, `p` just after the '%'; returns the next input pointer. */
-static const char* fmt_directive(fmt_sink* s, const char* p, wired_va_list ap) {
+static const char* fmt_directive(
+    fmt_sink* s, const char* p, wired_va_list* ap) {
   fmt_spec    sp;
   fmt_handler h;
   p = fmt_spec_parse(p, &sp, ap);
@@ -106,7 +107,7 @@ static const char* fmt_directive(fmt_sink* s, const char* p, wired_va_list ap) {
   return p + 1;
 }
 
-void fmt_run(fmt_sink* s, const char* fmt, wired_va_list ap) {
+void fmt_run(fmt_sink* s, const char* fmt, wired_va_list* ap) {
   while (*fmt) {
     if (*fmt != '%') {
       fmt_put(s, *fmt++);
