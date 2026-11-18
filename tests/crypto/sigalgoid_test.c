@@ -27,6 +27,9 @@ static void test_sigalgoid_listed(void) {
   CHECK(sao_is(r256, 9, X509_SIG_RSA_PKCS1, X509_HASH_SHA256));
   CHECK(sao_is(r384, 9, X509_SIG_RSA_PKCS1, X509_HASH_SHA384));
   CHECK(sao_is(r512, 9, X509_SIG_RSA_PKCS1, X509_HASH_SHA512));
+  /* RFC 8410 3: id-Ed25519 (1.3.101.112) signs the message itself. */
+  static const u8 ed[] = {0x2b, 0x65, 0x70};
+  CHECK(sao_is(ed, 3, X509_SIG_ED25519, X509_HASH_NONE));
 }
 
 /* Anything else fails closed: sha224WithRSA, sha1WithRSA, md5WithRSA,

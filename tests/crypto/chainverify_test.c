@@ -7,6 +7,7 @@
 #include "crypto/pki/encoding/x509/x509.h"
 #include "crypto/pki/trust/castore/chainverify_impl.h"
 #include "crypto/pki/trust/castore/pathvalidate_impl.h"
+#include "ed25519chain_golden.h"
 #include "p384chain_golden.h"
 #include "p521chain_golden.h"
 #include "rsachain_golden.h"
@@ -206,7 +207,44 @@ static void test_chainverify_unknown_curve(void) {
           c.tbs, key, key, wired_span_of(hash, sizeof(hash))) == 0);
 }
 
+#define EDCHAIN(n) wired_span_of(edchain_##n##_der, sizeof(edchain_##n##_der))
+
+/* RFC 8410 6: a certificate signed with id-Ed25519 verifies under its
+ * issuer's Ed25519 key -- the leaf under the root, the root under itself. */
+static void test_chainverify_ed25519_issuer(void) {
+  CHECK(castore_verify_signed_by(EDCHAIN(leaf), EDCHAIN(root)) == 1);
+  CHECK(castore_verify_signed_by(EDCHAIN(root), EDCHAIN(root)) == 1);
+}
+
+/* The wrong Ed25519 key, and an issuer whose key kind does not match the
+ * signatureAlgorithm in either direction, all fail. */
+static void test_chainverify_ed25519_wrong_issuer(void) {
+  CHECK(castore_verify_signed_by(EDCHAIN(leaf), EDCHAIN(leaf)) == 0);
+  CHECK(castore_verify_signed_by(EDCHAIN(leaf), EDCHAIN(p256)) == 0);
+  CHECK(castore_verify_signed_by(EDCHAIN(p256), EDCHAIN(root)) == 0);
+}
+
+/* One flipped bit anywhere -- the tbsCertificate (byte 40) or the last
+ * signature byte -- breaks the signature; a truncated signature is not 64
+ * bytes. */
+static void test_chainverify_ed25519_tampered(void) {
+  u8 leaf[sizeof(edchain_leaf_der)];
+  bytes_memcpy(leaf, edchain_leaf_der, sizeof(leaf));
+  leaf[40] ^= 0x01;
+  CHECK(
+      castore_verify_signed_by(
+          wired_span_of(leaf, sizeof(leaf)), EDCHAIN(root)) == 0);
+  bytes_memcpy(leaf, edchain_leaf_der, sizeof(leaf));
+  leaf[sizeof(leaf) - 1] ^= 0x01;
+  CHECK(
+      castore_verify_signed_by(
+          wired_span_of(leaf, sizeof(leaf)), EDCHAIN(root)) == 0);
+}
+
 void test_chainverify(void) {
+  test_chainverify_ed25519_issuer();
+  test_chainverify_ed25519_wrong_issuer();
+  test_chainverify_ed25519_tampered();
   test_chainverify_unparsable();
   test_chainverify_empty_signature();
   test_chainverify_rsa_bad_issuer_key();

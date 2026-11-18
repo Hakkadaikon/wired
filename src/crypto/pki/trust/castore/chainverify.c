@@ -1,5 +1,6 @@
 #include "crypto/pki/trust/castore/chainverify.h"
 
+#include "crypto/asymmetric/ecc/ed25519/ed25519.h"
 #include "crypto/asymmetric/rsa/rsa_verify.h"
 #include "crypto/pki/cert/tbscert/fields.h"
 #include "crypto/pki/cert/tbscert/sigalg.h"
@@ -29,6 +30,14 @@ static int issuer_key(wired_span issuer_cert, chv_issuer* is) {
 
 /* Digest dispatch: hash kind -> length and function. */
 typedef void (*chv_hash_fn)(const u8*, usz, u8*);
+
+/* RFC 8410 6: Ed25519 signs the tbsCertificate itself, so there is no
+ * digest to compute. */
+static void chv_hash_none(const u8* in, usz n, u8* out) {
+  (void)in;
+  (void)n;
+  (void)out;
+}
 static const struct {
   u8          kind;
   usz         len;
@@ -37,6 +46,7 @@ static const struct {
     {X509_HASH_SHA256, 32, wired_sha256},
     {X509_HASH_SHA384, 48, sha384},
     {X509_HASH_SHA512, 64, sha512},
+    {X509_HASH_NONE, 0, chv_hash_none},
 };
 
 static int chv_hash_select(u8 kind, usz* hlen, chv_hash_fn* fn) {
@@ -50,10 +60,12 @@ static int chv_hash_select(u8 kind, usz* hlen, chv_hash_fn* fn) {
   return 0;
 }
 
-/* The signed side of one certificate: its allowlisted sigAlg, the digest of
- * its tbsCertificate under that sigAlg's hash, and its raw signature. */
+/* The signed side of one certificate: its allowlisted sigAlg, its
+ * tbsCertificate and the digest of that under the sigAlg's hash, and its raw
+ * signature. */
 typedef struct {
   x509_sigalg sa;
+  wired_span  tbs;
   u8          hash[64];
   usz         hash_len;
   wired_span  sig;
@@ -69,6 +81,7 @@ static int tbs_hash(const x509* c, chv_signed* sg) {
   if (!chv_hash_select(sg->sa.hash_kind, &sg->hash_len, &fn)) {
     return 0;
   }
+  sg->tbs = c->tbs;
   fn(c->tbs.p, c->tbs.n, sg->hash);
   return 1;
 }
@@ -110,13 +123,32 @@ static int verify_rsa_key(const chv_signed* sg, const chv_issuer* is) {
              is->key, sg->sig, wired_span_of(sg->hash, sg->hash_len));
 }
 
-/* RFC 5280 6.1.3. Dispatch on the sigAlg's key kind, cross-checked against
- * the issuer's actual SPKI key type. */
+/* RFC 8410 4: the issuer's subjectPublicKey is the 32-byte key behind the
+ * BIT STRING's unused-bits octet; the signature is 64 bytes (RFC 8032). */
+static int chv_ed25519_shape(const chv_signed* sg, const chv_issuer* is) {
+  return is->key.n == ED25519_PUBKEY + 1 && is->key.p[0] == 0x00 &&
+         sg->sig.n == ED25519_SIG;
+}
+
+/* RFC 8410 6. The issuer SPKI must be id-Ed25519 when the sigAlg is; the
+ * signature is checked over the tbsCertificate DER itself. */
+static int verify_ed25519_key(const chv_signed* sg, const chv_issuer* is) {
+  return x509_is_ed25519(is->alg) && chv_ed25519_shape(sg, is) &&
+         ed25519_verify(sg->sig.p, sg->tbs.p, sg->tbs.n, is->key.p + 1);
+}
+
+/* RFC 5280 6.1.3. Dispatch on the sigAlg's key kind (every X509_SIG_* the
+ * allowlist can return), each cross-checked against the issuer's actual
+ * SPKI key type. */
+typedef int (*chv_verify_fn)(const chv_signed*, const chv_issuer*);
+static const chv_verify_fn chv_verifiers[] = {
+    [X509_SIG_ECDSA]     = verify_ecdsa_key,
+    [X509_SIG_RSA_PKCS1] = verify_rsa_key,
+    [X509_SIG_ED25519]   = verify_ed25519_key,
+};
+
 static int verify_by_key(const chv_signed* sg, const chv_issuer* is) {
-  if (sg->sa.key_kind == X509_SIG_ECDSA) {
-    return verify_ecdsa_key(sg, is);
-  }
-  return verify_rsa_key(sg, is);
+  return chv_verifiers[sg->sa.key_kind](sg, is);
 }
 
 /* RFC 5280 4.1.1.2. The inner tbsCertificate.signatureAlgorithm OID must equal

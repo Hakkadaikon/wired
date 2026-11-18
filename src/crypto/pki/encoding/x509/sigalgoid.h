@@ -9,12 +9,15 @@
  * RSA-PSS cert signatures) fail the lookup, so they are rejected by
  * construction. */
 
-enum { X509_SIG_ECDSA = 1, X509_SIG_RSA_PKCS1 = 2 };
+enum { X509_SIG_ECDSA = 1, X509_SIG_RSA_PKCS1 = 2, X509_SIG_ED25519 = 3 };
+/* X509_HASH_NONE: the signature covers the tbsCertificate itself, with no
+ * separate digest step (RFC 8410 6, PureEdDSA). */
 enum {
   X509_HASH_SHA256 = 1,
   X509_HASH_SHA384 = 2,
   X509_HASH_SHA512 = 3,
-  X509_HASH_SHA224 = 4
+  X509_HASH_SHA224 = 4,
+  X509_HASH_NONE   = 5
 };
 
 /** A resolved signatureAlgorithm: issuer key kind and digest kind. */

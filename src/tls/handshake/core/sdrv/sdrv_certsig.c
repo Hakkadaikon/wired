@@ -9,9 +9,10 @@
 
 /* The SignatureScheme of a certificate signature, by x509 key kind and
  * digest (X509_SIG_*, X509_HASH_*); 0 where none exists (SHA-224). */
-static const u16 SDRV_CERT_SCHEME[3][5] = {
+static const u16 SDRV_CERT_SCHEME[4][6] = {
     [X509_SIG_ECDSA]     = {0, 0x0403, 0x0503, 0x0603, 0},
     [X509_SIG_RSA_PKCS1] = {0, 0x0401, 0x0501, 0x0601, 0},
+    [X509_SIG_ED25519]   = {[X509_HASH_NONE] = 0x0807},
 };
 
 /* The scheme der's issuer signed it with, or 0 if unparsed or unknown. */

@@ -17,6 +17,8 @@ static const u8 sao_rsa_sha384[]   = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                                       0x0d, 0x01, 0x01, 0x0c};
 static const u8 sao_rsa_sha512[]   = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                                       0x0d, 0x01, 0x01, 0x0d};
+/* RFC 8410 3: id-Ed25519, 1.3.101.112. */
+static const u8 sao_ed25519[] = {0x2b, 0x65, 0x70};
 
 static const struct {
   const u8*   oid;
@@ -44,6 +46,7 @@ static const struct {
     {sao_rsa_sha512,
      sizeof(sao_rsa_sha512),
      {X509_SIG_RSA_PKCS1, X509_HASH_SHA512}},
+    {sao_ed25519, sizeof(sao_ed25519), {X509_SIG_ED25519, X509_HASH_NONE}},
 };
 
 int x509_sigalg_lookup(wired_span oid, x509_sigalg* out) {
