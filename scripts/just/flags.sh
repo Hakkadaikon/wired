@@ -14,6 +14,12 @@ JCCFLAGS=""
 if [ "$WIRED_ARCH" = x86_64 ]; then
   JCCFLAGS="-mbranches-within-32B-boundaries"
 fi
+# aarch64: inline the atomics (LL/SC or LSE) instead of calling libgcc's
+# outline helpers (__aarch64_cas8_acq_rel ...), which -nostdlib lacks.
+ISAFLAGS=""
+if [ "$WIRED_ARCH" = aarch64 ]; then
+  ISAFLAGS="-mno-outline-atomics"
+fi
 # Shared warning/optimization base of the three compile flag sets.
 WARNFLAGS="-Wall -Wextra -Werror -O2"
 CONNFLAGS="-DWIRED_CONNTABLE_CAP=${CONNTABLE_CAP:-4}"
@@ -24,7 +30,7 @@ if [ -n "${WT_SESSIONS:-}" ]; then
 fi
 # freestanding: every src file must compile with no libc at all (the product
 # constraint). Also the base of the example binaries (plus -DWIRED_DEBUG).
-CFLAGS="$TARGET -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static $WARNFLAGS $CONNFLAGS -Isrc"
+CFLAGS="$TARGET $ISAFLAGS -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static $WARNFLAGS $CONNFLAGS -Isrc"
 # hosted test: -mbranches-within-32B-boundaries works around this host's
 # Cascade Lake JCC erratum, which otherwise swings test runtime ~40% on
 # code-placement luck and makes perf comparisons between commits meaningless.
