@@ -1,5 +1,7 @@
 # wired
 
+[English](README.en.md)
+
 C で書いた QUIC・HTTP/3・WebTransport・Media over QUIC Transport(MoQT)のサーバー SDK。外部依存はない(OpenSSL、libevent、libc も使わない)。
 
 [![CI](https://github.com/Hakkadaikon/wired/actions/workflows/ci.yml/badge.svg)](https://github.com/Hakkadaikon/wired/actions/workflows/ci.yml)
