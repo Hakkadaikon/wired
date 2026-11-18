@@ -199,13 +199,14 @@ mvfst は、クライアントのイメージを取得できず、2026-11-17 の
 
 ## 7. ランナーの外で実際のピアに対して確かめたもの
 
-2026-11-18 に確かめた。ランナーのテストケースにない機能で、相手は独立した実装である。
+2026-11-18 から 11-19 に確かめた。ランナーのテストケースにない機能で、相手はほかの実装である。
 
 | 機能 | 相手 | 結果 | 証拠 |
 |---|---|---|---|
 | クライアント証明書(RSA、ECDSA P-256、Ed25519) | quic-go v0.62.0(Go の crypto/tls) | 3 種とも検証して 200。信頼しない CA の Ed25519 は `bad_certificate`、証明書なしは `certificate_required` | ハーネスと出力は `tasks/f06-peer-checks/`(`client-final.log`) |
 | QUIC ビットのグリース([RFC 9287](../features/rfc9287.md)) | quinn(grease_quic_bit を広告する) | `handshake`、`transfer` とも ✓。`transfer` で wired が送ったショートヘッダー 7,657 個のうち 3,828 個が QUIC ビット 0 | `logs_2026-11-18T13:31:03`(pcap の先頭バイトを数えた) |
 | リクエストの優先度([RFC 9218](../features/rfc9218.md)) | quic-go v0.62.0。`priority: u=7` の GET 3 本のあと、300 ms 遅れて `u=0` の GET 1 本。20 Mbps のユーザー空間の中継を挟む | u=0 は u=7 の 1 本を追い越す。全部 u=3 の対照では最後に終わる | `tasks/f06-peer-checks/prio/prio-shaped-after.log` |
+| MoQT の Track 切り替え(SWITCH_FROM の Hard) | moqtail `7412a2f` の `apps/client`(WebTransport、draft-22) | 切り替えのあとも新しい Track の Object を欠けずに受け取った。Soft と SSTS は動かしていない([MoQT の Track 切り替えの既知の制限](../security/limitations/moqt-switching.md) 2.1) | `tasks/f07-moqtail/` |
 
 - Ed25519 で署名した証明書のチェーンは、この確認で検証できないと分かり、`f26e88fc2` で直した。
 - この確認で、優先度の欠落が 2 つ分かった。ヘッダーの値がスケジューラーに届いていなかった(`ebd6191be`)。送信の周回が urgency にかかわらず全スロットに 1 スライスずつ配っていた(`e0e8b3153`)。

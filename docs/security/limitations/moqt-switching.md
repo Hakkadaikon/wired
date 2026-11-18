@@ -33,11 +33,18 @@ moqtail 互換の SWITCH_FROM(0x24)と SSTS(sender-side track switching: 0x41、
 
 ## 2. 制限
 
-### 2.1 ループバックでしかテストしていない
+### 2.1 第三者の相手と確かめたのは SWITCH_FROM の Hard だけ
 
 影響: moqtail やほかの第三者の相手と組み合わせて使う人。
 
-コーデックは moqtail-rs の単体テストのバイト列に固定し、ハブの動作はプロセス内でテストしている。moqtail やほかの第三者の相手と動かしたことはない。
+コーデックは moqtail-rs の単体テストのバイト列に固定し、ハブの動作はプロセス内でテストしている。第三者の相手とは次のとおり動かした(2026-11-19)。
+
+| 機能 | 相手 | 結果 |
+|---|---|---|
+| SWITCH_FROM(Hard) | moqtail `7412a2f` の `apps/client`(WebTransport、draft-22)。パブリッシャー 2 つと、5 秒後に `demo` から `demo2` へ切り替える購読者 | 切り替えのあとも `demo2` の Object を欠けずに受け取った(購読者の記録で `seq=OK`) |
+| SWITCH_FROM(Soft)、SSTS | 動かしていない | moqtail の CLI の購読者は SSTS を送らない。SSTS のクライアントは moqtail のブラウザーのプレイヤーだけである |
+
+moqtail は wired の切り替えの移植元なので、独立した実装というより参照実装との相互接続である。
 
 参照: [draft-moq-transport-22.md](../../features/draft-moq-transport-22.md) MQ22-X13
 

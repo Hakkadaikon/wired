@@ -1437,7 +1437,8 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
   - test: `tests/app/moqssts_test.c` — `test_moqssts`(moqtail のテストケースを移植)、例: `test_moqssts_rises_one_tier_per_five_clear_groups`、`test_moqssts_falls_one_tier_at_the_downshift_depth`、`test_moqssts_two_sets_of_the_same_rank_split_by_weight`
   - test: `tests/app/moqtrun_ssts_test.c` — `test_moqtrun_ssts_bp_upshift`,
     `test_moqtrun_ssts_bp_downshift`, `test_moqtrun_ssts_default_cap`
-- [ ] MQ22-X13 (相互接続性) moqtail(またはこれらのコードポイントを実装したほかの実装)とのサードパーティの相互接続性。まだ動かしていない。
+- [~] MQ22-X13 (相互接続性) moqtail(またはこれらのコードポイントを実装したほかの実装)とのサードパーティの相互接続性。
+  - evidence: moqtail `7412a2f` の `apps/client` を相手に、`examples/moqt_chat` のハブで SWITCH_FROM(Hard)の切り替えを動かしました([MoQT の Track 切り替えの既知の制限](../security/limitations/moqt-switching.md) 2.1)。Soft と SSTS は動かしていません。自動のテストはありません。
 - 未実装: PUBLISH_OK / REQUEST_OK での SWITCHING_SET_ASSIGNMENT(moqtail は許している)と、講演で述べられた切り替えの促し、GOP の拡張、遅延の予算。後の 3 つは moqtail のコードにもない。
 
 ## 未実装
