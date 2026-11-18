@@ -107,8 +107,7 @@ static void run_setup(
   hub_callbacks(&opt->run);
 }
 
-__attribute__((force_align_arg_pointer, used)) int wired_main(
-    int argc, char** argv) {
+__attribute__((used)) int wired_main(int argc, char** argv) {
   static wired_certreload_store cert_store;
   wired_srvboot_id              id = {0};
   wired_srvboot_demo_keys       keys;

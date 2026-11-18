@@ -1,4 +1,4 @@
-# wired build. libc-free, x86_64-linux only.
+# wired build. libc-free, x86_64-linux and aarch64-linux.
 #
 # Comments: the line right above a recipe is its `just --list` summary.
 # Every recipe body is at most two lines; anything longer lives in

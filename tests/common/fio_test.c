@@ -4,7 +4,7 @@
  * in build/ (gitignored, writable) with openat(O_CREAT|O_WRONLY|O_TRUNC)
  * and removed with unlinkat afterwards. */
 
-#define SYS_unlinkat 263        /* unlinkat(2) */
+#include "test_sys.h"
 #define FIOT_AT_FDCWD (-100)    /* openat/unlinkat: resolve against cwd */
 #define FIOT_O_CREATE_WR 0x241u /* O_WRONLY|O_CREAT|O_TRUNC */
 #define FIOT_MODE 0600          /* rw for owner */
@@ -23,7 +23,7 @@ static void fiot_make(const u8* data, usz n) {
 }
 
 static void fiot_unlink(void) {
-  syscall3(SYS_unlinkat, FIOT_AT_FDCWD, fiot_path, 0);
+  syscall3(TEST_SYS_unlinkat, FIOT_AT_FDCWD, fiot_path, 0);
 }
 
 /* Full round-trip: every written byte comes back, count is exact. */
@@ -182,7 +182,7 @@ static void test_fio_open_missing(void) {
 static const char fiot_dir[] = "build/fio_test_dir.tmp";
 
 static void fiot_rmdir(void) {
-  syscall3(SYS_unlinkat, FIOT_AT_FDCWD, fiot_dir, FIOT_AT_REMOVEDIR);
+  syscall3(TEST_SYS_unlinkat, FIOT_AT_FDCWD, fiot_dir, FIOT_AT_REMOVEDIR);
 }
 
 /* wired_fio_write_new writes the whole span to a fresh file. */
@@ -234,7 +234,7 @@ static void test_fio_mkdir_then_write(void) {
   CHECK(wired_fio_mkdir(fiot_dir) == 0);
   CHECK(wired_fio_write_new(file, wired_span_of(data, 1)) == 0);
   CHECK(wired_fio_size(file) == 1);
-  syscall3(SYS_unlinkat, FIOT_AT_FDCWD, file, 0);
+  syscall3(TEST_SYS_unlinkat, FIOT_AT_FDCWD, file, 0);
   fiot_rmdir();
 }
 

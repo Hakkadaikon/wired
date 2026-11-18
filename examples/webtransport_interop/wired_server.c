@@ -135,7 +135,7 @@ static void run_opts(wired_srvrun_opt* opt, int argc, char** argv) {
   opt->wt_protocols      = wired_envp_get(argc, argv, "PROTOCOLS");
 }
 
-__attribute__((force_align_arg_pointer)) int wired_main(int argc, char** argv) {
+int wired_main(int argc, char** argv) {
   wired_srvboot_id        id = {0};
   wired_srvboot_demo_keys keys;
   u16                  port = (u16)wired_cliargs_int(argc, argv, "--port", 443);

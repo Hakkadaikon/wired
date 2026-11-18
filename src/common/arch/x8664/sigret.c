@@ -1,3 +1,4 @@
+#if defined(__x86_64__)
 #include "common/arch/arch.h"
 
 /* Trampoline the kernel jumps to when a signal handler returns: it must
@@ -11,3 +12,4 @@ __attribute__((naked)) void wired_arch_sigreturn_restorer(void) {
       :
       : "i"(SYS_rt_sigreturn));
 }
+#endif

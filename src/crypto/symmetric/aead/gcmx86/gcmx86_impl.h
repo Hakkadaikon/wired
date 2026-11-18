@@ -4,7 +4,7 @@
 /* Internal to the gcmx86*.c pieces of this directory: shared types, macros
  * and the functions and tables more than one piece uses. Not public API. */
 
-#include "common/arch/x8664/simd128.h"
+#include "common/arch/simd128.h"
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/ct.h"
 #include "crypto/symmetric/aead/aes/aes.h"

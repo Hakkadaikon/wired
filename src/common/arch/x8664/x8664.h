@@ -1,6 +1,10 @@
 #ifndef WIRED_ARCH_X8664_H
 #define WIRED_ARCH_X8664_H
 
+/* Only the ISA being compiled for: every header may be included (the
+ * sharded test build includes them all). */
+#if defined(__x86_64__)
+
 /**
  * @file
  * x86-64 Linux architecture adapter: every ISA-specific construct the SDK
@@ -42,14 +46,13 @@
 #define SYS_openat 257            /**< openat(2) syscall number */
 #define SYS_mkdirat 258           /**< mkdirat(2) syscall number */
 #define SYS_getrandom 318         /**< getrandom(2) syscall number */
-#define SYS_fork 57               /**< fork(2) syscall number */
 #define SYS_wait4 61              /**< wait4(2) syscall number */
 #define SYS_kill 62               /**< kill(2) syscall number */
 #define SYS_getpid 39             /**< getpid(2) syscall number */
 #define SYS_getppid 110           /**< getppid(2) syscall number */
 #define SYS_prctl 157             /**< prctl(2) syscall number */
 #define SYS_exit_group 231        /**< exit_group(2) syscall number */
-#define SYS_poll 7                /**< poll(2) syscall number */
+#define SYS_ppoll 271             /**< ppoll(2) syscall number */
 #define SYS_getsockopt 55         /**< getsockopt(2) syscall number */
 #define SYS_fcntl 72              /**< fcntl(2) syscall number */
 #define SYS_bpf 321               /**< bpf(2) syscall number */
@@ -148,5 +151,7 @@ void wired_arch_sigreturn_restorer(void);
       "mov %eax, %edi\n"               \
       "mov $60, %eax\n" /* SYS_exit */ \
       "syscall\n")
+
+#endif
 
 #endif

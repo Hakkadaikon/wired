@@ -221,8 +221,7 @@ static void run_setup(wired_srvdriver_opt* opt, int argc, char** argv) {
   chat_origin_setup(&opt->run, argc, argv);
 }
 
-__attribute__((force_align_arg_pointer, used)) int wired_main(
-    int argc, char** argv) {
+__attribute__((used)) int wired_main(int argc, char** argv) {
   wired_srvboot_id     id = {0};
   server_keys          keys;
   wired_srvdriver_opt  opt;

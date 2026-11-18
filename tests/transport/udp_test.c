@@ -44,10 +44,6 @@ static void test_udp_addr4_be_roundtrip(void) {
 /* The byte-swap is an inverse of a known constant. */
 static void test_udp_hton(void) { CHECK(hton16(0x1234) == 0x3412); }
 
-/* getsockopt(2) syscall number (x86_64) -- test-only, the SDK itself never
- * reads options back. */
-#define UDPT_SYS_GETSOCKOPT 55
-
 /* The socket comes up AF_INET6 with IPV6_V6ONLY off (dual stack). Sockets
  * may be forbidden in a sandbox; a failed socket() is a benign skip, the
  * same convention udptransport_test uses. */
@@ -64,7 +60,7 @@ static void test_udp_socket_dualstack(void) {
   }
   CHECK(
       syscall6(
-          UDPT_SYS_GETSOCKOPT, fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_V6ONLY,
+          SYS_getsockopt, fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_V6ONLY,
           (i64)&v6only, (i64)&len, 0) == 0);
   CHECK(v6only == 0);
   wired_udp_close(fd);
@@ -84,15 +80,15 @@ static void test_udp_pmtu_probe_enable_sets_pmtudisc_probe(void) {
   CHECK(wired_udp_pmtu_probe_enable(fd) == 0);
   CHECK(
       syscall6(
-          UDPT_SYS_GETSOCKOPT, fd, WIRED_IPPROTO_IP, WIRED_IP_MTU_DISCOVER,
+          SYS_getsockopt, fd, WIRED_IPPROTO_IP, WIRED_IP_MTU_DISCOVER,
           (i64)&val, (i64)&len, 0) == 0);
   CHECK(val == WIRED_IP_PMTUDISC_PROBE);
   if (udp_family == WIRED_AF_INET6) {
     val = 0;
     CHECK(
         syscall6(
-            UDPT_SYS_GETSOCKOPT, fd, WIRED_IPPROTO_IPV6,
-            WIRED_IPV6_MTU_DISCOVER, (i64)&val, (i64)&len, 0) == 0);
+            SYS_getsockopt, fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_MTU_DISCOVER,
+            (i64)&val, (i64)&len, 0) == 0);
     CHECK(val == WIRED_IP_PMTUDISC_PROBE);
   }
   wired_udp_close(fd);

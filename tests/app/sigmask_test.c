@@ -8,10 +8,7 @@
  * signal delivered to the handler. The install-before-unblock order is what
  * keeps SIGTERM's default action (process death) from ever firing. */
 
-/* Linux x86_64 syscall numbers not in common/platform/sys/syscall.h. */
-#define SGM_SYS_getpid 39
-#define SGM_SYS_kill 62
-#define SGM_SYS_rt_sigpending 127
+#include "test_sys.h"
 
 /* rt_sigpending(2) takes sigsetsize == sizeof(u64) on this ABI. */
 #define SGM_SIGSETSIZE 8
@@ -30,9 +27,9 @@ void test_sigmask(void) {
   /* Block, then SIGTERM to self: we stay alive and the signal goes pending
    * (kernel sigset bit == signum - 1). */
   CHECK(wired_sigmask_block_shutdown() == 1);
-  pid = syscall1(SGM_SYS_getpid, 0);
-  CHECK(syscall2(SGM_SYS_kill, pid, SIGTERM) == 0);
-  CHECK(syscall2(SGM_SYS_rt_sigpending, &pending, SGM_SIGSETSIZE) == 0);
+  pid = syscall1(SYS_getpid, 0);
+  CHECK(syscall2(SYS_kill, pid, SIGTERM) == 0);
+  CHECK(syscall2(TEST_SYS_rt_sigpending, &pending, SGM_SIGSETSIZE) == 0);
   CHECK((pending & (1ull << (SIGTERM - 1))) != 0);
 
   /* Handler first, then unblock: the pending SIGTERM is delivered to the
@@ -43,6 +40,6 @@ void test_sigmask(void) {
 
   /* Nothing left pending for later tests. */
   pending = 0;
-  CHECK(syscall2(SGM_SYS_rt_sigpending, &pending, SGM_SIGSETSIZE) == 0);
+  CHECK(syscall2(TEST_SYS_rt_sigpending, &pending, SGM_SIGSETSIZE) == 0);
   CHECK((pending & (1ull << (SIGTERM - 1))) == 0);
 }

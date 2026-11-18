@@ -5,7 +5,15 @@
 # Override: `CONNTABLE_CAP=256 just ninja`.
 
 CC=clang
-TARGET="-target x86_64-unknown-linux-gnu"
+# The ISA to build for: the host's (x86_64 or aarch64), or WIRED_ARCH to
+# cross-compile the freestanding objects (linking needs that ISA's linker).
+WIRED_ARCH="${WIRED_ARCH:-$(uname -m)}"
+TARGET="-target ${WIRED_ARCH}-unknown-linux-gnu"
+# -mbranches-within-32B-boundaries: an x86 assembler option (see TESTFLAGS).
+JCCFLAGS=""
+if [ "$WIRED_ARCH" = x86_64 ]; then
+  JCCFLAGS="-mbranches-within-32B-boundaries"
+fi
 # Shared warning/optimization base of the three compile flag sets.
 WARNFLAGS="-Wall -Wextra -Werror -O2"
 CONNFLAGS="-DWIRED_CONNTABLE_CAP=${CONNTABLE_CAP:-4}"
@@ -20,7 +28,7 @@ CFLAGS="$TARGET -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -stat
 # hosted test: -mbranches-within-32B-boundaries works around this host's
 # Cascade Lake JCC erratum, which otherwise swings test runtime ~40% on
 # code-placement luck and makes perf comparisons between commits meaningless.
-TESTFLAGS="$WARNFLAGS $CONNFLAGS -mbranches-within-32B-boundaries -Isrc -Itests"
+TESTFLAGS="$WARNFLAGS $CONNFLAGS $JCCFLAGS -Isrc -Itests"
 # test-san (CI only, too slow for the dev loop): the same unity test with
 # ASan + UBSan, so a stack/global/heap out-of-bounds access or UB aborts the
 # run at the faulting line (a stack canary would only catch a write that

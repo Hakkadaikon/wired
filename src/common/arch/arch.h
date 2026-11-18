@@ -7,10 +7,10 @@
  * functionality (raw syscalls, trampolines, SIMD, spin hints) only through
  * the arch-neutral names declared by the selected adapter below; porting to
  * a new ISA means adding a `src/common/arch/<isa>/` implementation and
- * switching the include here — no other file changes.
+ * selecting it in raw.h and simd128.h — no other file changes.
  */
 
+#include "common/arch/raw.h"
 #include "common/arch/sysops.h"
-#include "common/arch/x8664/x8664.h"
 
 #endif

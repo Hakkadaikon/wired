@@ -12,7 +12,7 @@
  * raw i64 return where negative values are -errno.
  */
 
-#include "common/arch/x8664/x8664.h" /* raw layer: switched with arch.h */
+#include "common/arch/raw.h"
 
 /** openat(2): open @p path relative to @p dirfd. */
 static inline i64 wired_arch_openat(
@@ -100,9 +100,12 @@ static inline i64 wired_arch_recvmmsg(
   return syscall5(SYS_recvmmsg, fd, vec, (i64)n, flags, timeout);
 }
 
-/** poll(2): @p fds is a kernel struct pollfd array. */
+/** poll(2) semantics over ppoll(2), the call every Linux ISA has (aarch64
+ * has no poll): @p fds is a kernel struct pollfd array, a negative
+ * @p timeout_ms waits forever. */
 static inline i64 wired_arch_poll(void* fds, i64 nfds, i64 timeout_ms) {
-  return syscall3(SYS_poll, fds, nfds, timeout_ms);
+  i64 ts[2] = {timeout_ms / 1000, timeout_ms % 1000 * 1000000};
+  return syscall5(SYS_ppoll, fds, nfds, timeout_ms < 0 ? 0 : ts, 0, 0);
 }
 
 /** fcntl(2). */
@@ -127,7 +130,8 @@ static inline i64 wired_arch_munmap(i64 addr, usz len) {
   return syscall2(SYS_munmap, addr, (i64)len);
 }
 
-/** x86_64 base page size (the granule madvise(2) works in). */
+/** Base page size (the granule madvise(2) and mprotect(2) work in): 4 KiB
+ * on x86_64, and on the aarch64 kernels this SDK supports (4 KiB pages). */
 #define WIRED_ARCH_PAGE 4096
 /** madvise(2) advice MADV_DONTNEED (asm-generic/mman-common.h). */
 #define WIRED_ARCH_MADV_DONTNEED 4
@@ -145,8 +149,12 @@ static inline i64 wired_arch_exit_group(i64 code) {
   return syscall1(SYS_exit_group, code);
 }
 
-/** fork(2). */
-static inline i64 wired_arch_fork(void) { return syscall1(SYS_fork, 0); }
+/** fork(2) semantics over clone(2), the call every Linux ISA has (aarch64
+ * has no fork): flags SIGCHLD (17) only, no new stack, so the child
+ * resumes here on a copy of the parent's. */
+static inline i64 wired_arch_fork(void) {
+  return syscall5(SYS_clone, 17, 0, 0, 0, 0);
+}
 
 /** wait4(2). */
 static inline i64 wired_arch_wait4(

@@ -10,6 +10,7 @@
 #include "common/platform/thread/thread.h"
 #include "crypto/kdf/hkdf/hkdf.h"
 #include "test.h"
+#include "test_sys.h"
 #include "tls/ext/tparam/tparam.h"
 #include "tls/handshake/core/fullhs/fullhs.h"
 #include "tls/handshake/core/tls/clienthello.h"
@@ -66,7 +67,7 @@ static void sdt_pick_port(void) {
   i64      fd      = wired_udp_socket();
   wired_udp_addr(&any, 0, (const u8[4]){0, 0, 0, 0});
   if (fd >= 0 && wired_udp_bind(fd, &any) == 0 &&
-      syscall3(51 /* getsockname */, fd, (i64)&bound, (i64)&addrlen) == 0) {
+      syscall3(TEST_SYS_getsockname, fd, (i64)&bound, (i64)&addrlen) == 0) {
     g_sdt_port = (u16)((bound.port_be >> 8) | (bound.port_be << 8));
   }
   wired_udp_close(fd);

@@ -1,3 +1,4 @@
+#if defined(__x86_64__)
 #include "common/arch/arch.h"
 
 /* Raw clone(2). The child returns on a NEW stack, so this cannot go through
@@ -27,3 +28,4 @@ __asm__(
     "  syscall\n"
     "1:\n"
     "  retq\n");
+#endif

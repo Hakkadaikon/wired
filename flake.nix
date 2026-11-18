@@ -1,14 +1,14 @@
 {
-  description = "wired: a libc-free QUIC SDK in C for x86_64-linux";
+  description = "wired: a libc-free QUIC SDK in C for x86_64-linux and aarch64-linux";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs = { self, nixpkgs }:
     let
-      system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
-    in {
-      devShells.${system} = {
+      systems = [ "x86_64-linux" "aarch64-linux" ];
+      shells = system:
+        let pkgs = nixpkgs.legacyPackages.${system};
+        in {
         default = pkgs.mkShell {
           # llvmPackages_latest: the newest stable LLVM nixpkgs ships; still
           # pinned by flake.lock, so it only moves on an explicit
@@ -37,5 +37,7 @@
           packages = [ pkgs.cbmc ];
         };
       };
+    in {
+      devShells = nixpkgs.lib.genAttrs systems shells;
     };
 }

@@ -1,6 +1,10 @@
 #ifndef WIRED_ARCH_X8664_SIMD128_H
 #define WIRED_ARCH_X8664_SIMD128_H
 
+/* Only the ISA being compiled for: every header may be included (the
+ * sharded test build includes them all). */
+#if defined(__x86_64__)
+
 /**
  * @file
  * 128-bit SIMD register wrappers (x86-64 SSE/SSSE3/AES-NI/PCLMULQDQ). All SIMD
@@ -78,5 +82,15 @@ static inline u32 wired_arch_cpuid_ecx(u32 leaf) {
   (void)d;
   return c;
 }
+
+/** 1 when the CPU runs every instruction above: CPUID.1:ECX bit 25
+ * (AES-NI), bit 1 (PCLMULQDQ) and bit 9 (SSSE3, for the byte reversal;
+ * every CPU with AES-NI has it, checked all the same). */
+static inline int wired_arch_aes_clmul_ok(void) {
+  u32 c = wired_arch_cpuid_ecx(1u);
+  return (int)((c >> 25) & (c >> 1) & (c >> 9) & 1u);
+}
+
+#endif
 
 #endif
