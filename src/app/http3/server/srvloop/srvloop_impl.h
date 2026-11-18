@@ -73,6 +73,7 @@ int  srvloop_stream_slot_find(const wired_srvloop* l, u64 stream_id);
 int  srvloop_id_past_limit(const wired_srvloop* l, u64 id);
 int  srvloop_pending_priority_find(const wired_srvloop* l, u64 stream_id);
 void srvloop_pending_priority_consume(wired_srvloop* l, usz i);
+void srvloop_priority_from_header(wired_srvloop* l, int i);
 void srvloop_closed_shift64(wired_srvloop_closed* w, u64 k);
 void srvloop_closed_advance(wired_srvloop_closed* w);
 void srvloop_req_closed_mark(wired_srvloop* l, u64 stream_id);

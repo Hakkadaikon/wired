@@ -677,10 +677,6 @@ typedef struct {
    * claims/releases/PRIORITY_UPDATEs only happen between passes, so the
    * order is stable within one. */
   usz prio_order[SRVRUN_RESP_SLOTS];
-  /** RFC 9218 4.1 urgency of the slot at each prio_order position, filled
-   * with it by srvrun_prio_refresh (0 for the identity order, which only
-   * stands while no response is in use). */
-  u8 prio_urgency[SRVRUN_RESP_SLOTS];
   /** RFC 9002 7.7 pacer token bucket for the sub-poll-tick regime
    * (srvrun_pace_within_poll_tick): bytes sendable right now, refilled at
    * 1.25 * cwnd / srtt per elapsed ms (srvrun_pace_refill per pump pass,

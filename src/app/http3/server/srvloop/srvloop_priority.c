@@ -78,3 +78,12 @@ int wired_srvloop_wt_slot_find(const wired_srvloop* l, u64 stream_id) {
   }
   return -1;
 }
+
+/* RFC 9218 5 / 7: the completed request's Priority header field becomes
+ * the stream's initial priority for the scheduler, unless a PRIORITY_UPDATE
+ * frame already set one (the frame overrides any other signal). */
+void srvloop_priority_from_header(wired_srvloop* l, int i) {
+  if (!l->streams[i].priority_updated) {
+    l->streams[i].priority = l->streams[i].req.priority;
+  }
+}

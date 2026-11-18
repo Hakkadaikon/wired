@@ -10,10 +10,6 @@ static int srvrun_wt_in_pass(
 static int srvrun_pump_wt_round_matching(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open, u64 mask);
 static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c);
-static int srvrun_resp_in_pass(const srvrun_conn* c, usz k, u8 best);
-static int srvrun_resp_visit(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, usz k, u8* best);
-static int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c);
 
 /* w takes part in this pass's class: no worse than the pass key (a slot
  * better than it cannot send this pass anyway; visiting it only promotes
@@ -133,41 +129,6 @@ static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   mask &= srvrun_wt_work_mask(c, mask);
   sent = srvrun_pump_wt_round_matching(ctx, c, 1, mask);
   return sent | srvrun_pump_wt_round_matching(ctx, c, 0, mask);
-}
-
-/* The slot at prio_order position k takes part in this pass: it is in use
- * (a free slot sends nothing, srvrun_pump_one) and no less urgent than the
- * best urgency that has already sent in this pass. */
-static int srvrun_resp_in_pass(const srvrun_conn* c, usz k, u8 best) {
-  return c->resp[c->prio_order[k]].in_use && c->prio_urgency[k] <= best;
-}
-
-/* Visit position k; a slice sent at urgency u closes the pass to every
- * less urgent slot (RFC 9218 10: higher urgency first, while it can send).
- * A more urgent slot that cannot send leaves the pass open, so a blocked
- * stream never starves the rest. */
-static int srvrun_resp_visit(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, usz k, u8* best) {
-  if (!srvrun_resp_in_pass(c, k, *best)) {
-    return 0;
-  }
-  if (!srvrun_pump_one(ctx, c, &c->resp[c->prio_order[k]])) {
-    return 0;
-  }
-  *best = c->prio_urgency[k];
-  return 1;
-}
-
-/* One pass over resp[] in prio_order (ascending urgency, then stream id):
- * slots of the most urgent level that can send each get one slice (equal
- * urgencies still share the pass round-robin). */
-static int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  int sent = 0;
-  u8  best = 0xff;
-  for (usz k = 0; k < SRVRUN_RESP_SLOTS; k++) {
-    sent |= srvrun_resp_visit(ctx, c, k, &best);
-  }
-  return sent;
 }
 
 /* One round-robin pass: one slice from each resp[] and wtsend slot that

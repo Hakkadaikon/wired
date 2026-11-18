@@ -94,6 +94,8 @@ u64  srvrun_wt_fair_mask(srvrun_conn* c, u64 mask);
 int  srvrun_wt_open_share_ok(const srvrun_conn* c, int sidx);
 int  srvrun_wt_flow_ok(const srvrun_conn* c, const srvrun_wtsend* w, u64 live);
 void srvrun_prio_refresh(srvrun_conn* c);
+/* RFC 9218 10: one pass over resp[] in prio_order; 1 if any slot sent. */
+int  srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c);
 int  srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c);
 int  srvrun_any_resp_requeued(const srvrun_conn* c);
 int  srvrun_any_wtsend_requeued(const srvrun_conn* c);

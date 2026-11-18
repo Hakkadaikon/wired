@@ -4,6 +4,9 @@ static h3prio_candidate srvrun_resp_candidate(const srvrun_conn* c, usz i);
 static void             srvrun_prio_build(srvrun_conn* c);
 static int              srvrun_any_resp_in_use(const srvrun_conn* c);
 static void             srvrun_prio_identity(srvrun_conn* c);
+static int srvrun_resp_in_pass(const srvrun_conn* c, usz k, u8 best);
+static int srvrun_resp_visit(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, usz k, u8* best);
 static int srvrun_live_requeued(int in_use, const wired_sendsess* sess);
 
 /* resp[] slot i's current RFC 9218 priority, read from the receive-side
@@ -41,7 +44,7 @@ static void srvrun_prio_build(srvrun_conn* c) {
   }
   h3prio_order(cand, SRVRUN_RESP_SLOTS, c->prio_order);
   for (usz k = 0; k < SRVRUN_RESP_SLOTS; k++) {
-    c->prio_urgency[k] = cand[c->prio_order[k]].urgency;
+    c->wtx.resp_urgency[k] = cand[c->prio_order[k]].urgency;
   }
 }
 
@@ -60,8 +63,8 @@ static int srvrun_any_resp_in_use(const srvrun_conn* c) {
  * that only carries WebTransport. */
 static void srvrun_prio_identity(srvrun_conn* c) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
-    c->prio_order[i]   = i;
-    c->prio_urgency[i] = 0;
+    c->prio_order[i]       = i;
+    c->wtx.resp_urgency[i] = 0;
   }
 }
 
@@ -102,4 +105,39 @@ int srvrun_any_wtsend_requeued(const srvrun_conn* c) {
     }
   }
   return 0;
+}
+
+/* The slot at prio_order position k takes part in this pass: it is in use
+ * (a free slot sends nothing, srvrun_pump_one) and no less urgent than the
+ * best urgency that has already sent in this pass. */
+static int srvrun_resp_in_pass(const srvrun_conn* c, usz k, u8 best) {
+  return c->resp[c->prio_order[k]].in_use && c->wtx.resp_urgency[k] <= best;
+}
+
+/* Visit position k; a slice sent at urgency u closes the pass to every
+ * less urgent slot (RFC 9218 10: higher urgency first, while it can send).
+ * A more urgent slot that cannot send leaves the pass open, so a blocked
+ * stream never starves the rest. */
+static int srvrun_resp_visit(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, usz k, u8* best) {
+  if (!srvrun_resp_in_pass(c, k, *best)) {
+    return 0;
+  }
+  if (!srvrun_pump_one(ctx, c, &c->resp[c->prio_order[k]])) {
+    return 0;
+  }
+  *best = c->wtx.resp_urgency[k];
+  return 1;
+}
+
+/* One pass over resp[] in prio_order (ascending urgency, then stream id):
+ * slots of the most urgent level that can send each get one slice (equal
+ * urgencies still share the pass round-robin). */
+int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  int sent = 0;
+  u8  best = 0xff;
+  for (usz k = 0; k < SRVRUN_RESP_SLOTS; k++) {
+    sent |= srvrun_resp_visit(ctx, c, k, &best);
+  }
+  return sent;
 }
