@@ -88,3 +88,45 @@ quic-interop-runner は `045b88d`、クライアントは `martenseemann/quic-go
 | quiche | 9438 9426 9433 9437 9435 | `cloudflare/quiche-qns@sha256:b67c084e211e` |
 | ngtcp2 | 9316 9392 9297 9385 9371 | `ghcr.io/ngtcp2/ngtcp2-interop@sha256:ffb4689908dc` |
 | picoquic | 9099 9106 9151 9105 9130 | `privateoctopus/picoquic@sha256:4d1da8e8557c` |
+
+
+## 3. 高速化の前後(wired だけ)
+
+2026-11-18 に、変更前(`efd61452e`、`wired-old`)と変更後(`592aacb3c`、`wired`)のサーバーを 1 章と同じ手順で続けて実行した。集計は [サーバーの高速化](tuning/README.md) 1.2 にある。
+
+```text
+wired-old r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=528 vmrss_kb=528
+wired-old r1 mode=ttfb n=100 fails=0 reqps=328.0 p50=2.70 p99=5.17 cpu%=70
+wired-old r1 mode=load n=10000 fails=0 reqps=24962.9 p50=0.67 p99=3.14 cpu%=121
+wired-old r1 usage kind=load reqs=10000 dticks=35 wall_ms=417 hz=100 vmhwm_kb=2028 vmrss_kb=1444
+wired-old r2 mode=ttfb n=100 fails=0 reqps=350.1 p50=2.66 p99=4.53 cpu%=68
+wired-old r2 mode=load n=10000 fails=0 reqps=24846.7 p50=0.70 p99=2.71 cpu%=125
+wired-old r2 usage kind=load reqs=10000 dticks=36 wall_ms=421 hz=100 vmhwm_kb=2064 vmrss_kb=1444
+wired-old r3 mode=ttfb n=100 fails=0 reqps=349.3 p50=2.64 p99=4.46 cpu%=67
+wired-old r3 mode=load n=10000 fails=0 reqps=25008.9 p50=0.70 p99=2.46 cpu%=123
+wired-old r3 usage kind=load reqs=10000 dticks=35 wall_ms=417 hz=100 vmhwm_kb=2064 vmrss_kb=1444
+wired-old r4 mode=ttfb n=100 fails=0 reqps=312.3 p50=2.74 p99=6.16 cpu%=66
+wired-old r4 mode=load n=10000 fails=0 reqps=23988.3 p50=0.72 p99=3.04 cpu%=124
+wired-old r4 usage kind=load reqs=10000 dticks=37 wall_ms=436 hz=100 vmhwm_kb=2064 vmrss_kb=1444
+wired-old r5 mode=ttfb n=100 fails=0 reqps=335.6 p50=2.70 p99=4.90 cpu%=70
+wired-old r5 mode=load n=10000 fails=0 reqps=24612.1 p50=0.68 p99=2.77 cpu%=125
+wired-old r5 usage kind=load reqs=10000 dticks=35 wall_ms=425 hz=100 vmhwm_kb=2064 vmrss_kb=1444
+wired r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=532 vmrss_kb=532
+wired r1 mode=ttfb n=100 fails=0 reqps=317.8 p50=2.69 p99=7.13 cpu%=66
+wired r1 mode=load n=10000 fails=0 reqps=25191.5 p50=0.66 p99=3.08 cpu%=126
+wired r1 usage kind=load reqs=10000 dticks=32 wall_ms=425 hz=100 vmhwm_kb=1940 vmrss_kb=1532
+wired r2 mode=ttfb n=100 fails=0 reqps=328.8 p50=2.71 p99=5.26 cpu%=71
+wired r2 mode=load n=10000 fails=0 reqps=26794.9 p50=0.64 p99=2.62 cpu%=130
+wired r2 usage kind=load reqs=10000 dticks=31 wall_ms=394 hz=100 vmhwm_kb=1980 vmrss_kb=1532
+wired r3 mode=ttfb n=100 fails=0 reqps=351.0 p50=2.59 p99=4.27 cpu%=71
+wired r3 mode=load n=10000 fails=0 reqps=25054.7 p50=0.66 p99=2.82 cpu%=127
+wired r3 usage kind=load reqs=10000 dticks=32 wall_ms=418 hz=100 vmhwm_kb=1980 vmrss_kb=1532
+wired r4 mode=ttfb n=100 fails=0 reqps=332.7 p50=2.84 p99=4.66 cpu%=74
+wired r4 mode=load n=10000 fails=0 reqps=24047.0 p50=0.68 p99=3.17 cpu%=127
+wired r4 usage kind=load reqs=10000 dticks=29 wall_ms=439 hz=100 vmhwm_kb=1980 vmrss_kb=1532
+wired r5 mode=ttfb n=100 fails=0 reqps=338.1 p50=2.63 p99=5.39 cpu%=68
+wired r5 mode=load n=10000 fails=0 reqps=24007.1 p50=0.70 p99=2.64 cpu%=124
+wired r5 usage kind=load reqs=10000 dticks=35 wall_ms=440 hz=100 vmhwm_kb=1980 vmrss_kb=1532
+```
+
+グッドプットは quic-interop-runner `f4d1e93` で `-s wired -c quic-go -t goodput` を 1 回(5 反復)実行し、9,521 ± 15 kbps だった。
