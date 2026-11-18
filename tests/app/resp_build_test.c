@@ -131,11 +131,11 @@ static void test_resp_build_prefix_fields(void) {
   qpack_field     f[2] = {
       {wired_span_of(n0, sizeof n0 - 1), wired_span_of(v0, sizeof v0 - 1)},
       {wired_span_of(n1, sizeof n1 - 1), wired_span_of(v1, sizeof v1 - 1)}};
-  u8                     pre[128];
-  wired_obuf             pb   = {pre, sizeof pre, 0};
-  h3req_resp             resp = {0};
-  qpackenc_status_result ins;
-  h3resp_fields          fl = {f, 2};
+  u8                      pre[128];
+  wired_obuf              pb   = {pre, sizeof pre, 0};
+  h3req_resp              resp = {0};
+  qpackenc_section_result ins;
+  h3resp_fields           fl = {f, 2};
   usz off = 4; /* prefix (2) + :status 302, static index 66 (2) */
   CHECK(h3resp_prefix_fields_qenc(302, 0, 0, fl, 0, &ins, &pb) == 1);
   CHECK(h3req_resp_parse(wired_span_of(pre, pb.len), &resp) == 1);

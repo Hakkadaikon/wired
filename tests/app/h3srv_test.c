@@ -388,10 +388,10 @@ static void h3srv_status_decodes_without_table(
 }
 
 static void h3srv_status_encodes_literal(u16 status, const char* digits) {
-  wired_h3srv_state      st;
-  qpackenc_status_result ins;
-  u8                     out[64];
-  wired_obuf             ob = {out, sizeof out, 0};
+  wired_h3srv_state       st;
+  qpackenc_section_result ins;
+  u8                      out[64];
+  wired_obuf              ob = {out, sizeof out, 0};
   wired_h3srv_state_init(&st, DEFAULT_QPACK_MAX_TABLE_CAP);
   CHECK(
       h3resp_encode_headers_fields_qenc(status, 0, 0, 0, &st.qenc, &ins, &ob));

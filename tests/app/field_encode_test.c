@@ -97,6 +97,23 @@ static void test_field_encode_headers_overflow(void) {
   CHECK(h3resp_encode_headers(200, "text/css", &ob) == 0);
 }
 
+/* BOUNDARY: :status, content-type and 16 extra fields fill the section's
+ * line table exactly; a 17th extra is refused rather than dropped. */
+static void test_field_encode_extra_lines_bound(void) {
+  static u8               out[2048];
+  qpack_field             x[17];
+  qpackenc_section_result r;
+  wired_obuf              ob;
+  for (usz i = 0; i < 17; i++) {
+    x[i] = (qpack_field){
+        wired_span_of((const u8*)"x-a", 3), wired_span_of((const u8*)"b", 1)};
+  }
+  ob = obuf_of(out, sizeof out);
+  CHECK(h3resp_encode_headers_fields_qenc(200, "x/y", x, 16, 0, &r, &ob) == 1);
+  ob = obuf_of(out, sizeof out);
+  CHECK(h3resp_encode_headers_fields_qenc(200, "x/y", x, 17, 0, &r, &ob) == 0);
+}
+
 void test_field_encode(void) {
   test_field_encode_status_200();
   test_field_encode_status_201();
@@ -106,4 +123,5 @@ void test_field_encode(void) {
   test_field_encode_headers_content_type_literal();
   test_field_encode_headers_no_content_type();
   test_field_encode_headers_overflow();
+  test_field_encode_extra_lines_bound();
 }

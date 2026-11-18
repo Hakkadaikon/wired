@@ -360,7 +360,7 @@
 #include "app/qpack/qpack/dynfind.c"
 #include "app/qpack/qpackenc/qpackenc.c"
 #include "app/qpack/qpackenc/qpackenc_decrx.c"
-#include "app/qpack/qpackenc/status_line.c"
+#include "app/qpack/qpackenc/section.c"
 #include "transport/io/udp/udploop/rxloop.c"
 #include "transport/recovery/detect/lossdrive/lossdelay.c"
 #include "transport/recovery/detect/ackgen/ackrange.c"

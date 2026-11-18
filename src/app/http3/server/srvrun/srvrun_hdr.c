@@ -202,10 +202,10 @@ int srvrun_status_build(
     u16                         status,
     const qpack_field*          extra,
     wired_obuf*                 out) {
-  srvrun_hdrs            h    = {0};
-  wired_span             body = srvrun_status_body(req, status);
-  qpackenc_status_result unused;
-  usz                    off;
+  srvrun_hdrs             h    = {0};
+  wired_span              body = srvrun_status_body(req, status);
+  qpackenc_section_result unused;
+  usz                     off;
   srvrun_hdrs_extra(&h, extra);
   srvrun_hdrs_capsule(&h, req, status);
   srvrun_hdrs_allow(&h, status);

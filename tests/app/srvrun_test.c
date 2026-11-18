@@ -6256,11 +6256,11 @@ static void sr_collect_stream_multi(
  * response of len body bytes to a GET: HEADERS with its Content-Length and
  * the suite's pinned Date, then the DATA header. */
 static int sr_srv_prefix(u16 status, u64 len, wired_obuf* out) {
-  static const u8        get[] = {'G', 'E', 'T'};
-  wired_h3reqdrive_req   req   = {0};
-  wired_http_exchange    x     = {0};
-  srvrun_hdrs            h;
-  qpackenc_status_result ins;
+  static const u8         get[] = {'G', 'E', 'T'};
+  wired_h3reqdrive_req    req   = {0};
+  wired_http_exchange     x     = {0};
+  srvrun_hdrs             h;
+  qpackenc_section_result ins;
   req.method     = get;
   req.method_len = sizeof get;
   x.req          = &req;
@@ -24414,10 +24414,10 @@ static int sr_qenc_field_is_dynamic_indexed(const u8* fs, usz n) {
  * the section never blocks and nothing is left pending). The test seeds a
  * 4096 capacity by hand; production takes it from the peer's SETTINGS. */
 static void test_srvrun_qenc_first_use_inserts_and_references_dynamic(void) {
-  srvrun_conn            c = {0};
-  qpackenc_status_result ins;
-  u8                     field[64];
-  wired_obuf             fob = obuf_of(field, sizeof field);
+  srvrun_conn             c = {0};
+  qpackenc_section_result ins;
+  u8                      field[64];
+  wired_obuf              fob = obuf_of(field, sizeof field);
   qpackenc_init(&c.l.h3.qenc, 4096); /* a peer-allowed capacity; the
                                          server itself starts at 0 */
   srvrun_open_qenc_stream(&c);
@@ -24446,12 +24446,12 @@ static void test_srvrun_qenc_first_use_inserts_and_references_dynamic(void) {
  * this pins that srvrun's wiring passes the SAME qpackenc_state through on
  * every call rather than re-initialising it. */
 static void test_srvrun_qenc_repeat_status_references_without_reinsert(void) {
-  srvrun_conn            c = {0};
-  qpackenc_status_result first, second;
-  u8                     f1[64], f2[64];
-  wired_obuf             fob1 = obuf_of(f1, sizeof f1);
-  wired_obuf             fob2 = obuf_of(f2, sizeof f2);
-  usz                    staged_after_first;
+  srvrun_conn             c = {0};
+  qpackenc_section_result first, second;
+  u8                      f1[64], f2[64];
+  wired_obuf              fob1 = obuf_of(f1, sizeof f1);
+  wired_obuf              fob2 = obuf_of(f2, sizeof f2);
+  usz                     staged_after_first;
   qpackenc_init(&c.l.h3.qenc, 4096);
   srvrun_open_qenc_stream(&c);
   CHECK(h3resp_encode_headers_field_qenc(
@@ -24470,39 +24470,45 @@ static void test_srvrun_qenc_repeat_status_references_without_reinsert(void) {
 
 /* RFC 9114 10.6 (9114-097): a field an application supplied -- a secret, or
  * text a request made it echo -- is never put into the encoder's dynamic
- * table. The only line the encoder inserts is :status, a number the server
- * chose, so the two kinds of data never share a compression context: the
- * application's field goes out as a literal in its own field section. */
+ * table. The encoder inserts only :status and the content-type, values the
+ * server chose (content_type is a static string by contract), so the two
+ * kinds of data never share a compression context: the application's field
+ * goes out as a literal in its own field section. */
 static void test_srvrun_qenc_never_inserts_app_fields(void) {
-  static const u8        name[] = "set-cookie", val[] = "sid=hunter2";
-  srvrun_conn            c = {0};
-  qpackenc_status_result ins;
-  u8                     field[256];
-  wired_obuf             fob    = obuf_of(field, sizeof field);
-  qpack_field            secret = {
+  static const u8         name[] = "set-cookie", val[] = "sid=hunter2";
+  srvrun_conn             c = {0};
+  qpackenc_section_result ins;
+  qpack_match             m;
+  u8                      field[256];
+  wired_obuf              fob    = obuf_of(field, sizeof field);
+  qpack_field             secret = {
       wired_span_of(name, sizeof name - 1), wired_span_of(val, sizeof val - 1)};
   qpackenc_init(&c.l.h3.qenc, 4096);
   srvrun_open_qenc_stream(&c);
-  /* :status 200 is in the static table: nothing is inserted at all */
+  /* :status 200 is in the static table; "text/html" is not: one insert,
+   * the content-type */
   CHECK(h3resp_encode_headers_field_qenc(
       200, "text/html", &secret, srvrun_qenc_active(&c), &ins, &fob));
-  CHECK(ins.insert_len == 0);
+  CHECK(ins.insert_len > 0);
+  CHECK(wired_span_eq_cstr(ins.inserted.name, "content-type"));
   srvrun_qenc_send_insert(&c, &ins);
-  CHECK(c.l.h3.qenc.total_inserts == 0);
-  /* :status 201 is not: exactly one insert, the :status line alone */
+  CHECK(c.l.h3.qenc.total_inserts == 1);
+  /* :status 201 is not in the static table: one more insert, :status */
   fob = obuf_of(field, sizeof field);
   CHECK(h3resp_encode_headers_field_qenc(
       201, "text/html", &secret, srvrun_qenc_active(&c), &ins, &fob));
-  CHECK(ins.insert_len > 0 && ins.insert_len < sizeof val);
+  CHECK(wired_span_eq_cstr(ins.inserted.name, ":status"));
   srvrun_qenc_send_insert(&c, &ins);
-  CHECK(c.l.h3.qenc.total_inserts == 1);
-  /* the same response again inserts nothing more */
+  CHECK(c.l.h3.qenc.total_inserts == 2);
+  /* the same response again inserts nothing more, and the secret is never
+   * in the table */
   fob = obuf_of(field, sizeof field);
   CHECK(h3resp_encode_headers_field_qenc(
       201, "text/html", &secret, srvrun_qenc_active(&c), &ins, &fob));
   CHECK(ins.insert_len == 0);
   srvrun_qenc_send_insert(&c, &ins);
-  CHECK(c.l.h3.qenc.total_inserts == 1);
+  CHECK(c.l.h3.qenc.total_inserts == 2);
+  CHECK(qpack_dyn_find(&c.l.h3.qenc.dyn, &secret, &m) == 0);
 }
 
 /* BOUNDARY: before the encoder stream opens (qenc_stream_opened == 0,
@@ -24512,10 +24518,10 @@ static void test_srvrun_qenc_never_inserts_app_fields(void) {
  * behavior srvrun_arm_h3_resp_framed used before this stream existed: no
  * Insert instruction, no dynamic reference. */
 static void test_srvrun_qenc_inactive_falls_back_to_literal(void) {
-  srvrun_conn            c = {0};
-  qpackenc_status_result ins;
-  u8                     field[64];
-  wired_obuf             fob = obuf_of(field, sizeof field);
+  srvrun_conn             c = {0};
+  qpackenc_section_result ins;
+  u8                      field[64];
+  wired_obuf              fob = obuf_of(field, sizeof field);
   CHECK(srvrun_qenc_active(&c) == 0);
   CHECK(h3resp_encode_headers_field_qenc(201, 0, 0, 0, &ins, &fob));
   CHECK(ins.insert_len == 0);

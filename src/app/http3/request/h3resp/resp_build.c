@@ -22,19 +22,19 @@ static int resp_append_body(wired_span body, wired_obuf* out) {
 }
 
 /* Emit the HEADERS frame carrying the :status (plus content-type and extra,
- * when given) field section into out. qenc non-null encodes :status through
+ * when given) field section into out. qenc non-null encodes the fields through
  * its dynamic table (h3resp_encode_headers_field_qenc); qenc == 0 keeps the
  * static-or-literal-only behavior. *insert_out receives any pending
- * encoder-stream instruction the :status line generated. Returns its byte
+ * encoder-stream instruction the section generated. Returns its byte
  * length, or 0 if encoding or framing lacks capacity. */
 static usz put_headers_qenc(
-    u16                     status,
-    const char*             content_type,
-    const qpack_field*      extra,
-    usz                     n_extra,
-    qpackenc_state*         qenc,
-    qpackenc_status_result* insert_out,
-    wired_obuf*             out) {
+    u16                      status,
+    const char*              content_type,
+    const qpack_field*       extra,
+    usz                      n_extra,
+    qpackenc_state*          qenc,
+    qpackenc_section_result* insert_out,
+    wired_obuf*              out) {
   /* sized for the largest prefix a caller frames: srvrun's response
    * header room */
   u8         field[H3RESP_FIELD_SECTION_MAX];
@@ -51,7 +51,7 @@ static usz put_headers(
     const char*        content_type,
     const qpack_field* extra,
     wired_obuf*        out) {
-  qpackenc_status_result unused;
+  qpackenc_section_result unused;
   return put_headers_qenc(
       status, content_type, extra, extra != 0, 0, &unused, out);
 }
@@ -85,22 +85,22 @@ static int prefix_data_hdr(u64 body_len, wired_obuf* out) {
   return 1;
 }
 
-/* Same as h3resp_prefix_field, but :status is encoded through qenc's
+/* Same as h3resp_prefix_field, but the fields are encoded through qenc's
  * dynamic table when non-null (put_headers_qenc), and extra is a list of
  * fields. *insert_out receives any pending encoder-stream
- * instruction the :status line generated (insert_len == 0 if none, always
+ * instruction the section generated (insert_len == 0 if none, always
  * the case when qenc == 0) -- the caller sends it on the QPACK encoder
- * stream and, once it is staged, calls qpackenc_status_commit then
+ * stream and, once it is staged, calls qpackenc_section_commit then
  * qpackenc_note_sent; on a failed section or staging it calls neither
  * (RFC 9204 4.3.3 / 4.4.1). */
 int h3resp_prefix_fields_qenc(
-    u16                     status,
-    const char*             content_type,
-    u64                     body_len,
-    h3resp_fields           extra,
-    qpackenc_state*         qenc,
-    qpackenc_status_result* insert_out,
-    wired_obuf*             out) {
+    u16                      status,
+    const char*              content_type,
+    u64                      body_len,
+    h3resp_fields            extra,
+    qpackenc_state*          qenc,
+    qpackenc_section_result* insert_out,
+    wired_obuf*              out) {
   wired_obuf head = obuf_of(out->p, out->cap);
   usz        off  = put_headers_qenc(
       status, content_type, extra.p, extra.n, qenc, insert_out, &head);
@@ -112,13 +112,13 @@ int h3resp_prefix_fields_qenc(
 }
 
 int h3resp_prefix_field_qenc(
-    u16                     status,
-    const char*             content_type,
-    u64                     body_len,
-    const qpack_field*      extra,
-    qpackenc_state*         qenc,
-    qpackenc_status_result* insert_out,
-    wired_obuf*             out) {
+    u16                      status,
+    const char*              content_type,
+    u64                      body_len,
+    const qpack_field*       extra,
+    qpackenc_state*          qenc,
+    qpackenc_section_result* insert_out,
+    wired_obuf*              out) {
   h3resp_fields f = {extra, extra != 0};
   return h3resp_prefix_fields_qenc(
       status, content_type, body_len, f, qenc, insert_out, out);
@@ -130,7 +130,7 @@ int h3resp_prefix_field(
     u64                body_len,
     const qpack_field* extra,
     wired_obuf*        out) {
-  qpackenc_status_result unused;
+  qpackenc_section_result unused;
   return h3resp_prefix_field_qenc(
       status, content_type, body_len, extra, 0, &unused, out);
 }

@@ -1,33 +1,72 @@
 #include "app/http3/request/h3resp/field_encode.h"
 
-#include "app/qpack/qpack/fieldline.h"
-#include "app/qpack/qpack/literal.h"
-#include "app/qpack/qpack/prefix.h"
 #include "app/qpack/qpack/static_table.h"
-#include "app/qpack/qpackenc/status_line.h"
 #include "common/bytes/util/bytes.h"
 
-/* Static table index of the first "content-type" name entry (RFC 9204 App.
- * A): used as a name-only reference regardless of which value it pairs. */
-#define QPACK_CONTENT_TYPE_NAME_INDEX 44
+/* RFC 9204 App. A: the first ":status" and "content-type" name entries,
+ * referenced by a literal whose value has no static entry. */
+#define H3RESP_STATUS_NAME_INDEX 24
+#define H3RESP_CONTENT_TYPE_NAME_INDEX 44
+/* :status, content-type, and the extra fields: srvrun adds at most
+ * WIRED_HTTP_MAX_FIELDS (8) app fields plus its own few (srvrun_hdrs). */
+#define H3RESP_LINES_MAX 18
 
-/* Encode the Encoded Field Section Prefix at *off, carrying the Required
- * Insert Count a dynamic-table :status reference/insert demands (RFC 9204
- * 4.5.1) -- 0 when the caller's qenc has no dynamic table capacity (or the
- * caller passed none at all, see put_status_line's own doc). */
-static usz resp_put_prefix(u64 required_insert_count, u8* out, usz cap) {
-  qpack_prefix pfx = {required_insert_count, 0, 0};
-  return qpack_prefix_encode(out, cap, &pfx);
+/* One response's field lines, with the :status digits they view. */
+typedef struct {
+  qpackenc_line l[H3RESP_LINES_MAX];
+  usz           n;
+  u8            digits[4];
+} h3resp_lines;
+
+/* RFC 9110 15: HTTP status codes are always exactly three digits. */
+static void h3resp_status_line(h3resp_lines* s, u16 status) {
+  s->digits[0] = (u8)('0' + (status / 100) % 10);
+  s->digits[1] = (u8)('0' + (status / 10) % 10);
+  s->digits[2] = (u8)('0' + status % 10);
+  s->digits[3] = 0;
+  s->l[0]      = (qpackenc_line){
+      {wired_span_of((const u8*)":status", 7), wired_span_of(s->digits, 3)},
+      qpack_static_find(":status", (const char*)s->digits),
+      H3RESP_STATUS_NAME_INDEX,
+      1};
+  s->n = 1;
 }
 
-/* A caller-passed qenc, or a throwaway zero-capacity state when the caller
- * has no connection-scoped encoder state (e.g. h3resp_encode_headers) --
- * qpackenc_status_line always resolves a zero-capacity state through its
- * static-or-literal path (RFC 9204 3.2's "no dynamic table" default),
- * byte-identical to this function's pre-dynamic-table behavior, and never
- * an insert. */
-static qpackenc_state* qenc_or_fallback(
-    qpackenc_state* qenc, qpackenc_state* tmp) {
+/* The content-type line when content_type is non-null. */
+static void h3resp_ct_line(h3resp_lines* s, const char* content_type) {
+  if (!content_type) {
+    return;
+  }
+  s->l[s->n++] = (qpackenc_line){
+      {wired_span_of((const u8*)"content-type", 12),
+       wired_span_of((const u8*)content_type, wired_cstr_len(content_type))},
+      qpack_static_find("content-type", content_type),
+      H3RESP_CONTENT_TYPE_NAME_INDEX,
+      1};
+}
+
+/* One line per extra field; 0 when they do not all fit. RFC 9114 10.6:
+ * an application's field can carry a secret or text a request made it
+ * echo, so it is never inserted -- the table only ever holds :status and
+ * the content-type, both values the server chose (content_type is a static
+ * string by contract, wired_http_exchange). It still goes out as a Literal
+ * Field Line With Literal Name. */
+static int h3resp_extra_lines(
+    h3resp_lines* s, const qpack_field* extra, usz n) {
+  if (n > H3RESP_LINES_MAX - s->n) {
+    return 0;
+  }
+  for (usz i = 0; i < n; i++) {
+    s->l[s->n++] = (qpackenc_line){extra[i], -1, -1, 0};
+  }
+  return 1;
+}
+
+/* A caller-passed qenc, or a zero-capacity state when the caller has no
+ * connection-scoped encoder (h3resp_encode_headers): static-or-literal
+ * only, never an insert (RFC 9204 3.2's "no dynamic table" default). */
+static const qpackenc_state* qenc_or_fallback(
+    const qpackenc_state* qenc, qpackenc_state* tmp) {
   if (qenc) {
     return qenc;
   }
@@ -35,140 +74,35 @@ static qpackenc_state* qenc_or_fallback(
   return tmp;
 }
 
-/* Append the :status field line via qpackenc_status_line, updating *r with
- * the full result (Required Insert Count for the Prefix, plus any pending
- * encoder-stream instruction the call generated -- r->insert_len == 0 if
- * none). out must hold sizeof r->field bytes. */
-static usz put_status_line(
-    u16 status, qpackenc_state* qenc, u8* out, qpackenc_status_result* r) {
-  qpackenc_state tmp;
-  qpackenc_status_line(status, qenc_or_fallback(qenc, &tmp), r);
-  bytes_memcpy(out, r->field, r->field_len);
-  return r->field_len;
-}
-
-/* Append the content-type field line: Indexed when the value is in the
- * static table, else a Literal referencing the static content-type name. */
-static usz put_content_type_line(const char* content_type, u8* out, usz cap) {
-  qpack_nameref r   = {QPACK_CONTENT_TYPE_NAME_INDEX, 1, 0};
-  usz           len = wired_cstr_len(content_type);
-  i64           idx = qpack_static_find("content-type", content_type);
-  if (idx >= 0) {
-    return qpack_indexed_encode(wired_mspan_of(out, cap), (u64)idx, 1);
-  }
-  return qpack_literal_namref_encode(
-      wired_mspan_of(out, cap), &r,
-      wired_span_of((const u8*)content_type, len));
-}
-
-/* Append the content-type field line at *off when content_type is non-null;
- * a no-op (success) otherwise. */
-static int append_content_type(
-    const char* content_type, u8* out, usz cap, usz* off) {
-  usz n;
-  if (!content_type) {
-    return 1;
-  }
-  n = put_content_type_line(content_type, out + *off, cap - *off);
-  if (!n) {
-    return 0;
-  }
-  *off += n;
-  return 1;
-}
-
-/* 1 iff the Prefix (pre_len bytes) and the :status line (status_len bytes)
- * both fit in cap -- the combined guard put_prefix_and_status needs, split
- * out so its own CCN counts only one predicate call, not the "||" inside. */
-static int prefix_and_status_fit(usz pre_len, usz status_len, usz cap) {
-  return pre_len && pre_len + status_len <= cap;
-}
-
-/* Encode the prefix followed by the :status line into out, returning the
- * byte offset past both, or 0 if either lacks capacity. The Prefix must be
- * encoded AFTER the :status line since its Required Insert Count depends on
- * whether that line referenced/inserted into the dynamic table -- written
- * into a scratch buffer here and copied ahead of the :status bytes. */
-static usz put_prefix_and_status(
-    u16                     status,
-    qpackenc_state*         qenc,
-    u8*                     out,
-    usz                     cap,
-    qpackenc_status_result* r) {
-  u8  status_buf[sizeof r->field];
-  usz status_len = put_status_line(status, qenc, status_buf, r);
-  usz pre_len    = resp_put_prefix(r->required_insert_count, out, cap);
-  if (!prefix_and_status_fit(pre_len, status_len, cap)) {
-    return 0;
-  }
-  bytes_memcpy(out + pre_len, status_buf, status_len);
-  return pre_len + status_len;
-}
-
-/* Append one Literal Field Line With Literal Name (RFC 9204 4.5.6) per
- * entry of extra[0..n) at *off, in order; n == 0 is a no-op (success). */
-static int append_extra_fields(
-    const qpack_field* extra, usz n, u8* out, usz cap, usz* off) {
-  for (usz i = 0; i < n; i++) {
-    usz c = qpack_literal_name_encode(
-        wired_mspan_of(out + *off, cap - *off), 0, &extra[i]);
-    if (!c) {
-      return 0;
-    }
-    *off += c;
-  }
-  return 1;
-}
-
-/* Encode the prefix, the :status line and the optional content-type line
- * into out, returning the byte offset past them, or 0 on overflow. */
-static usz put_status_and_ct(
-    u16                     status,
-    const char*             content_type,
-    qpackenc_state*         qenc,
-    u8*                     out,
-    usz                     cap,
-    qpackenc_status_result* r) {
-  usz off = put_prefix_and_status(status, qenc, out, cap, r);
-  if (!off) {
-    return 0;
-  }
-  return append_content_type(content_type, out, cap, &off) ? off : 0;
-}
-
-/* RFC 9204 4.5. qenc == 0 behaves exactly as before this connection-scoped
- * encoder state existed (static-or-literal :status only, empty Prefix).
- * *insert_out (never null: caller-owned scratch) receives any pending
- * encoder-stream instruction the :status line generated -- insert_len == 0
- * always when qenc == 0. */
+/* RFC 9204 4.5. *insert_out receives the section's Required Insert Count
+ * and its pending encoder-stream instruction (none when qenc == 0). */
 int h3resp_encode_headers_fields_qenc(
-    u16                     status,
-    const char*             content_type,
-    const qpack_field*      extra,
-    usz                     n_extra,
-    qpackenc_state*         qenc,
-    qpackenc_status_result* insert_out,
-    wired_obuf*             out) {
-  usz off = put_status_and_ct(
-      status, content_type, qenc, out->p, out->cap, insert_out);
-  if (!off) {
+    u16                      status,
+    const char*              content_type,
+    const qpack_field*       extra,
+    usz                      n_extra,
+    qpackenc_state*          qenc,
+    qpackenc_section_result* insert_out,
+    wired_obuf*              out) {
+  h3resp_lines   s;
+  qpackenc_state tmp;
+  h3resp_status_line(&s, status);
+  h3resp_ct_line(&s, content_type);
+  if (!h3resp_extra_lines(&s, extra, n_extra)) {
     return 0;
   }
-  if (!append_extra_fields(extra, n_extra, out->p, out->cap, &off)) {
-    return 0;
-  }
-  out->len = off;
-  return 1;
+  return qpackenc_section_encode(
+      qenc_or_fallback(qenc, &tmp), s.l, s.n, out, insert_out);
 }
 
 /* RFC 9204 4.5: the single-extra form (extra == 0 adds none). */
 int h3resp_encode_headers_field_qenc(
-    u16                     status,
-    const char*             content_type,
-    const qpack_field*      extra,
-    qpackenc_state*         qenc,
-    qpackenc_status_result* insert_out,
-    wired_obuf*             out) {
+    u16                      status,
+    const char*              content_type,
+    const qpack_field*       extra,
+    qpackenc_state*          qenc,
+    qpackenc_section_result* insert_out,
+    wired_obuf*              out) {
   return h3resp_encode_headers_fields_qenc(
       status, content_type, extra, extra != 0, qenc, insert_out, out);
 }
@@ -179,7 +113,7 @@ int h3resp_encode_headers_field(
     const char*        content_type,
     const qpack_field* extra,
     wired_obuf*        out) {
-  qpackenc_status_result unused;
+  qpackenc_section_result unused;
   return h3resp_encode_headers_field_qenc(
       status, content_type, extra, 0, &unused, out);
 }

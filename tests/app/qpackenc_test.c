@@ -1,32 +1,62 @@
 #include "app/qpack/qpackenc/qpackenc.h"
 
 #include "app/qpack/qpack/insertcount.h"
+#include "app/qpack/qpack/prefix.h"
 #include "app/qpack/qpackdyn/field_decode.h"
-#include "app/qpack/qpackenc/status_line.h"
+#include "app/qpack/qpackenc/section.h"
 #include "test.h"
 
-/* Encode a :status line and commit its planned insert, as srvrun does once
- * the instruction is staged. */
-static int qe_line(u16 status, qpackenc_state* st, qpackenc_status_result* r) {
-  qpackenc_status_line(status, st, r);
-  qpackenc_status_commit(st, r);
-  return r->field_len != 0;
+/* The :status line's bytes from the last qe_plan, past the Prefix. */
+static u8  g_qe_sec[64];
+static u8* g_qe_field;
+static usz g_qe_field_len;
+
+/* Encode a one-line section holding :status (no exact static entry for the
+ * statuses used here, static name 24), as h3resp does. */
+static int qe_plan(u16 status, qpackenc_state* st, qpackenc_section_result* r) {
+  static u8     digits[3];
+  qpack_prefix  pfx;
+  wired_obuf    ob = obuf_of(g_qe_sec, sizeof g_qe_sec);
+  qpackenc_line l  = {
+      {wired_span_of((const u8*)":status", 7), wired_span_of(digits, 3)},
+      -1,
+      24,
+      1};
+  usz pre;
+  digits[0] = (u8)('0' + status / 100);
+  digits[1] = (u8)('0' + status / 10 % 10);
+  digits[2] = (u8)('0' + status % 10);
+  if (!qpackenc_section_encode(st, &l, 1, &ob, r)) {
+    return 0;
+  }
+  pre            = qpack_prefix_decode(g_qe_sec, ob.len, &pfx);
+  g_qe_field     = g_qe_sec + pre;
+  g_qe_field_len = ob.len - pre;
+  return pre != 0;
+}
+
+/* qe_plan, then commit its planned insert, as srvrun does once the
+ * instruction is staged. */
+static int qe_line(u16 status, qpackenc_state* st, qpackenc_section_result* r) {
+  int ok = qe_plan(status, st, r);
+  qpackenc_section_commit(st, r);
+  return ok && g_qe_field_len != 0;
 }
 
 /* RFC 9204 2.1.4: planning alone changes nothing -- a section that is never
  * sent must leave the table, the insert count and the owed Set Dynamic
  * Table Capacity as they were; the commit then applies all three. */
 static void test_qpackenc_plan_then_commit(void) {
-  qpackenc_state         st;
-  qpackenc_status_result r;
+  qpackenc_state          st;
+  qpackenc_section_result r;
   qpackenc_init(&st, 0);
   qpackenc_peer_capacity(&st, 4096);
-  qpackenc_status_line(599, &st, &r);
+  qe_plan(599, &st, &r);
   CHECK(r.insert_len > 3);
   CHECK(st.total_inserts == 0 && st.dyn.count == 0 && st.cap_pending == 1);
-  qpackenc_status_line(599, &st, &r);
+  qe_plan(599, &st, &r);
   CHECK(r.insert_instr[0] == 0x3f); /* the capacity is still owed */
-  qpackenc_status_commit(&st, &r);
+  qpackenc_section_commit(&st, &r);
   CHECK(st.total_inserts == 1 && st.dyn.count == 1 && st.cap_pending == 0);
 }
 
@@ -34,8 +64,8 @@ static void test_qpackenc_plan_then_commit(void) {
  * use must stay entirely off, matching the pre-existing static-or-literal
  * behavior. */
 static void test_qpackenc_capacity_zero_never_uses_dynamic(void) {
-  qpackenc_state         st;
-  qpackenc_status_result r;
+  qpackenc_state          st;
+  qpackenc_section_result r;
   qpackenc_init(&st, 0);
   CHECK(qe_line(599, &st, &r) == 1);
   CHECK(r.insert_len == 0);
@@ -45,8 +75,9 @@ static void test_qpackenc_capacity_zero_never_uses_dynamic(void) {
 
 /* 1 iff the :status field line is the literal fallback (RFC 9204 4.5.4:
  * 01NT + static name index 24 -> 0x5f 0x09), not a table reference. */
-static int qe_is_literal(const qpackenc_status_result* r) {
-  return r->field_len > 2 && r->field[0] == 0x5f && r->field[1] == 0x09;
+static int qe_is_literal(const qpackenc_section_result* r) {
+  (void)r;
+  return g_qe_field_len > 2 && g_qe_field[0] == 0x5f && g_qe_field[1] == 0x09;
 }
 
 /* RFC 9204 2.1.2 (blocked streams treated as 0): the first section to need
@@ -54,8 +85,8 @@ static int qe_is_literal(const qpackenc_status_result* r) {
  * With Literal Name but codes the field as a literal -- it never references
  * an entry the decoder has not acknowledged. */
 static void test_qpackenc_first_insert_matches_golden(void) {
-  qpackenc_state         st;
-  qpackenc_status_result r;
+  qpackenc_state          st;
+  qpackenc_section_result r;
   qpackenc_init(&st, 4096);
   CHECK(qe_line(599, &st, &r) == 1);
   CHECK(r.insert_len > 0);
@@ -76,8 +107,8 @@ static void test_qpackenc_first_insert_matches_golden(void) {
  * inserted again; once an Insert Count Increment covers it, it is referenced
  * as Indexed Field Line T=0, relative index 0 (Base = RIC = abs + 1). */
 static void test_qpackenc_repeat_value_no_reinsert(void) {
-  qpackenc_state         st;
-  qpackenc_status_result first, second, third;
+  qpackenc_state          st;
+  qpackenc_section_result first, second, third;
   qpackenc_init(&st, 4096);
   CHECK(qe_line(599, &st, &first) == 1);
   CHECK(qe_line(599, &st, &second) == 1);
@@ -86,7 +117,7 @@ static void test_qpackenc_repeat_value_no_reinsert(void) {
   CHECK(qpackenc_on_increment(&st, 1) == 1);
   CHECK(qe_line(599, &st, &third) == 1);
   CHECK(third.insert_len == 0 && st.total_inserts == 1);
-  CHECK(third.field_len == 1 && third.field[0] == 0x80);
+  CHECK(g_qe_field_len == 1 && g_qe_field[0] == 0x80);
   /* RFC 9204 4.5.1.1: RIC 1 encodes as (1 mod 2*63) + 1 = 2. */
   CHECK(third.required_insert_count == 2);
 }
@@ -94,8 +125,8 @@ static void test_qpackenc_repeat_value_no_reinsert(void) {
 /* Capacity too small for the entry: falls back to the literal-name-reference
  * shape (matches the pre-existing field_encode.c behavior byte for byte). */
 static void test_qpackenc_capacity_too_small_falls_back(void) {
-  qpackenc_state         st;
-  qpackenc_status_result r;
+  qpackenc_state          st;
+  qpackenc_section_result r;
   qpackenc_init(&st, 8); /* entry_size(":status"=7, "599"=3) + 32 = 42 > 8 */
   CHECK(qe_line(599, &st, &r) == 1);
   CHECK(r.insert_len == 0);
@@ -107,9 +138,9 @@ static void test_qpackenc_capacity_too_small_falls_back(void) {
  * inserting (the oldest are evicted) and the table never exceeds its byte
  * budget or QPACK_DYN_MAX_ENTRIES. */
 static void test_qpackenc_max_entries_boundary(void) {
-  qpackenc_state         st;
-  qpackenc_status_result r;
-  usz                    i;
+  qpackenc_state          st;
+  qpackenc_section_result r;
+  usz                     i;
   qpackenc_init(&st, QPACK_DYN_MAX_CAPACITY);
   for (i = 0; i < QPACK_DYN_MAX_ENTRIES; i++) {
     /* 700..762: never a static-table :status value (App. A's set is fixed
@@ -127,8 +158,8 @@ static void test_qpackenc_max_entries_boundary(void) {
  * 42-byte entries: a third value is not inserted while the first two are
  * unacknowledged, is once they are, and not while a section is pending. */
 static void test_qpackenc_eviction_waits_for_ack(void) {
-  qpackenc_state         st;
-  qpackenc_status_result r;
+  qpackenc_state          st;
+  qpackenc_section_result r;
   qpackenc_init(&st, 84);
   CHECK(qe_line(701, &st, &r) == 1 && r.insert_len > 0);
   CHECK(qe_line(702, &st, &r) == 1 && r.insert_len > 0);
@@ -150,8 +181,8 @@ static void test_qpackenc_eviction_waits_for_ack(void) {
  * 0x3f, 2016-31=1985 -> 0xc1 0x0f), later ones are not. The peer's value,
  * unclamped, is MaxTableCapacity for Required Insert Count (4.5.1.1). */
 static void test_qpackenc_peer_capacity(void) {
-  qpackenc_state         st;
-  qpackenc_status_result r;
+  qpackenc_state          st;
+  qpackenc_section_result r;
   qpackenc_init(&st, 0);
   qpackenc_peer_capacity(&st, 4096);
   CHECK(st.dyn.capacity == QPACKENC_LOCAL_CAP);
@@ -178,13 +209,13 @@ static void test_qpackenc_peer_capacity(void) {
  * decode back to the inserted (":status", "599") pair via the existing
  * decoder-side primitives (qpack_prefix_decode / qdyn_decode_field). */
 static void test_qpackenc_roundtrip_decodes(void) {
-  qpackenc_state         st;
-  qpackenc_status_result r;
-  qpack_ric_ctx          ctx;
-  u64                    ric, base;
-  qdyn_src               src;
-  qpack_field            out;
-  usz                    consumed;
+  qpackenc_state          st;
+  qpackenc_section_result r;
+  qpack_ric_ctx           ctx;
+  u64                     ric, base;
+  qdyn_src                src;
+  qpack_field             out;
+  usz                     consumed;
   qpackenc_init(&st, 4096);
   CHECK(qe_line(599, &st, &r) == 1);
   CHECK(qpackenc_on_increment(&st, 1) == 1);
@@ -197,10 +228,10 @@ static void test_qpackenc_roundtrip_decodes(void) {
 
   src.table = &st.dyn;
   src.base  = base;
-  src.fs    = wired_span_of(r.field, r.field_len);
+  src.fs    = wired_span_of(g_qe_field, g_qe_field_len);
   src.ric   = ric;
   CHECK(qdyn_decode_field(&src, &out, &consumed) == 1);
-  CHECK(consumed == r.field_len);
+  CHECK(consumed == g_qe_field_len);
   CHECK(out.name.n == 7 && out.name.p[0] == ':');
   CHECK(out.value.n == 3 && out.value.p[0] == '5' && out.value.p[2] == '9');
 }
@@ -294,6 +325,117 @@ static void test_qpackenc_decrx_overlong_rejected(void) {
   CHECK(decrx_feed1(&rx, &st, 0, b, sizeof b) == 0);
 }
 
+/* A two-line section: :status 599 and content-type "x/y", neither in the
+ * static table (literal names refs 24 and 44). */
+static int qe_two(
+    qpackenc_state*          st,
+    qpackenc_section_result* r,
+    u8*                      buf,
+    usz                      cap,
+    usz*                     len) {
+  qpackenc_line l[2] = {
+      {{wired_span_of((const u8*)":status", 7),
+        wired_span_of((const u8*)"599", 3)},
+       -1,
+       24,
+       1},
+      {{wired_span_of((const u8*)"content-type", 12),
+        wired_span_of((const u8*)"x/y", 3)},
+       -1,
+       44,
+       1}};
+  wired_obuf ob = obuf_of(buf, cap);
+  int        ok = qpackenc_section_encode(st, l, 2, &ob, r);
+  *len          = ob.len;
+  return ok;
+}
+
+/* RFC 9204 2.1.2 / 4.3.3: a section plans at most one insert -- the first
+ * line that needs one -- so the second new value goes out as a literal and
+ * is inserted by the next section. */
+static void test_qpackenc_section_one_insert(void) {
+  qpackenc_state          st;
+  qpackenc_section_result r;
+  u8                      buf[64];
+  usz                     n;
+  qpackenc_init(&st, 4096);
+  CHECK(qe_two(&st, &r, buf, sizeof buf, &n) == 1);
+  CHECK(r.insert_len > 0 && r.inserted.name.n == 7);
+  qpackenc_section_commit(&st, &r);
+  CHECK(qe_two(&st, &r, buf, sizeof buf, &n) == 1);
+  CHECK(r.insert_len > 0 && r.inserted.name.n == 12);
+  qpackenc_section_commit(&st, &r);
+  CHECK(qe_two(&st, &r, buf, sizeof buf, &n) == 1);
+  CHECK(r.insert_len == 0 && st.total_inserts == 2);
+}
+
+/* RFC 9204 4.5.1 / 4.5.2: two acknowledged entries in one section share one
+ * Base = Required Insert Count = 2; :status (absolute 0) is relative 1
+ * (0x81), content-type (absolute 1) relative 0 (0x80); RIC 2 encodes as
+ * (2 mod 2*128) + 1 = 3. Both decode back through the decoder primitives. */
+static void test_qpackenc_section_shared_base(void) {
+  qpackenc_state          st;
+  qpackenc_section_result r;
+  qpack_ric_ctx           ctx;
+  qdyn_src                src;
+  qpack_field             out;
+  u8                      buf[64];
+  usz                     n, used;
+  u64                     ric;
+  qpackenc_init(&st, 4096);
+  CHECK(qe_two(&st, &r, buf, sizeof buf, &n) == 1);
+  qpackenc_section_commit(&st, &r);
+  CHECK(qe_two(&st, &r, buf, sizeof buf, &n) == 1);
+  qpackenc_section_commit(&st, &r);
+  CHECK(qpackenc_on_increment(&st, 2) == 1);
+  CHECK(qe_two(&st, &r, buf, sizeof buf, &n) == 1);
+  CHECK(n == 4 && buf[0] == 3 && buf[1] == 0);
+  CHECK(buf[2] == 0x81 && buf[3] == 0x80);
+  ctx.max_entries   = st.dyn.max_capacity / 32;
+  ctx.total_inserts = st.total_inserts;
+  CHECK(qpack_ric_decode(r.required_insert_count, &ctx, &ric) == 1);
+  src = (qdyn_src){&st.dyn, ric, wired_span_of(buf + 2, 1), ric};
+  CHECK(qdyn_decode_field(&src, &out, &used) == 1);
+  CHECK(out.name.n == 7 && out.value.p[0] == '5');
+  src.fs = wired_span_of(buf + 3, 1);
+  CHECK(qdyn_decode_field(&src, &out, &used) == 1);
+  CHECK(out.name.n == 12 && out.value.p[0] == 'x');
+}
+
+/* A line that may not be inserted stays a literal with a literal name
+ * (RFC 9204 4.5.6), and an exact static entry is Indexed T=1 (4.5.2). */
+static void test_qpackenc_section_literal_and_static(void) {
+  qpackenc_state          st;
+  qpackenc_section_result r;
+  u8                      buf[64];
+  wired_obuf              ob   = obuf_of(buf, sizeof buf);
+  qpackenc_line           l[2] = {
+      {{wired_span_of((const u8*)"x-a", 3), wired_span_of((const u8*)"b", 1)},
+       -1,
+       -1,
+       0},
+      {{wired_span_of((const u8*)":status", 7),
+        wired_span_of((const u8*)"200", 3)},
+       25,
+       24,
+       1}};
+  qpackenc_init(&st, 4096);
+  CHECK(qpackenc_section_encode(&st, l, 2, &ob, &r) == 1);
+  CHECK(r.insert_len == 0 && r.required_insert_count == 0);
+  CHECK((buf[2] & 0xe0) == 0x20); /* 001NHxxx: literal name */
+  CHECK(buf[ob.len - 1] == 0xd9); /* 11 + 25: static index 25 */
+}
+
+/* A buffer too small for the section is refused, not truncated. */
+static void test_qpackenc_section_overflow(void) {
+  qpackenc_state          st;
+  qpackenc_section_result r;
+  u8                      buf[5];
+  usz                     n;
+  qpackenc_init(&st, 0);
+  CHECK(qe_two(&st, &r, buf, sizeof buf, &n) == 0);
+}
+
 void test_qpackenc(void) {
   test_qpackenc_decrx_invalid_rejected();
   test_qpackenc_decrx_valid_applied();
@@ -307,6 +449,10 @@ void test_qpackenc(void) {
   test_qpackenc_peer_capacity();
   test_qpackenc_roundtrip_decodes();
   test_qpackenc_plan_then_commit();
+  test_qpackenc_section_one_insert();
+  test_qpackenc_section_shared_base();
+  test_qpackenc_section_literal_and_static();
+  test_qpackenc_section_overflow();
   test_qpackenc_on_increment();
   test_qpackenc_on_section_ack();
 }

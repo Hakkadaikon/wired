@@ -3,7 +3,7 @@
 
 #include "app/qpack/qpack/field.h"
 #include "app/qpack/qpackenc/qpackenc.h"
-#include "app/qpack/qpackenc/status_line.h"
+#include "app/qpack/qpackenc/section.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
@@ -29,36 +29,38 @@ int h3resp_encode_headers_field(
     const qpack_field* extra,
     wired_obuf*        out);
 
-/* Same as h3resp_encode_headers_field, but :status is encoded through
- * qenc's dynamic table (qpackenc_status_line) instead of the static-or-
+/* Same as h3resp_encode_headers_field, but the fields are encoded through
+ * qenc's dynamic table (qpackenc_section_encode) instead of the static-or-
  * literal-only path -- the Prefix's Required Insert Count reflects the
  * outcome. qenc == 0 behaves exactly as h3resp_encode_headers_field.
  * *insert_out (caller-owned scratch, never null) receives the qpackenc
- * result the :status line was built from -- insert_out->insert_len > 0
+ * result the section was built from -- insert_out->insert_len > 0
  * means a fresh Insert instruction must be sent on the QPACK encoder
- * stream (RFC 9204 4.3.3); once it is staged, call qpackenc_status_commit
+ * stream (RFC 9204 4.3.3); once it is staged, call qpackenc_section_commit
  * and then qpackenc_note_sent. If the field section or the staging fails,
  * call neither: the encoder state stays as before the plan.
  * Returns 1 with out->len set, 0 if out lacks capacity. */
 int h3resp_encode_headers_field_qenc(
-    u16                     status,
-    const char*             content_type,
-    const qpack_field*      extra,
-    qpackenc_state*         qenc,
-    qpackenc_status_result* insert_out,
-    wired_obuf*             out);
+    u16                      status,
+    const char*              content_type,
+    const qpack_field*       extra,
+    qpackenc_state*          qenc,
+    qpackenc_section_result* insert_out,
+    wired_obuf*              out);
 
 /* Same as h3resp_encode_headers_field_qenc, but with n_extra trailing
- * Literal Field Lines With Literal Name (RFC 9204 4.5.6), one per entry of
- * extra[0..n_extra), in order. n_extra == 0 adds none. Returns 1 with
- * out->len set, 0 if out lacks capacity. */
+ * field lines, one per entry of extra[0..n_extra), in order: a dynamic
+ * reference when the table holds the acknowledged pair, else a Literal Field
+ * Line With Literal Name (RFC 9204 4.5.6). n_extra == 0 adds none. Returns
+ * 1 with out->len set, 0 if out lacks capacity or n_extra exceeds the
+ * section's line table. */
 int h3resp_encode_headers_fields_qenc(
-    u16                     status,
-    const char*             content_type,
-    const qpack_field*      extra,
-    usz                     n_extra,
-    qpackenc_state*         qenc,
-    qpackenc_status_result* insert_out,
-    wired_obuf*             out);
+    u16                      status,
+    const char*              content_type,
+    const qpack_field*       extra,
+    usz                      n_extra,
+    qpackenc_state*          qenc,
+    qpackenc_section_result* insert_out,
+    wired_obuf*              out);
 
 #endif

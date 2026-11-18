@@ -4,7 +4,7 @@
 
 static qpackenc_state* srvrun_qenc_active(srvrun_conn* c);
 static void            srvrun_qenc_send_insert(
-    srvrun_conn* c, const qpackenc_status_result* ins);
+    srvrun_conn* c, const qpackenc_section_result* ins);
 
 /* Reject this Extended CONNECT with 403 (a present but malformed Origin, or
  * one the app's wt_origin_check refused) without establishing a session. */
@@ -120,7 +120,7 @@ static qpackenc_state* srvrun_qenc_active(srvrun_conn* c) {
 
 /* 1 iff ins planned an instruction and it was staged whole on w. */
 static int srvrun_qenc_staged(
-    srvrun_conn* c, srvrun_wtsend* w, const qpackenc_status_result* ins) {
+    srvrun_conn* c, srvrun_wtsend* w, const qpackenc_section_result* ins) {
   return ins->insert_len &&
          srvrun_wtsend_stage_round(
              c, w, wired_span_of(ins->insert_instr, ins->insert_len), 0);
@@ -133,14 +133,14 @@ static int srvrun_qenc_staged(
  * that the field section was sent (qpackenc_note_sent) so pending_acks
  * tracks it. A no-op when the encoder stream is not open. */
 static void srvrun_qenc_send_insert(
-    srvrun_conn* c, const qpackenc_status_result* ins) {
+    srvrun_conn* c, const qpackenc_section_result* ins) {
   srvrun_wtsend* w = srvrun_plumbing_wtsend(
       c, c->qenc_stream_opened, c->qenc_wtsend_slot, SRVRUN_QENC_STREAM);
   if (!w) {
     return;
   }
   if (srvrun_qenc_staged(c, w, ins)) {
-    qpackenc_status_commit(&c->l.h3.qenc, ins);
+    qpackenc_section_commit(&c->l.h3.qenc, ins);
   }
   qpackenc_note_sent(&c->l.h3.qenc, ins->required_insert_count);
 }
@@ -156,9 +156,9 @@ int srvrun_h3_resp_prefix(
     const wired_http_exchange* x,
     u64                        total_len,
     wired_obuf*                pob) {
-  srvrun_hdrs            h;
-  h3resp_fields          f = srvrun_hdrs_app(&h, x, total_len);
-  qpackenc_status_result ins;
+  srvrun_hdrs             h;
+  h3resp_fields           f = srvrun_hdrs_app(&h, x, total_len);
+  qpackenc_section_result ins;
   if (!h3_field_section_ok(
           h3resp_section_size(x->content_type, f),
           c->l.peer_max_field_section)) {
