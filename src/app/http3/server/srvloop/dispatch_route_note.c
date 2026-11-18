@@ -22,8 +22,18 @@ static void route_unreset(wired_srvloop* l, int i) {
   l->reset_slots &= ~((u64)1 << i);
 }
 
+/* RFC 9218 5 / 7: the completed request's Priority header field becomes
+ * the stream's initial priority for the scheduler, unless a PRIORITY_UPDATE
+ * frame already set one (the frame overrides any other signal). */
+static void route_header_priority(wired_srvloop* l, int i) {
+  if (!l->streams[i].priority_updated) {
+    l->streams[i].priority = l->streams[i].req.priority;
+  }
+}
+
 void srvloop_route_note_done(wired_srvloop* l, int i) {
   route_unreset(l, i);
+  route_header_priority(l, i);
   l->req           = l->streams[i].req;
   l->req_stream_id = l->streams[i].stream_id;
   srvloop_route_qpack_ack(l, i);

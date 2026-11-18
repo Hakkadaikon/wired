@@ -69,6 +69,7 @@ int srvloop_stream_slot_claim(wired_srvloop* l, u64 stream_id) {
     srvloop_stream_slot_init(&l->streams[i], stream_id);
     l->req_next_id = u64_max(l->req_next_id, stream_id + 4);
     h3_priority_init(&l->streams[i].priority);
+    l->streams[i].priority_updated = 0;
     srvloop_pending_priority_consume(l, i);
     return (int)i;
   }

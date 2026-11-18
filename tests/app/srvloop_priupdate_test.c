@@ -430,6 +430,51 @@ static void test_srvloop_priority_of_open_stream(void) {
   CHECK(p.incremental == 1);
 }
 
+/* RFC 9218 5: a request's Priority header field is its initial priority
+ * signal, so the scheduler (wired_srvloop_priority_of) sees it once the
+ * request completes. Before this, only PRIORITY_UPDATE reached streams[], and
+ * a quic-go client's "priority: u=0" request was scheduled at u=3. */
+static void test_srvloop_priority_header_reaches_scheduler(void) {
+  wired_srvloop l;
+  h3_priority   p;
+  int           i;
+
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  i = wired_srvloop_slot_for(&l, 4);
+  CHECK(i >= 0);
+  l.streams[i].req.priority = (h3_priority){0, 1};
+  srvloop_route_note_done(&l, i);
+  CHECK(wired_srvloop_priority_of(&l, 4, &p) == 1);
+  CHECK(p.urgency == 0);
+  CHECK(p.incremental == 1);
+}
+
+/* RFC 9218 7: the most recent PRIORITY_UPDATE overrides any other signal,
+ * so a header decoded after it -- the frame came first on the control
+ * stream -- does not replace it. */
+static void test_srvloop_priority_update_beats_header(void) {
+  wired_srvloop l;
+  h3_priority   p;
+  int           i;
+
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  wired_srvloop_priority_apply(&l, 8, &(h3_priority){5, 0}); /* pending */
+  i = wired_srvloop_slot_for(&l, 8);
+  CHECK(i >= 0);
+  l.streams[i].req.priority = (h3_priority){0, 1};
+  srvloop_route_note_done(&l, i);
+  CHECK(wired_srvloop_priority_of(&l, 8, &p) == 1);
+  CHECK(p.urgency == 5);
+  i = wired_srvloop_slot_for(&l, 12);
+  wired_srvloop_priority_apply(&l, 12, &(h3_priority){6, 0}); /* open */
+  l.streams[i].req.priority = (h3_priority){1, 0};
+  srvloop_route_note_done(&l, i);
+  CHECK(wired_srvloop_priority_of(&l, 12, &p) == 1);
+  CHECK(p.urgency == 6);
+}
+
 /* A stream id with no open streams[] slot has nothing to read. */
 static void test_srvloop_priority_of_unopened_stream(void) {
   wired_srvloop l;
@@ -621,6 +666,8 @@ void test_srvloop_priupdate(void) {
   test_srvloop_ctrl_ignores_other_uni_stream_chunks();
   test_srvloop_ctrl_first_frame_not_settings_missing();
   test_srvloop_priority_of_open_stream();
+  test_srvloop_priority_header_reaches_scheduler();
+  test_srvloop_priority_update_beats_header();
   test_srvloop_ctrl_stream_reclaims_parsed_bytes();
   test_srvloop_ctrl_stream_overflow_latched();
   test_srvloop_priority_of_unopened_stream();

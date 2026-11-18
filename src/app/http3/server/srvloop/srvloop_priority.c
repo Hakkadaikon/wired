@@ -40,7 +40,8 @@ void wired_srvloop_priority_apply(
     wired_srvloop* l, u64 stream_id, const h3_priority* p) {
   int i = srvloop_stream_slot_find(l, stream_id);
   if (i >= 0) {
-    l->streams[i].priority = *p;
+    l->streams[i].priority         = *p;
+    l->streams[i].priority_updated = 1;
   } else {
     pending_priority_set(l, stream_id, p);
   }

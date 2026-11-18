@@ -177,13 +177,16 @@ typedef struct {
    * produced. Distinguishes "answered" from "must be aborted with
    * H3_REQUEST_INCOMPLETE" for whichever layer reaps this slot. */
   int req_incomplete;
-  /** RFC 9218 4.1/7.1: this stream's current response priority, applied by a
-   * PRIORITY_UPDATE frame on the peer's control stream (see
-   * wired_srvloop_priority_apply) and defaulted (u=3, i=0) whenever the slot
-   * is (re)claimed -- a request that never receives a PRIORITY_UPDATE keeps
-   * whatever the Priority request header field set (RFC 9218 5), unaffected
-   * by this field. */
+  /** RFC 9218 4.1: this stream's current response priority, the one the
+   * response scheduler reads (wired_srvloop_priority_of). Defaulted (u=3,
+   * i=0) when the slot is claimed; the Priority request header field sets it
+   * when the request completes (RFC 9218 5), unless a PRIORITY_UPDATE frame
+   * already did (RFC 9218 7: the most recent frame overrides any other
+   * signal; see wired_srvloop_priority_apply). */
   h3_priority priority;
+  /** 1 once a PRIORITY_UPDATE frame set priority (applied, or consumed from
+   * pending_priority[] at claim); the header field then leaves it alone. */
+  int priority_updated;
   /** 1 once a STREAM frame reached past req_buf's window: past the stream's
    * credit (RFC 9000 4.1), latched into flow_control_violation. */
   int req_over;

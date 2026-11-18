@@ -47,8 +47,9 @@ void srvloop_pending_priority_consume(wired_srvloop* l, usz i) {
   if (p < 0) {
     return;
   }
-  l->streams[i].priority        = l->pending_priority[p].priority;
-  l->pending_priority[p].in_use = 0;
+  l->streams[i].priority         = l->pending_priority[p].priority;
+  l->streams[i].priority_updated = 1;
+  l->pending_priority[p].in_use  = 0;
 }
 
 /* Shift the closed-stream window up k whole words (64 indexes each) in one
