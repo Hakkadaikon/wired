@@ -17,14 +17,14 @@
  * handshake secrets are re-derived client-side here (independent of the
  * server); the 1-RTT/exporter ones are pinned to the server's keysched. */
 
-#define SYS_unlinkat 263
+#include "test_sys.h"
 #define TKL_AT_FDCWD (-100)
 #define TKL_FILE_MAX 2048 /* 6 lines x ~160 bytes, with room */
 
 static const char tkl_path[] = "build/tls_keylog_test.tmp";
 
 static void tkl_unlink(void) {
-  syscall3(SYS_unlinkat, TKL_AT_FDCWD, tkl_path, 0);
+  syscall3(TEST_SYS_unlinkat, TKL_AT_FDCWD, tkl_path, 0);
 }
 
 typedef struct {

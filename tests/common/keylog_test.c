@@ -5,13 +5,13 @@
  * wired_fio_append. Fixtures live in build/ (gitignored, writable) and are
  * removed with unlinkat afterwards. */
 
-#define SYS_unlinkat 263        /* unlinkat(2) */
+#include "test_sys.h"
 #define KEYLOGT_AT_FDCWD (-100) /* unlinkat: resolve against cwd */
 
 static const char keylogt_path[] = "build/keylog_test.tmp";
 
 static void keylogt_unlink(void) {
-  syscall3(SYS_unlinkat, KEYLOGT_AT_FDCWD, keylogt_path, 0);
+  syscall3(TEST_SYS_unlinkat, KEYLOGT_AT_FDCWD, keylogt_path, 0);
 }
 
 /* zero client_random hex-encodes to 64 '0' chars. */

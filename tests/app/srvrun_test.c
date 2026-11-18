@@ -492,12 +492,12 @@ static void test_srvrun_close_drained_error_value_wiring(void) {
       H3_GENERAL_PROTOCOL_ERROR);
 }
 
-#define SYS_unlinkat 263
+#include "test_sys.h"
 #define SRVRUNT_AT_FDCWD (-100)
 static const char srvrunt_qlog_path[] = "build/srvrun_qlog_test.tmp";
 
 static void srvrunt_qlog_unlink(void) {
-  syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_qlog_path, 0);
+  syscall3(TEST_SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_qlog_path, 0);
 }
 
 /* Match the NUL-terminated needle at p (caller guarantees needle-len bytes
@@ -1046,7 +1046,7 @@ static const char srvrunt_cert_pem[] = SRVRUNT_PEM_CERT;
 static const char srvrunt_key_pem[]  = SRVRUNT_PEM_KEY;
 
 static void srvrunt_write(const char* path, const char* text, usz n) {
-  syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, path, 0);
+  syscall3(TEST_SYS_unlinkat, SRVRUNT_AT_FDCWD, path, 0);
   wired_fio_append(path, wired_span_of((const u8*)text, n));
 }
 
@@ -1143,8 +1143,8 @@ static void test_srvrun_reload_requested_updates_id(void) {
   CHECK(srvrun_reload_requested(&g_srvrun_env) == 0);
   CHECK(id.chain_count == 1);
   CHECK(id.chain != 0);
-  syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_cert_path, 0);
-  syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_key_path, 0);
+  syscall3(TEST_SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_cert_path, 0);
+  syscall3(TEST_SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_key_path, 0);
 }
 
 /* RELOAD DISABLED: cert_path unset (reload off) -> a pending flag is cleared
@@ -1170,7 +1170,7 @@ static void test_srvrun_reload_failure_keeps_previous_id(void) {
   const u8*        pub = (const u8*)0x2a;
   id.pub               = pub;
   id.chain_count       = 7;
-  syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_cert_path, 0);
+  syscall3(TEST_SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_cert_path, 0);
   {
     srvrun_cfg cfg = {
         -1,

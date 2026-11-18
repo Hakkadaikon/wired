@@ -4,13 +4,13 @@
  * record + LF, appended via wired_fio_append. Fixtures are created in
  * build/ (gitignored, writable) and removed with unlinkat afterwards. */
 
-#define SYS_unlinkat 263      /* unlinkat(2) */
+#include "test_sys.h"
 #define QLOGT_AT_FDCWD (-100) /* unlinkat: resolve against cwd */
 
 static const char qlogt_path[] = "build/qlog_test.tmp";
 
 static void qlogt_unlink(void) {
-  syscall3(SYS_unlinkat, QLOGT_AT_FDCWD, qlogt_path, 0);
+  syscall3(TEST_SYS_unlinkat, QLOGT_AT_FDCWD, qlogt_path, 0);
 }
 
 /* One record: framed as RS + text + LF, nothing more. */

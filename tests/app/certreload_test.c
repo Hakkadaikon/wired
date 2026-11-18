@@ -11,7 +11,7 @@
  * base64-encoded offline and written to build/ so the test drives the real
  * wired_fio_read path, not an in-memory shortcut. */
 
-#define SYS_unlinkat 263
+#include "test_sys.h"
 #define CRT_AT_FDCWD (-100)
 
 static const char crt_cert_path[]    = "build/certreload_cert_test.pem";
@@ -72,12 +72,12 @@ static const char                                          crt_bad_key_pem[] =
     "-----END EC PRIVATE KEY-----\n";
 
 static void crt_write(const char* path, const char* text, usz n) {
-  syscall3(SYS_unlinkat, CRT_AT_FDCWD, path, 0);
+  syscall3(TEST_SYS_unlinkat, CRT_AT_FDCWD, path, 0);
   wired_fio_append(path, wired_span_of((const u8*)text, n));
 }
 
 static void crt_unlink(const char* path) {
-  syscall3(SYS_unlinkat, CRT_AT_FDCWD, path, 0);
+  syscall3(TEST_SYS_unlinkat, CRT_AT_FDCWD, path, 0);
 }
 
 /* BASELINE: a valid single-cert chain + valid key loads successfully and

@@ -466,12 +466,12 @@ static void test_server_records_client_random(void) {
   }
 }
 
-#define SYS_unlinkat 263
+#include "test_sys.h"
 #define SRVT_AT_FDCWD (-100)
 static const char srvt_keylog_path[] = "build/server_keylog_test.tmp";
 
 static void srvt_keylog_unlink(void) {
-  syscall3(SYS_unlinkat, SRVT_AT_FDCWD, srvt_keylog_path, 0);
+  syscall3(TEST_SYS_unlinkat, SRVT_AT_FDCWD, srvt_keylog_path, 0);
 }
 
 /* No keylog path set (the default): a verified Finished writes nothing. */
