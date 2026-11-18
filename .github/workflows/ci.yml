@@ -84,6 +84,41 @@ jobs:
         working-directory: guide
         run: GUIDE_BIN="$PWD/../build/san/guide" node runner/run.ts
 
+  # aarch64: the freestanding build, the unity test (AES-GCM through the
+  # ARMv8 AES/PMULL instructions on this runner) and one HTTP/3 POST from
+  # the guide's quic-go probe to the aarch64 word_list server.
+  aarch64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: compile (freestanding)
+        run: nix develop -c just ninja
+
+      - name: test (hosted unity build)
+        run: nix develop -c just test
+
+      - name: build word_list
+        run: nix develop -c just ninja examples/word_list/wired_server
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: guide/go.mod
+          cache-dependency-path: guide/go.sum
+
+      - name: HTTP/3 POST to the aarch64 server
+        run: |
+          (cd guide && go build -o ../build/probe ./probe)
+          ./examples/word_list/wired_server --port 4433 &
+          srv=$!
+          sleep 1
+          echo 'hello from aarch64' > body
+          ./build/probe h3req localhost:4433 POST / --body-file body > out
+          kill "$srv"
+          grep -q '^status 200$' out
+
   # The moqt_chat frontend and its e2e scripts: biome, tsc, both unit
   # suites and their complexity limits (just js-check).
   js:

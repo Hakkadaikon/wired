@@ -16,7 +16,7 @@ This page is a short overview. The full README and everything under `docs/` are 
 | Dependencies | None. Every file compiles with `-ffreestanding -nostdlib` |
 | Memory | No `malloc` / `free`. Fixed-size tables, static or mapped once at startup |
 | Output | One static server binary |
-| Platform | x86_64 Linux |
+| Platform | x86_64 and aarch64 Linux |
 | License | MIT |
 
 ## 2. Build and run

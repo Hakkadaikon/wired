@@ -1,7 +1,7 @@
 # word_list — a libc-free HTTP/3 server
 
 A minimal HTTP/3 server built on the wired SDK: a static, freestanding
-x86_64-linux binary on direct syscalls, no libc. By default it is a message-log
+Linux binary (x86_64 or aarch64) on direct syscalls, no libc. By default it is a message-log
 demo — `POST` appends the body to an in-memory log and echoes it back, `GET`
 returns the whole log — and with `--root` it serves static files instead. The
 SDK (`wired_srvdriver_run`) owns bind, handshake, HTTP/3, and the I/O drivers;

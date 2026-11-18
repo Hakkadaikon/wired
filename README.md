@@ -18,7 +18,7 @@ C で書いた QUIC・HTTP/3・WebTransport・Media over QUIC Transport(MoQT)の
 | 実装範囲 | 上記すべてをユーザー空間で自前実装 |
 | 外部依存 | なし([2.1 依存関係](#21-依存関係)) |
 | 成果物 | 静的なサーバーバイナリ 1 つ。ほかにインストールするものはない |
-| 動作環境 | x86_64 Linux([10. 動作環境](#10-動作環境)) |
+| 動作環境 | x86_64 と aarch64 の Linux([10. 動作環境](#10-動作環境)) |
 | ライセンス | MIT |
 
 
@@ -280,7 +280,7 @@ int wired_main(int argc, char** argv) {
 
 | 項目 | 条件 |
 |---|---|
-| OS と CPU | x86_64 Linux のみ |
+| OS と CPU | x86_64 と aarch64 の Linux のみ(aarch64 はページが 4 KiB のカーネル) |
 | AF_XDP ドライバー(任意) | root 権限とカーネル 5.9 以降(XDP の `BPF_LINK_CREATE` のため) |
 | NIC がネイティブの XDP に非対応 | `--skb-mode` で汎用 XDP モード(ネイティブより遅い)を使う |
 | 一部の仮想 NIC(`virtio_net` など) | 汎用モードで AF_XDP の送信に失敗することがある。その場合は通常の UDP ドライバーを使う |

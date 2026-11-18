@@ -26,7 +26,7 @@ Build the SDK archive once, then compile your file freestanding against it:
 
 ```sh
 just lib
-clang -target x86_64-linux-gnu -ffreestanding -fno-stack-protector \
+clang -ffreestanding -fno-stack-protector \
       -fno-builtin -nostdlib -static \
       -Isrc -o hello main.c build/libwired.a
 ./hello

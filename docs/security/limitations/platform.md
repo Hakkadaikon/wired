@@ -11,11 +11,24 @@
 
 ## 1. 動作環境
 
-### 1.1 Linux x86-64 だけ
+### 1.1 Linux の x86-64 と aarch64 だけ
 
 影響: ほかのすべての OS と CPU。
 
-ISA に依存するコードは `src/common/arch/x8664/` にあり、ほかの ISA 向けのものはない(ディレクトリ構成から判断。[システムコール](../../syscalls.md))。
+ISA に依存するコードは `src/common/arch/` の `x8664/` と `aarch64/` にあり、`common/arch/raw.h` がビルドする ISA のものを選ぶ([システムコール](../../syscalls.md) 2 章)。
+
+| ISA | 確かめていること |
+|---|---|
+| x86-64 | ここに挙げるすべての検査 |
+| aarch64 | CI の `aarch64` ジョブ(`ubuntu-24.04-arm`)でのフリースタンディングのビルド、単体テスト、`word_list` への HTTP/3 の POST |
+
+### 1.2 aarch64 はページの大きさが 4 KiB のカーネルだけ
+
+影響: 16 KiB や 64 KiB のページで動く aarch64 の Linux。
+
+スレッドのスタックのガードページ(`THREAD_GUARD_LEN`)と `madvise` の単位(`WIRED_ARCH_PAGE`)は 4 KiB である。ページがもっと大きいカーネルでは、`mprotect` と `madvise` が失敗する。
+
+参照: `WIRED_ARCH_PAGE`(`common/arch/sysops.h`)、`THREAD_GUARD_LEN`(`common/platform/thread/thread.c`)
 
 ## 2. ソケット
 

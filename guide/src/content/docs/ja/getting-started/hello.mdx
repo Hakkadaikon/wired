@@ -25,7 +25,7 @@ SDK のアーカイブを一度ビルドし、それに対して自分のファ�
 
 ```sh
 just lib
-clang -target x86_64-linux-gnu -ffreestanding -fno-stack-protector \
+clang -ffreestanding -fno-stack-protector \
       -fno-builtin -nostdlib -static \
       -Isrc -o hello main.c build/libwired.a
 ./hello
