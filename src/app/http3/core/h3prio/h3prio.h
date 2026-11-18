@@ -12,12 +12,10 @@
  * should visit its slots in; it does not send anything itself, mirroring
  * app/datagram/dgpriority's split of responsibility (compare/pick there,
  * order here since a round-robin pass needs a full visiting order, not a
- * single best pick). Incremental responses of the same urgency share
- * bandwidth by nature of the caller's round-robin pass visiting every slot
- * once per pass regardless of this order (RFC 9218 10: "share bandwidth
- * among them") -- ordering incrementals by stream ID as well just makes
- * that visiting order deterministic, it does not change how much of the
- * pass each one gets. */
+ * single best pick). The caller's pass stops at the first urgency level
+ * that sent, so a less urgent response waits while a more urgent one can
+ * send; responses of the same urgency each get one slice per pass (RFC
+ * 9218 10: incremental ones "share bandwidth among them"). */
 
 /** One send candidate a round-robin pass is choosing an order over: a
  * slot's own priority (RFC 9218 4) plus the stream id RFC 9218 10's

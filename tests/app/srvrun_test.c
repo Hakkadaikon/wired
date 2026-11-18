@@ -16457,6 +16457,43 @@ static void test_srvrun_pump_round_robins_across_slots(void) {
   }
 }
 
+/* RFC 9218 10: a higher-urgency response goes out before a lower-urgency
+ * one while it can send. Two responses share a cwnd of two chunks; the
+ * urgency-7 one is on the lower stream id (so it would lead a pass ordered
+ * by stream id alone). Before this rule a pass gave every slot one slice
+ * whatever its urgency, so a real quic-go client saw a late u=0 GET finish
+ * after three earlier u=7 GETs. */
+static void test_srvrun_pump_urgency_goes_first(void) {
+  static u8     body0[8 * SRVRUN_CHUNK];
+  static u8     body1[8 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd = SR_WIN(2);
+  CHECK(wired_srvloop_slot_for(&c.l, 0) >= 0);
+  CHECK(wired_srvloop_slot_for(&c.l, 4) >= 0);
+  wired_srvloop_priority_apply(&c.l, 0, &(h3_priority){7, 0});
+  wired_srvloop_priority_apply(&c.l, 4, &(h3_priority){0, 0});
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[1].in_use    = 1;
+  c.resp[1].stream_id = 4;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 2);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0);
+  }
+}
+
 /* PACING GATES PASSES, NOT SLOTS: once an RTT sample exists and cwnd has
  * grown large enough that the pacing interval floors to 1ms (cc.c),
  * that floor must limit how often a whole round-robin PASS may run, not
@@ -29668,6 +29705,7 @@ void test_srvrun(void) {
   test_srvrun_datagram_fits_validated_probe();
   test_srvrun_cc_algo_zero_means_build_default();
   test_srvrun_pump_round_robins_across_slots();
+  test_srvrun_pump_urgency_goes_first();
   test_srvrun_pacing_floor_does_not_starve_round();
   test_srvrun_pto_probe_bypasses_cwnd();
   test_srvrun_new_send_still_blocked_by_cwnd();

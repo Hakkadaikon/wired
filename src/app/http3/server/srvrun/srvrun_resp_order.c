@@ -27,11 +27,9 @@ static h3prio_candidate srvrun_resp_candidate(const srvrun_conn* c, usz i) {
 }
 
 /* RFC 9218 10: one pacing-unrelated pass over resp[] in priority order
- * (ascending urgency, ascending stream id within a tie -- see
- * h3prio_order's own doc for why this ordering also covers
- * incremental bandwidth sharing and same-urgency starvation avoidance
- * without extra machinery: every slot still gets exactly one slice per
- * pass, only the visiting order within a pass changed). */
+ * (ascending urgency, ascending stream id within a tie). The pass itself
+ * (srvrun_pump_resp_round) sends from the most urgent slots that can send,
+ * one slice each, so equal urgencies share it round-robin. */
 /* (Re)build c->prio_order for the coming pump pass. Claims, releases, and
  * PRIORITY_UPDATEs all land between passes (reap/start/receive run before
  * srvrun_pump_sess in the step), so one build per pass sees exactly what a
@@ -42,6 +40,9 @@ static void srvrun_prio_build(srvrun_conn* c) {
     cand[i] = srvrun_resp_candidate(c, i);
   }
   h3prio_order(cand, SRVRUN_RESP_SLOTS, c->prio_order);
+  for (usz k = 0; k < SRVRUN_RESP_SLOTS; k++) {
+    c->prio_urgency[k] = cand[c->prio_order[k]].urgency;
+  }
 }
 
 static int srvrun_any_resp_in_use(const srvrun_conn* c) {
@@ -59,7 +60,8 @@ static int srvrun_any_resp_in_use(const srvrun_conn* c) {
  * that only carries WebTransport. */
 static void srvrun_prio_identity(srvrun_conn* c) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
-    c->prio_order[i] = i;
+    c->prio_order[i]   = i;
+    c->prio_urgency[i] = 0;
   }
 }
 
