@@ -65,6 +65,13 @@ jobs:
       - name: Enable IPv6 for the network simulator
         run: sudo modprobe ip6table_filter
 
+      # The runner checks each case by dissecting the simulator's capture
+      # with tshark; without it every check finds no packets.
+      - name: install tshark
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
+
       - uses: DeterminateSystems/nix-installer-action@main
 
       - name: build the interop image
