@@ -108,17 +108,22 @@ int srvrun_claim_slot(
       ctx->st->table, WIRED_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
 }
 
-/* AF_XDP core-routing (see wired_srvrun_opt.core_id): only in XDP mode with a
- * non-negative core_id does a freshly generated CID get its leading byte
- * set to this worker's own core/queue index masked under the BPF program's
- * key (ncid_route_encode, RFC 9312 2.6: unreadable to on-path observers),
- * so the BPF filter can key an XSKMAP lookup off the CID instead of the
- * NIC's rx_queue_index.
- * Neither guard is a validating boundary -- ncid_route_encode itself
- * already no-ops (returns < 0) on a cid shorter than NCID_ROUTE_MIN_LEN;
- * there is simply nothing to embed into. */
+/* AF_XDP core-routing (see wired_srvrun_opt.core_id): in XDP mode the BPF
+ * filter decodes every DCID's leading byte under its key and redirects to
+ * that XSKMAP slot, so every CID this server issues carries a slot that
+ * holds a socket -- the worker's core_id, or, with core_id -1 (a single
+ * AF_XDP socket), that socket's own queue. A random byte would decode to
+ * an empty slot about one time in four, and the filter would hand the
+ * connection's packets to the kernel stack, which drops them.
+ * ncid_route_encode itself no-ops on a cid shorter than
+ * NCID_ROUTE_MIN_LEN; there is simply nothing to embed into. */
 static int srvrun_xdp_core_routing(const srvrun_cfg* cfg) {
-  return cfg->xdp != 0 && cfg->core_id >= 0;
+  return cfg->xdp != 0;
+}
+
+/* The XSKMAP slot this server's CIDs route to (see above). */
+static u8 srvrun_xdp_core(const srvrun_cfg* cfg) {
+  return (u8)(cfg->core_id >= 0 ? (u32)cfg->core_id : cfg->xdp->queue_id);
 }
 
 /* One place both a fresh accept (srvrun_open_slot) and any future additional-
@@ -130,7 +135,7 @@ int srvrun_issue_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
     return 0;
   }
   if (srvrun_xdp_core_routing(cfg)) {
-    ncid_route_encode(cid, cid_len, (u8)cfg->core_id, &cfg->xdp->route_key);
+    ncid_route_encode(cid, cid_len, srvrun_xdp_core(cfg), &cfg->xdp->route_key);
   }
   return 1;
 }

@@ -74,10 +74,10 @@ if ! kill -0 "$SRV_PID" 2>/dev/null; then
   exit 1
 fi
 
-# Up to three tries: about one run in three, on main and on branches alike,
-# the first request got no response within the probe's 5 s (measured over
-# eleven runs on 2026-11-17; the cause is not known). The try that succeeded
-# is printed so the rate stays visible in the logs.
+# Up to three tries; the try that succeeded is printed so the rate stays
+# visible in the logs. A server CID without the routing byte used to send
+# about one connection in four to an empty XSKMAP slot (srvrun_issue_cid);
+# a first-try failure now is a new finding.
 request() { # <authority> <body text>
   printf '%s' "$2" >"$WORK/body"
   try=1

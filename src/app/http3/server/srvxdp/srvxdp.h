@@ -39,6 +39,7 @@ typedef struct {
   u8            our_mac[6]; /**< learned from the first RX frame */
   int           have_mac;   /**< 0 until our_mac is learned */
   u16           port;       /**< cfg->port, host order */
+  u32           queue_id;   /**< cfg->queue_id: this socket's XSKMAP slot */
   /** cfg->skip_udp_csum */
   int skip_udp_csum;
   /** the BPF program's CID routing key (wired_srvxdpbpf.route_key) */

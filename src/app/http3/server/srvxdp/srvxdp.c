@@ -21,6 +21,7 @@ static void srvxdp_init_state(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
   *x            = (wired_srvxdp){0};
   x->bpf.map_fd = x->bpf.prog_fd = x->bpf.link_fd = -1;
   x->port                                         = cfg->port;
+  x->queue_id                                     = cfg->queue_id;
   x->skip_udp_csum                                = cfg->skip_udp_csum;
   xdpmac_init(&x->macs);
   xskumem_alloc_init(&x->txpool, SRVXDP_TXPOOL_BASE, SRVXDP_TXPOOL_FRAMES);

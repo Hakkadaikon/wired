@@ -2066,17 +2066,23 @@ static void test_srvrun_open_slot_stamps_qlog_group(void) {
   CHECK(st.conns[1].qlog_slot == 1);
 }
 
-/* CORE_ID < 0 (disabled sentinel) with xdp set still does not embed -- again
- * checked against srvrun_xdp_core_routing's own gate directly, mirrors
- * wired_server_run's own default_opt (xdp unset there, but core_id defaults
- * to -1 the same way incoming_cpu does). */
-static void test_srvrun_issue_cid_xdp_negative_core_id_no_embed(void) {
-  u8           cid[8] = {0};
-  wired_srvxdp fake_xdp;
-  srvrun_cfg   cfg = {.xdp = &fake_xdp, .core_id = -1, 0, 0, 0, 0};
-  CHECK(srvrun_xdp_core_routing(&cfg) == 0);
-  CHECK(srvrun_issue_cid(&cfg, cid, sizeof cid) == 1); /* still succeeds, just
-                                                        * without embedding */
+/* CORE_ID -1 with xdp set (one AF_XDP socket, wired_srvdriver's XDP
+ * driver): the CID still routes, to the socket's own queue. A random byte
+ * decoded to an empty XSKMAP slot about one time in four and the filter
+ * passed the connection to the kernel: the AF_XDP smoke's first request
+ * went unanswered about one run in three, and every interop case failed
+ * when the runner's server ran on AF_XDP. */
+static void test_srvrun_issue_cid_xdp_negative_core_id_routes_to_queue(void) {
+  wired_srvxdp fake_xdp = {0};
+  srvrun_cfg   cfg      = {.xdp = &fake_xdp, .core_id = -1, 0, 0, 0, 0};
+  fake_xdp.route_key    = g_sr_route_key;
+  fake_xdp.queue_id     = 3;
+  CHECK(srvrun_xdp_core_routing(&cfg) == 1);
+  for (int i = 0; i < 64; i++) {
+    u8 cid[8];
+    CHECK(srvrun_issue_cid(&cfg, cid, sizeof cid) == 1);
+    CHECK(ncid_route_decode(cid, &g_sr_route_key) == 3);
+  }
 }
 
 /* CORE_ID embedding via the shared seam directly (xdp on, core_id in
@@ -29797,7 +29803,7 @@ void test_srvrun(void) {
   test_srvrun_open_slot_xdp_embeds_core_id_zero();
   test_srvrun_open_slot_non_xdp_no_core_id_embedding();
   test_srvrun_open_slot_stamps_qlog_group();
-  test_srvrun_issue_cid_xdp_negative_core_id_no_embed();
+  test_srvrun_issue_cid_xdp_negative_core_id_routes_to_queue();
   test_srvrun_issue_cid_xdp_embeds_core_id();
   test_srvrun_initial_retransmit_resends_cached_flight();
   test_srvrun_boot_antiamp_first_round_caps_at_3x();
