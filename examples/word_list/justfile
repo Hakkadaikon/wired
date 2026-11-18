@@ -32,4 +32,4 @@ run-workers: build
 # tasks/xdp-driver-plan.md). See README.md for the veth+netns interop recipe
 # and the full flag list.
 run-xdp: build
-    sudo ./wired_server --ifindex $IFINDEX --queue 0 --ip $IP --port 4433 --cert cert.pem --key key.pem
+    sudo ./wired_server --ifindex $IFINDEX --queue 0 --port 4433 --cert cert.pem --key key.pem

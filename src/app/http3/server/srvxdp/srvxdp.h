@@ -21,7 +21,6 @@
 typedef struct {
   u32 ifindex;      /**< network interface index */
   u32 queue_id;     /**< RX queue index to bind */
-  u8  ip[4];        /**< our IPv4 address, host-readable octets a.b.c.d */
   u16 port;         /**< our UDP port, host order */
   u16 bind_flags;   /**< passed through to xsk_cfg */
   u32 attach_flags; /**< 0 = native XDP, XDP_FLAGS_SKB_MODE(2) = generic/veth */
@@ -36,10 +35,9 @@ typedef struct {
 typedef struct {
   xsk           xsk;        /**< AF_XDP socket, UMEM and four rings */
   xskumem_alloc txpool;     /**< TX frame pool, UMEM frames 64..127 */
-  xdpmac        macs;       /**< peer ip -> mac reflect cache */
+  xdpmac        macs;       /**< peer ip -> (mac, our ip) reflect cache */
   u8            our_mac[6]; /**< learned from the first RX frame */
   int           have_mac;   /**< 0 until our_mac is learned */
-  u32           ip_be;      /**< cfg->ip, network byte order */
   u16           port;       /**< cfg->port, host order */
   /** cfg->skip_udp_csum */
   int skip_udp_csum;

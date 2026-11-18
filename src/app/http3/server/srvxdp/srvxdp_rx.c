@@ -20,10 +20,10 @@ static u32 srvxdp_reap_comp(wired_srvxdp* x) {
   return n;
 }
 
-/* Learn the peer's MAC (and, the first time, our own) from one parsed RX
- * frame. */
+/* Learn the peer's MAC and the address it sent to (and, the first time,
+ * our own MAC) from one parsed RX frame. */
 static void srvxdp_learn(wired_srvxdp* x, const xdpframe_rx* rx) {
-  xdpmac_learn(&x->macs, wired_udp_addr4_be(&rx->src), rx->peer_mac);
+  xdpmac_learn(&x->macs, rx->src.addr, rx->peer_mac, rx->our_ip);
   if (!x->have_mac) {
     for (usz i = 0; i < 6; i++) {
       x->our_mac[i] = rx->our_mac[i];

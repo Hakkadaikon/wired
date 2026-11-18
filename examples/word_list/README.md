@@ -46,7 +46,7 @@ QUIC + TLS 1.3 handshake against this server and received `HTTP/3 200`.
 | `--pin-core N` | unpinned | pin the single-process server to CPU N |
 | `--workers N [--pin-cores 1]` | — | N forked worker processes (`SO_REUSEPORT`) |
 | `--cores a,b,c [--control-core N]` | — | worker threads pinned to those CPUs |
-| `--ifindex N [--queue N --ip a.b.c.d --skb-mode --skip-udp-csum]` | — | AF_XDP driver (root) |
+| `--ifindex N [--queue N --skb-mode --skip-udp-csum]` | — | AF_XDP driver (root; IPv4 and IPv6) |
 
 `--workers` cannot combine with `--cores` or `--ifindex`, and `--pin-core`
 cannot combine with `--workers` or `--cores` (they have their own pinning

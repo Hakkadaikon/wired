@@ -59,9 +59,8 @@ static void sxt_init(sxt_world* w, wired_srvxdp* x) {
   x->xsk.umem_len = SXT_UMEM_LEN;
   x->xsk.fd       = -1;
   x->bpf.map_fd = x->bpf.prog_fd = x->bpf.link_fd = -1;
-  /* our identity, initialized the same way wired_srvxdp_open does it:
-   * 10.7.0.1:4433, the golden RX vector's destination */
-  bytes_memcpy((u8*)&x->ip_be, (const u8[]){10, 7, 0, 1}, 4);
+  /* our port, as wired_srvxdp_open sets it; our address is learned per
+   * peer from each received frame's destination */
   x->port = 4433;
   xdpmac_init(&x->macs);
   xskumem_alloc_init(&x->txpool, SRVXDP_TXPOOL_BASE, SRVXDP_TXPOOL_FRAMES);
@@ -285,6 +284,46 @@ static void test_srvxdp_print_stats_bad_fd(void) {
   wired_srvxdp_print_stats(-1);
 }
 
+/* RFC 8200 on the shipping paths: an IPv6 frame ([fd00::2]:5555 ->
+ * [fd00::1]:4433, xdpframe_test.c's IPv6 vector) is delivered with its
+ * native IPv6 source, and the reply to that peer goes out as IPv6 from the
+ * address the peer sent to, with a UDP checksum (RFC 8200 8.1). */
+static void test_srvxdp_ipv6_rx_then_send(void) {
+  static const u8 g6[64] = {
+      0x02, 0x07, 0x00, 0x00, 0x00, 0x01, 0x02, 0x07, 0x00, 0x00, 0x00,
+      0x02, 0x86, 0xdd, 0x60, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x11, 0x40,
+      0xfd, 0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+      0,    0,    0,    0,    2,    0xfd, 0,    0,    0,    0,    0,
+      0,    0,    0,    0,    0,    0,    0,    0,    0,    1,    0x15,
+      0xb3, 0x11, 0x51, 0x00, 0x0a, 0x76, 0x68, 'h',  'i'};
+  static sxt_world w;
+  wired_srvxdp     x;
+  u8               payload_buf[64];
+  mmsg_buf         bufs[4];
+  u32              idx;
+  xdp_desc*        d;
+  xdpframe_rx      rx;
+  sxt_init(&w, &x);
+  bytes_memcpy(w.umem, g6, 64);
+  CHECK(xskring_prod_reserve(&w.krx, 1, &idx) == 1);
+  d       = xskring_desc_at(&w.krx, idx);
+  d->addr = 0;
+  d->len  = 64;
+  xskring_prod_submit(&w.krx, 1);
+  bufs[0].buf = wired_mspan_of(payload_buf, sizeof payload_buf);
+  CHECK(wired_srvxdp_rx_burst(&x, bufs, 4) == 1);
+  CHECK(xdpframe_is_v4(bufs[0].src.addr) == 0 && bufs[0].src.addr[15] == 2);
+  CHECK(
+      wired_srvxdp_send(&x, &bufs[0].src, wired_span_of(payload_buf, 2)) == 1);
+  CHECK(xskring_cons_peek(&w.ktx, 1, &idx) == 1);
+  d = xskring_desc_at(&w.ktx, idx);
+  CHECK(d->len == XDPFRAME_HDRS6 + 2);
+  CHECK(xdpframe_parse(wired_span_of(w.umem + d->addr, d->len), 0, &rx) == 1);
+  CHECK(rx.src.addr[0] == 0xfd && rx.src.addr[15] == 1);
+  CHECK(be_get_be16((const u8*)&rx.src.port_be) == 4433);
+  CHECK(rx.our_ip[15] == 2 && rx.dport == 5555);
+}
+
 /* RFC 9000 14 / RFC 791 3.2 on the shipping send path: every frame
  * wired_srvxdp_send builds has DF set and a fresh Identification. */
 static void test_srvxdp_send_sets_df_unique_id(void) {
@@ -307,6 +346,7 @@ static void test_srvxdp_send_sets_df_unique_id(void) {
 }
 
 void test_srvxdp(void) {
+  test_srvxdp_ipv6_rx_then_send();
   test_srvxdp_rx_basic();
   test_srvxdp_rx_conservation();
   test_srvxdp_rx_drops_bad_headers();

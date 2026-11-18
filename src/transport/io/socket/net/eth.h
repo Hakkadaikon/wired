@@ -14,6 +14,9 @@
 /** EtherType for IPv4. */
 #define ETH_TYPE_IPV4 0x0800u
 
+/** EtherType for IPv6 (RFC 2464 3). */
+#define ETH_TYPE_IPV6 0x86DDu
+
 /** Decoded Ethernet II header. */
 typedef struct {
   /** destination MAC address */

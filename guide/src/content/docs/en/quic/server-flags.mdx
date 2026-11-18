@@ -22,7 +22,8 @@ CPU) and takes three TLS handshakes.
 - `wired_srvdriver_run(&id, h, obs, &opt)` starts the driver `opt.kind`
   names: a single process, `--workers N` forked processes, `--cores 0,1` (one
   thread per listed CPU), or `--ifindex` AF_XDP. AF_XDP is selected with
-  `--ifindex N --ip a.b.c.d` and needs root and a NIC that supports AF_XDP.
+  `--ifindex N` and needs root and a NIC that supports AF_XDP. It takes
+  IPv4 and IPv6, and replies from the address each peer sent to.
   Every driver enters the same server loop and serves requests until the
   process receives SIGTERM.
 - The identity and handler are the same as in the HTTP/3 hello page.

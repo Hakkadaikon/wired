@@ -3,20 +3,23 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* ip -> mac reflect cache for the AF_XDP TX path. The server never initiates
- * a flow, so every peer's MAC is learned from a received frame first; a TX
- * lookup miss means "drop and let QUIC retransmit". Keys are IPv4 addresses
- * kept in network byte order so the send hot path never byte-swaps. */
+/* peer ip -> (peer mac, our ip) reflect cache for the AF_XDP TX path. The
+ * server never initiates a flow, so every peer is learned from a received
+ * frame first: its MAC, and the address it sent to (ours, the source of
+ * every reply). A TX lookup miss means "drop and let QUIC retransmit". Keys
+ * and our addresses are 16 bytes, IPv4 ones v4-mapped, as in sockaddr. */
 
 /** Number of cache slots. */
 #define XDPMAC_CAP 64
 
-/** Fixed-capacity ip -> mac cache. Full and seeing a new ip, it evicts slots
+/** Fixed-capacity cache. Full and seeing a new peer, it evicts slots
  * round-robin (clock walks 0..CAP-1 and wraps), so the oldest entry goes
  * first. Zero-init via xdpmac_init(). */
 typedef struct {
-  /** IPv4 key, network byte order; valid if used */
-  u32 ip[XDPMAC_CAP];
+  /** peer address key; valid if used */
+  u8 ip[XDPMAC_CAP][16];
+  /** our address the peer sent to */
+  u8 our[XDPMAC_CAP][16];
   /** Ethernet MAC learned for ip */
   u8 mac[XDPMAC_CAP][6];
   /** 1 if the slot holds an entry */
@@ -28,13 +31,15 @@ typedef struct {
 /** Empty the cache (all slots free, clock at 0). */
 void xdpmac_init(xdpmac* c);
 
-/** Learn (or refresh) the MAC for ip_be. An existing entry for ip_be is
- * updated in place; otherwise a free slot is taken, and with none free the
- * round-robin victim is evicted. */
-void xdpmac_learn(xdpmac* c, u32 ip_be, const u8 mac[6]);
+/** Learn (or refresh) peer's MAC and our address. An existing entry for
+ * peer is updated in place; otherwise a free slot is taken, and with none
+ * free the round-robin victim is evicted. */
+void xdpmac_learn(
+    xdpmac* c, const u8 peer[16], const u8 mac[6], const u8 our[16]);
 
-/** Look up the MAC for ip_be. On a hit copies 6 bytes into mac_out and
- * returns 1; returns 0 on a miss (mac_out untouched). */
-int xdpmac_lookup(const xdpmac* c, u32 ip_be, u8 mac_out[6]);
+/** Look up peer. On a hit copies its MAC into mac_out and our address into
+ * our_out and returns 1; returns 0 on a miss (outputs untouched). */
+int xdpmac_lookup(
+    const xdpmac* c, const u8 peer[16], u8 mac_out[6], u8 our_out[16]);
 
 #endif

@@ -8,7 +8,8 @@
 /** @file
  * XDP filter program builder plus the bpf(2) calls needed to run it: create
  * an XSKMAP, load the program, and attach it to an interface with a BPF
- * link. The filter redirects IPv4/UDP frames for one destination port to the
+ * link. The filter redirects IPv4/UDP and IPv6/UDP frames (no IPv6
+ * extension headers) for one destination port to the
  * XSKMAP, keyed by the worker/core index the QUIC destination CID carries
  * (ncid_route_encode: cid[0] masked by a keyed mix of cid[1..4], the key
  * patched into the program, RFC 9312 2.6) when the packet's QUIC header is
@@ -17,11 +18,12 @@
  * long header, or a DCID byte value that is out of range for the XSKMAP --
  * a client's self-chosen initial DCID, RFC 9000 7.2, is an unconstrained
  * random byte, unlike a server-issued CID's core-routing byte). Anything
- * that is not IPv4/UDP/dport-match is XDP_PASS, so the kernel keeps
- * handling ARP/ICMP/other traffic.
+ * that is not IPv4- or IPv6-UDP/dport-match is XDP_PASS, so the kernel keeps
+ * handling ARP/ICMP/ICMPv6 neighbour discovery/other traffic.
  *
  * Header-format offsets (RFC 9000 17.2/17.3), all relative to the fixed
- * UDP-payload start at byte 42 (Ethernet 14 + IPv4 IHL=5 20 + UDP 8): a short
+ * UDP-payload start at byte 42 (Ethernet 14 + IPv4 IHL=5 20 + UDP 8; an
+ * IPv6 frame's 62 is read through a frame pointer moved 20 bytes on): a short
  * header's DCID starts right after the 1-byte flags (offset 43); a long
  * header's DCID starts after flags+version(4)+DCID-len(1) (offset 48), and
  * is only present when that DCID-len byte is non-zero. The DCID's length
@@ -32,7 +34,7 @@
  * explicit length byte, straight off the wire. */
 
 /** Number of u64 instructions xdpbpf_prog_build() emits. */
-#define XDPBPF_PROG_LEN 58
+#define XDPBPF_PROG_LEN 68
 
 /** Build the XDP filter into out: eth/IPv4 (IHL=5, non-fragment)/UDP with
  * dport == port is redirected to the XSKMAP map_fd, keyed by the core index

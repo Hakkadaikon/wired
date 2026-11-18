@@ -45,6 +45,17 @@ RETRY=""
 MIGRATE=""
 [ "$TESTCASE" = "connectionmigration" ] && MIGRATE="--migrate-addr"
 
+# SERVER_PARAMS=af_xdp (the runner hands its own SERVER_PARAMS to the
+# server container): serve over AF_XDP on eth0 instead of a UDP socket, in
+# generic mode (a veth has no native XDP). Loading the BPF filter needs a
+# privileged container, which the runner's compose file does not grant by
+# itself (the CI job adds it). The veth may hand over UDP checksums only
+# partially filled in, so they are not verified.
+XDP=""
+if [ "${SERVER_PARAMS:-}" = "af_xdp" ]; then
+  XDP="--ifindex $(cat /sys/class/net/eth0/ifindex) --skb-mode --skip-udp-csum"
+fi
+
 case "$TESTCASE" in
   http3 | handshake | transfer | retry) ;;
   longrtt | multiplexing | chacha20 | keyupdate | multiconnect) ;;
@@ -81,4 +92,4 @@ exec /wired/wired_server \
   --cert /certs/cert.pem \
   --key /certs/priv.key \
   --alpn-client-order \
-  $QLOG $KEYLOG $RETRY $MIGRATE
+  $QLOG $KEYLOG $RETRY $MIGRATE $XDP

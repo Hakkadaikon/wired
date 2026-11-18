@@ -1,18 +1,32 @@
-#include "transport/io/xdp/xdpframe/xdpframe.h"
-
+#include "common/bytes/text/text.h"
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
 #include "transport/io/socket/net/checksum.h"
+#include "transport/io/xdp/xdpframe/xdpframe_impl.h"
 
-/* Record both MACs from the eth header; 1 iff the frame carries IPv4. */
-static int xdpf_eth(wired_span frame, xdpframe_rx* out) {
+/* RFC 4291 2.5.5.2: the ::ffff:0:0/96 prefix of a v4-mapped address. */
+static const u8 xdpf_v4_prefix[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+
+int xdpframe_is_v4(const u8 a[16]) {
+  return wired_span_eq(wired_span_of(a, 12), wired_span_of(xdpf_v4_prefix, 12));
+}
+
+/* a as v4-mapped: the prefix, then the four IPv4 bytes. */
+static void xdpf_map4(u8 out[16], const u8* v4) {
+  bytes_memcpy(out, xdpf_v4_prefix, 12);
+  bytes_memcpy(out + 12, v4, 4);
+}
+
+/* Record both MACs from the eth header; returns its EtherType (0 when the
+ * frame is too short). */
+static u16 xdpf_eth(wired_span frame, xdpframe_rx* out) {
   eth_head eh;
   if (!eth_parse(frame, &eh)) {
     return 0;
   }
   bytes_memcpy(out->peer_mac, eh.src, 6);
   bytes_memcpy(out->our_mac, eh.dst, 6);
-  return eh.ethertype == ETH_TYPE_IPV4;
+  return eh.ethertype;
 }
 
 /* RFC 791 3.1/3.2: IHL is the header length in 32-bit words, minimum 5; a
@@ -64,14 +78,12 @@ static int xdpf_udp_csum_ok(const u8* ip, usz hlen, u32 flags) {
  * into out, after checking its length and checksum. */
 static int xdpf_udp(const u8* ip, usz hlen, u32 flags, xdpframe_rx* out) {
   const u8* udp = ip + hlen;
-  sockaddr  dst;
   if (be_get_be16(udp + 4) != be_get_be16(ip + 2) - hlen ||
       !xdpf_udp_csum_ok(ip, hlen, flags)) {
     return 0;
   }
   wired_udp_addr(&out->src, be_get_be16(udp), ip + 12);
-  wired_udp_addr(&dst, 0, ip + 16);
-  out->our_ip      = wired_udp_addr4_be(&dst);
+  xdpf_map4(out->our_ip, ip + 16);
   out->dport       = be_get_be16(udp + 2);
   out->payload     = udp + UDP_HDR;
   out->payload_len = (usz)be_get_be16(udp + 4) - UDP_HDR;
@@ -94,38 +106,54 @@ static int xdpf_ip(const u8* ip, usz rem, u32 flags, xdpframe_rx* out) {
   return xdpf_udp(ip, hlen, flags, out);
 }
 
+/* Dispatch on the EtherType: IPv6, IPv4, or neither (rejected). */
+static int xdpf_l3(u16 et, const u8* ip, usz rem, u32 flags, xdpframe_rx* out) {
+  if (et == ETH_TYPE_IPV6) {
+    return xdpframe_parse6(ip, rem, flags, out);
+  }
+  return et == ETH_TYPE_IPV4 && xdpf_ip(ip, rem, flags, out);
+}
+
 int xdpframe_parse(wired_span frame, u32 flags, xdpframe_rx* out) {
   if (frame.n < XDPFRAME_HDRS) {
     return 0;
   }
-  if (!xdpf_eth(frame, out)) {
-    return 0;
-  }
-  return xdpf_ip(frame.p + ETH_HDR, frame.n - ETH_HDR, flags, out);
+  return xdpf_l3(
+      xdpf_eth(frame, out), frame.p + ETH_HDR, frame.n - ETH_HDR, flags, out);
 }
 
 /* Write the eth header at the frame start. */
-static void xdpf_put_eth(u8* p, const xdpframe_tx* m) {
+void xdpframe_put_eth(u8* p, const xdpframe_tx* m, u16 ethertype) {
   eth_head eh;
   bytes_memcpy(eh.dst, m->dst_mac, 6);
   bytes_memcpy(eh.src, m->src_mac, 6);
-  eh.ethertype = ETH_TYPE_IPV4;
+  eh.ethertype = ethertype;
   eth_build(p, &eh);
+}
+
+/* eth + IPv4 + UDP around payload, or 0 if frame.n is too small. */
+static usz xdpf_build4(
+    wired_mspan frame, const xdpframe_tx* m, wired_span payload) {
+  if (frame.n < XDPFRAME_HDRS + payload.n) {
+    return 0;
+  }
+  udp4meta meta = {
+      m->ports, {be_get_be32(m->src + 12), be_get_be32(m->dst + 12)}};
+  ipv4_head ih = {
+      (u16)(IPV4_HDR + UDP_HDR + payload.n), meta.addrs.src, meta.addrs.dst,
+      IP_PROTO_UDP, m->ip_id};
+  wired_obuf ob =
+      obuf_of(frame.p + ETH_HDR + IPV4_HDR, frame.n - ETH_HDR - IPV4_HDR);
+  xdpframe_put_eth(frame.p, m, ETH_TYPE_IPV4);
+  ipv4_build(frame.p + ETH_HDR, &ih);
+  udp4_build(&ob, &meta, payload);
+  return XDPFRAME_HDRS + payload.n;
 }
 
 usz xdpframe_build(
     wired_mspan frame, const xdpframe_tx* m, wired_span payload) {
-  usz       total = XDPFRAME_HDRS + payload.n;
-  ipv4_head ih    = {
-      (u16)(IPV4_HDR + UDP_HDR + payload.n), m->udp.addrs.src, m->udp.addrs.dst,
-      IP_PROTO_UDP, m->ip_id};
-  wired_obuf ob;
-  if (frame.n < total) {
-    return 0;
+  if (xdpframe_is_v4(m->dst)) {
+    return xdpf_build4(frame, m, payload);
   }
-  xdpf_put_eth(frame.p, m);
-  ipv4_build(frame.p + ETH_HDR, &ih);
-  ob = obuf_of(frame.p + XDPFRAME_HDRS - UDP_HDR, frame.n - ETH_HDR - IPV4_HDR);
-  udp4_build(&ob, &m->udp, payload);
-  return total;
+  return xdpframe_build6(frame, m, payload);
 }

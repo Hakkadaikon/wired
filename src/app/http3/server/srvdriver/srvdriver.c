@@ -62,7 +62,7 @@ static u32 srvdriver_xdp_attach_flags(int argc, char** argv) {
   return 0u;
 }
 
-/* --ifindex/--ip/--queue/--skb-mode/--skip-udp-csum into opt->xdp (opt->port,
+/* --ifindex/--queue/--skb-mode/--skip-udp-csum into opt->xdp (opt->port,
  * already resolved by wired_srvdriver_parse, seeds the BPF redirect filter).
  * Shared by WIRED_SRVDRIVER_XDP and WIRED_SRVDRIVER_THREADS (the latter when
  * --ifindex was also given, selecting AF_XDP multi-queue mode: worker i
@@ -71,9 +71,6 @@ static int srvdriver_load_xdp(int argc, char** argv, wired_srvdriver_opt* opt) {
   wired_srvxdp_cfg* xdp     = &opt->xdp;
   i64               ifindex = wired_cliargs_int(argc, argv, "--ifindex", -1);
   if (ifindex < 0) {
-    return 0;
-  }
-  if (!wired_cliargs_ipv4(wired_cliargs_str(argc, argv, "--ip", ""), xdp->ip)) {
     return 0;
   }
   xdp->ifindex       = (u32)ifindex;

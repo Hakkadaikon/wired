@@ -46,7 +46,7 @@ typedef struct {
   wired_srvthreads_opt threads; /**< THREADS knobs */
 } wired_srvdriver_opt;
 
-/** Parse `--port`/`--workers`/`--ifindex`/`--queue`/`--ip`/`--skb-mode`/
+/** Parse `--port`/`--workers`/`--ifindex`/`--queue`/`--skb-mode`/
  * `--skip-udp-csum`/`--cores`/`--control-core`/`--pin-core` from argv into
  * *opt, applying the same exclusive-combination rules as examples/word_list's
  * driver_select:

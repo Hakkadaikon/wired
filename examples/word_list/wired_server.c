@@ -12,7 +12,7 @@
  * Four ways to run it, chosen by CLI flags at startup and resolved by
  * wired_srvdriver_parse (mutually exclusive, see srvdriver.h): plain
  * single-process UDP (the default), multi-worker (--workers N), AF_XDP
- * (--ifindex N --ip a.b.c.d), or thread-based fan-out (--cores a,b,c). */
+ * (--ifindex N), or thread-based fan-out (--cores a,b,c). */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim and _start */
 #include "word_list.h"
@@ -142,7 +142,7 @@ static wired_certreload_store cert_store;
  * mode, absent = history demo), --index (default index.html), --access-log
  * (absent = no logging), --cert/--key (cert.pem/key.pem in the cwd by
  * default), and the driver selection (--workers/--pin-cores, --ifindex/
- * --queue/--ip/--skb-mode, --cores/--control-core, --pin-core, --busy-poll).
+ * --queue/--skb-mode, --cores/--control-core, --pin-core, --busy-poll).
  * qlog/keylog paths go straight into the wired_srvrun_obs built in
  * wired_main and are passed through by wired_srvdriver_run to every driver
  * except WORKERS. */

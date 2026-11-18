@@ -12,6 +12,7 @@ on:
       - "examples/word_list/**"
       - "guide/probe/**"
       - "scripts/xdp_smoke.sh"
+      - "interop/**"
       - ".github/workflows/xdp.yml"
   pull_request:
     paths:
@@ -19,6 +20,7 @@ on:
       - "examples/word_list/**"
       - "guide/probe/**"
       - "scripts/xdp_smoke.sh"
+      - "interop/**"
       - ".github/workflows/xdp.yml"
   workflow_dispatch:
 
@@ -42,3 +44,56 @@ jobs:
 
       - name: HTTP/3 over AF_XDP on a veth pair
         run: sudo sh scripts/xdp_smoke.sh ./examples/word_list/wired_server ./build/probe
+
+  # The interop runner with the wired server on AF_XDP instead of a UDP
+  # socket (SERVER_PARAMS=af_xdp, interop/run_endpoint.sh): the frames the
+  # quic-go client sends through the network simulator reach the server's
+  # eth0 veth and go through the BPF filter and the AF_XDP rings. Loading
+  # the filter needs a privileged server container, which this job adds to
+  # the runner's compose file (this runner is thrown away after the job).
+  interop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The network simulator's compose setup needs a recent docker engine
+      # and the ip6table_filter module (the runner's own CI does the same).
+      - uses: docker/setup-docker-action@v5
+        with:
+          version: version=v28.3.0
+
+      - name: Enable IPv6 for the network simulator
+        run: sudo modprobe ip6table_filter
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: build the interop image
+        run: |
+          CONNTABLE_CAP=64 nix develop -c just ninja examples/word_list/wired_server
+          docker build -t wired-interop -f interop/Dockerfile .
+
+      - name: set up the interop runner
+        run: |
+          bench/goodput-setup.sh "$HOME/quic-interop-runner"
+          python3 - "$HOME/quic-interop-runner/docker-compose.yml" <<'PY'
+          import sys
+          p = sys.argv[1]
+          s = open(p).read()
+          a = "  server:\n    image: $SERVER\n"
+          assert a in s
+          open(p, "w").write(s.replace(a, a + "    privileged: true\n"))
+          PY
+
+      - name: handshake, transfer and http3 over AF_XDP
+        working-directory: /home/runner/quic-interop-runner
+        run: |
+          SERVER_PARAMS=af_xdp .venv/bin/python run.py -s wired -c quic-go \
+            -t handshake,transfer,http3 -l logs-af-xdp -j af-xdp.json
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: interop-af-xdp
+          path: |
+            ~/quic-interop-runner/logs-af-xdp
+            ~/quic-interop-runner/af-xdp.json

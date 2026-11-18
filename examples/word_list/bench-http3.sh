@@ -4,7 +4,7 @@
 # you want to measure, then flip the driver and run again:
 #   plain     ./wired_server --port 4433
 #   busy-poll ./wired_server --port 4433 --busy-poll
-#   xdp       sudo ./wired_server --ifindex <n> --ip <a.b.c.d> --port 4433 --skb-mode
+#   xdp       sudo ./wired_server --ifindex <n> --port 4433 --skb-mode
 # Usage:
 #   URL=https://<IP>:4433/ N=20 ./bench-http3.sh
 # CURL overrides the client command (default: dockerized curl with HTTP/3).

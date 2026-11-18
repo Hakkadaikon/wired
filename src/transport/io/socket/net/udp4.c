@@ -42,19 +42,29 @@ static u16 udp_cksum_field(u16 folded) {
   return folded == 0 ? 0xffffu : folded;
 }
 
-usz udp4_build(wired_obuf* out, const udp4meta* meta, wired_span payload) {
+usz udp4_build_pseudo(
+    wired_obuf* out, udpports ports, wired_span payload, u32 pseudo) {
   u16 udp_len = (u16)(UDP_HDR + payload.n);
-  u32 sum;
   u16 folded;
   if ((usz)udp_len > out->cap) {
     return 0;
   }
-  put_udp(out->p, meta->ports, payload);
-  sum    = pseudo_sum(0, meta->addrs, udp_len);
-  folded = cksum_fold(cksum_accum(sum, out->p, udp_len));
+  put_udp(out->p, ports, payload);
+  folded = cksum_fold(cksum_accum(pseudo, out->p, udp_len));
   put_be16(out->p + 6, udp_cksum_field(folded));
   out->len = udp_len;
   return udp_len;
+}
+
+usz udp4_build(wired_obuf* out, const udp4meta* meta, wired_span payload) {
+  return udp4_build_pseudo(
+      out, meta->ports, payload,
+      pseudo_sum(0, meta->addrs, (u16)(UDP_HDR + payload.n)));
+}
+
+int udp4_sum_ok(wired_span dgram, u32 pseudo) {
+  return dgram.n >= UDP_HDR &&
+         cksum_fold(cksum_accum(pseudo, dgram.p, dgram.n)) == 0;
 }
 
 /* RFC 768 "Fields": an all-zero checksum field means the sender generated
@@ -66,13 +76,11 @@ static int udp_cksum_absent(const u8* dgram) {
 /* An all-zero checksum field is accepted unverified (see udp_cksum_absent);
  * otherwise the pseudo-header sum over the datagram must fold to zero. */
 int udp4_check(wired_span dgram, ipv4addrs addrs) {
-  u32 sum;
   if (dgram.n < UDP_HDR) {
     return 0;
   }
   if (udp_cksum_absent(dgram.p)) {
     return 1;
   }
-  sum = pseudo_sum(0, addrs, (u16)dgram.n);
-  return cksum_fold(cksum_accum(sum, dgram.p, dgram.n)) == 0;
+  return udp4_sum_ok(dgram, pseudo_sum(0, addrs, (u16)dgram.n));
 }

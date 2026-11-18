@@ -19,6 +19,8 @@
 static void bpf_prog_bounds(u64 out[XDPBPF_PROG_LEN]);
 static void bpf_prog_ipv4(u64 out[XDPBPF_PROG_LEN]);
 static void bpf_prog_udp(u64 out[XDPBPF_PROG_LEN]);
+static void bpf_prog_ipv6(u64 out[XDPBPF_PROG_LEN]);
+static void bpf_prog_ipv6_udp(u64 out[XDPBPF_PROG_LEN]);
 
 /* Pack one 8-byte eBPF instruction: code | dst<<8 | src<<12 | (u16)off<<16 |
  * (u32)imm<<32, matching struct xdpbpf_bpf_insn's field layout on
@@ -52,11 +54,12 @@ static void bpf_prog_bounds(u64 out[XDPBPF_PROG_LEN]) {
       BPF_INSN_JGT_REG, 5, 3, xdpbpf_bpf_off(4, BPF_IDX_PASS), 0);
 }
 
-/* idx 5-10: EtherType IPv4, IHL=5, not a fragment. */
+/* idx 5-10: EtherType IPv4 (any other goes to the IPv6 block), IHL=5, not
+ * a fragment. */
 static void bpf_prog_ipv4(u64 out[XDPBPF_PROG_LEN]) {
   out[5] = xdpbpf_bpf_insn(BPF_INSN_LDXH, 4, 2, 12, 0);
   out[6] = xdpbpf_bpf_insn(
-      BPF_INSN_JNE_IMM, 4, 0, xdpbpf_bpf_off(6, BPF_IDX_PASS), 0x0008);
+      BPF_INSN_JNE_IMM, 4, 0, xdpbpf_bpf_off(6, BPF_IDX_V6), 0x0008);
   out[7] = xdpbpf_bpf_insn(BPF_INSN_LDXB, 4, 2, 14, 0);
   out[8] = xdpbpf_bpf_insn(
       BPF_INSN_JNE_IMM, 4, 0, xdpbpf_bpf_off(8, BPF_IDX_PASS), 0x45);
@@ -75,13 +78,46 @@ static void bpf_prog_udp(u64 out[XDPBPF_PROG_LEN]) {
       BPF_INSN_JNE_IMM, 4, 0, xdpbpf_bpf_off(14, BPF_IDX_PASS), 0);
 }
 
+/* idx 15-24: the IPv4 path jumps over this block; anything else must be
+ * EtherType IPv6 (0x86DD, read little-endian as 0xdd86), hold the 62 bytes
+ * of eth + IPv6 + UDP, carry Next Header UDP (RFC 8200 4: an extension
+ * header or any other protocol passes to the kernel, ICMPv6 neighbour
+ * discovery included) and the dport (patched by the caller). It then moves
+ * r2 by BPF_V6_SHIFT so the core reads the QUIC header at IPv4 offsets. */
+static void bpf_prog_ipv6(u64 out[XDPBPF_PROG_LEN]) {
+  int i                = BPF_IDX_V6;
+  out[BPF_IDX_V4_SKIP] = xdpbpf_bpf_insn(
+      BPF_INSN_JA, 0, 0, xdpbpf_bpf_off(BPF_IDX_V4_SKIP, BPF_IDX_CORE_START),
+      0);
+  out[i] = xdpbpf_bpf_insn(
+      BPF_INSN_JNE_IMM, 4, 0, xdpbpf_bpf_off(i, BPF_IDX_PASS), 0xdd86);
+  out[i + 1] = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
+  out[i + 2] = xdpbpf_bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 62);
+  out[i + 3] = xdpbpf_bpf_insn(
+      BPF_INSN_JGT_REG, 5, 3, xdpbpf_bpf_off(i + 3, BPF_IDX_PASS), 0);
+  bpf_prog_ipv6_udp(out);
+}
+
+/* idx 20-24: Next Header UDP, the dport (patched), then r2 += 20. */
+static void bpf_prog_ipv6_udp(u64 out[XDPBPF_PROG_LEN]) {
+  int i      = BPF_IDX_V6;
+  out[i + 4] = xdpbpf_bpf_insn(BPF_INSN_LDXB, 4, 2, 20, 0);
+  out[i + 5] = xdpbpf_bpf_insn(
+      BPF_INSN_JNE_IMM, 4, 0, xdpbpf_bpf_off(i + 5, BPF_IDX_PASS), 17);
+  out[i + 6]          = xdpbpf_bpf_insn(BPF_INSN_LDXH, 4, 2, 56, 0);
+  out[BPF_IDX_DPORT6] = xdpbpf_bpf_insn(
+      BPF_INSN_JNE_IMM, 4, 0, xdpbpf_bpf_off(BPF_IDX_DPORT6, BPF_IDX_PASS), 0);
+  out[i + 8] = xdpbpf_bpf_insn(BPF_INSN_ADD64_IMM, 2, 0, 0, BPF_V6_SHIFT);
+}
+
 void xdpbpf_bpf_prog_prologue(u64 out[XDPBPF_PROG_LEN]) {
   bpf_prog_bounds(out);
   bpf_prog_ipv4(out);
   bpf_prog_udp(out);
+  bpf_prog_ipv6(out);
 }
 
-/* idx 15-19: short-header boundary check (data+48<=data_end: the DCID's
+/* idx 25-29: short-header boundary check (data+48<=data_end: the DCID's
  * first BPF_DCID_SPAN bytes start at offset 43), read the QUIC header's first
  * byte, and split on the Header Form bit (RFC 9000 17.2/17.3: 1 = long
  * header, 0 = short header). An earlier revision sent Header Form 0 to the
@@ -98,7 +134,7 @@ void xdpbpf_bpf_prog_header_split(u64 out[XDPBPF_PROG_LEN]) {
       BPF_INSN_JSET_IMM, 4, 0, xdpbpf_bpf_off(i + 4, BPF_IDX_LONG), 0x80);
 }
 
-/* idx 20-22 (BPF_IDX_SHORT): the short path points r5 at the DCID in the
+/* idx 30-32 (BPF_IDX_SHORT): the short path points r5 at the DCID in the
  * fixed short-header layout (offset 43, RFC 9000 17.3) and jumps to the
  * shared unmasking block (BPF_IDX_MIX). */
 void xdpbpf_bpf_prog_short_path(u64 out[XDPBPF_PROG_LEN]) {
@@ -116,7 +152,7 @@ static void bpf_lddw(u64* out, u8 dst, u64 imm) {
   out[1] = xdpbpf_bpf_insn(0, 0, 0, 0, (i32)(u32)(imm >> 32));
 }
 
-/* idx 31-38: load cid[0] into r6 and w = LE cid[1..4] into r7, then
+/* idx 41-48: load cid[0] into r6 and w = LE cid[1..4] into r7, then
  * r7 = (w ^ k0) * k1 (ncid_route_mask's first round). */
 static void bpf_prog_mix_head(u64* out, const ncid_route_key* key) {
   out[0] = xdpbpf_bpf_insn(BPF_INSN_LDXB, 6, 5, 0, 0);
@@ -127,7 +163,7 @@ static void bpf_prog_mix_head(u64* out, const ncid_route_key* key) {
   out[7] = xdpbpf_bpf_insn(BPF_INSN_MUL64_REG, 7, 8, 0, 0);
 }
 
-/* idx 39-47: r7 ^= r7 >> 32; r7 *= k2; mask = r7 >> 56; r2 = cid[0] ^ mask
+/* idx 49-57: r7 ^= r7 >> 32; r7 *= k2; mask = r7 >> 56; r2 = cid[0] ^ mask
  * (the routing key), exactly ncid_route_decode. */
 static void bpf_prog_mix_tail(u64* out, const ncid_route_key* key) {
   out[0] = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 8, 7, 0, 0);
@@ -140,7 +176,7 @@ static void bpf_prog_mix_tail(u64* out, const ncid_route_key* key) {
   out[8] = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 2, 6, 0, 0);
 }
 
-/* idx 31-47 (BPF_IDX_MIX): r5 points at a DCID whose first BPF_DCID_SPAN
+/* idx 41-57 (BPF_IDX_MIX): r5 points at a DCID whose first BPF_DCID_SPAN
  * bytes are bounds-checked; recover the core index into r2 (RFC 9312 2.6
  * obfuscated routing byte, see ncid_route_key) and fall into KEY_CHECK. */
 void xdpbpf_bpf_prog_mix(u64 out[XDPBPF_PROG_LEN], const ncid_route_key* key) {

@@ -35,4 +35,14 @@ usz udp4_build(wired_obuf* out, const udp4meta* meta, wired_span payload);
 /* Verify a received datagram's checksum given the addresses. */
 int udp4_check(wired_span dgram, ipv4addrs addrs);
 
+/* The shared UDP body of udp4_build and udp6_build: header + payload into
+ * out, the checksum over the datagram plus @p pseudo (the IP version's
+ * pseudo-header sum, cksum_accum form). Returns 8 + payload.n, or 0 if it
+ * does not fit. */
+usz udp4_build_pseudo(
+    wired_obuf* out, udpports ports, wired_span payload, u32 pseudo);
+
+/* 1 if dgram (at least a UDP header) sums to zero with @p pseudo. */
+int udp4_sum_ok(wired_span dgram, u32 pseudo);
+
 #endif

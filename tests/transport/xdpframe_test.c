@@ -21,6 +21,12 @@ static const u8 xdpft_golden[60] = {
 
 static u16 xdpft_ntoh16(u16 v) { return (u16)((v >> 8) | (v << 8)); }
 
+/* a.b.c.d as a v4-mapped 16-byte address. */
+#define XDPFT_V4(a, b, c, d) \
+  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, a, b, c, d}
+/* fd00::n. */
+#define XDPFT_V6(n) {0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, n}
+
 static int xdpft_mac_eq(const u8* a, const u8* b) {
   for (usz i = 0; i < 6; i++) {
     if (a[i] != b[i]) {
@@ -43,7 +49,7 @@ static void test_xdpframe_rx_golden(void) {
   CHECK(ct_diffn(rx.src.addr, want_src.addr, 16) == 0);
   CHECK(xdpft_mac_eq(rx.peer_mac, xdpft_golden + 6));
   CHECK(xdpft_mac_eq(rx.our_mac, xdpft_golden));
-  CHECK(rx.our_ip == wired_udp_addr4_be(&want_dst));
+  CHECK(ct_diffn(rx.our_ip, want_dst.addr, 16) == 0);
   CHECK(rx.dport == 4433);
   CHECK(rx.payload == xdpft_golden + XDPFRAME_HDRS);
   CHECK(rx.payload_len == 2 && rx.payload[0] == 'h' && rx.payload[1] == 'i');
@@ -118,7 +124,9 @@ static void test_xdpframe_rx_accepts_576(void) {
   const xdpframe_tx m = {
       {0x02, 0x07, 0x00, 0x00, 0x00, 0x02},
       {0x02, 0x07, 0x00, 0x00, 0x00, 0x01},
-      {{4433, 5555}, {0x0a070001, 0x0a070002}},
+      {4433, 5555},
+      XDPFT_V4(10, 7, 0, 1),
+      XDPFT_V4(10, 7, 0, 2),
       7};
   xdpframe_rx rx;
   usz         n = xdpframe_build(
@@ -179,7 +187,9 @@ static void test_xdpframe_tx_roundtrip(void) {
   const xdpframe_tx m     = {
       {0x02, 0x07, 0x00, 0x00, 0x00, 0x02},
       {0x02, 0x07, 0x00, 0x00, 0x00, 0x01},
-      {{4433, 5555}, {0x0a070001, 0x0a070002}},
+      {4433, 5555},
+      XDPFT_V4(10, 7, 0, 1),
+      XDPFT_V4(10, 7, 0, 2),
       0};
   eth_head    eh;
   xdpframe_rx rx;
@@ -192,8 +202,8 @@ static void test_xdpframe_tx_roundtrip(void) {
   CHECK(ipv4_check(buf + ETH_HDR) == 1);
   CHECK(
       udp4_check(
-          wired_span_of(buf + ETH_HDR + IPV4_HDR, UDP_HDR + 3), m.udp.addrs) ==
-      1);
+          wired_span_of(buf + ETH_HDR + IPV4_HDR, UDP_HDR + 3),
+          (ipv4addrs){0x0a070001, 0x0a070002}) == 1);
   CHECK(buf[XDPFRAME_HDRS] == 0xc0 && buf[XDPFRAME_HDRS + 2] == 0xee);
   CHECK(xdpframe_parse(wired_span_of(buf, n), 0, &rx) == 1);
   CHECK(rx.dport == 5555 && rx.payload_len == 3);
@@ -218,12 +228,12 @@ static void test_xdpframe_reflect(void) {
   for (usz i = 0; i < 6; i++) {
     m.src_mac[i] = rx.our_mac[i];
   }
-  m.udp.ports.sport = rx.dport;
-  m.udp.ports.dport = xdpft_ntoh16(rx.src.port_be);
-  m.udp.addrs.src   = rx.our_ip;
-  m.udp.addrs.dst   = wired_udp_addr4_be(&rx.src);
-  m.ip_id           = 0;
-  usz n             = xdpframe_build(
+  m.ports.sport = rx.dport;
+  m.ports.dport = xdpft_ntoh16(rx.src.port_be);
+  bytes_memcpy(m.src, rx.our_ip, 16);
+  bytes_memcpy(m.dst, rx.src.addr, 16);
+  m.ip_id = 0;
+  usz n   = xdpframe_build(
       wired_mspan_of(buf, sizeof(buf)), &m, wired_span_of(pl, 2));
   CHECK(n == XDPFRAME_HDRS + 2);
   CHECK(xdpframe_parse(wired_span_of(buf, n), 0, &rr) == 1);
@@ -231,10 +241,103 @@ static void test_xdpframe_reflect(void) {
   wired_udp_addr(&want_peer, 5555, (const u8[]){10, 7, 0, 2});
   CHECK(rr.src.port_be == want_src.port_be);
   CHECK(ct_diffn(rr.src.addr, want_src.addr, 16) == 0);
-  CHECK(rr.dport == 5555 && rr.our_ip == wired_udp_addr4_be(&want_peer));
+  CHECK(rr.dport == 5555 && ct_diffn(rr.our_ip, want_peer.addr, 16) == 0);
   CHECK(xdpft_mac_eq(rr.peer_mac, rx.our_mac));
   CHECK(xdpft_mac_eq(rr.our_mac, rx.peer_mac));
   CHECK(rr.payload_len == 2 && rr.payload[0] == 'y');
+}
+
+/* Hand-assembled 64-byte IPv6 frame: [fd00::2]:5555 -> [fd00::1]:4433,
+ * payload "hi". The UDP checksum 0x7668 is the RFC 1071 sum over the RFC
+ * 8200 8.1 pseudo-header (both addresses, length 10, Next Header 17) and
+ * the datagram, computed independently of the code under test. */
+static const u8 xdpft_golden6[64] = {
+    0x02, 0x07, 0x00, 0x00, 0x00, 0x01, /* eth dst (our mac) */
+    0x02, 0x07, 0x00, 0x00, 0x00, 0x02, /* eth src (peer mac) */
+    0x86, 0xdd,                         /* ethertype IPv6 */
+    0x60, 0x00, 0x00, 0x00,             /* version 6, class 0, flow 0 */
+    0x00, 0x0a, 0x11, 0x40,             /* payload len 10, UDP, hop 64 */
+    0xfd, 0,    0,    0,    0,    0,    0, 0,
+    0,    0,    0,    0,    0,    0,    0, 2, /* src fd00::2 */
+    0xfd, 0,    0,    0,    0,    0,    0, 0,
+    0,    0,    0,    0,    0,    0,    0, 1, /* dst fd00::1 */
+    0x15, 0xb3, 0x11, 0x51,                   /* udp sport 5555, dport 4433 */
+    0x00, 0x0a, 0x76, 0x68,                   /* udp len 10, cksum */
+    'h',  'i'};
+
+/* The IPv6 golden frame parses to a native IPv6 peer, our address, the
+ * port and the payload. */
+static void test_xdpframe_rx6_golden(void) {
+  static const u8 peer[16] = XDPFT_V6(2), ours[16] = XDPFT_V6(1);
+  xdpframe_rx     rx;
+  CHECK(xdpframe_parse(wired_span_of(xdpft_golden6, 64), 0, &rx) == 1);
+  CHECK(rx.src.family == WIRED_AF_INET6);
+  CHECK(xdpft_ntoh16(rx.src.port_be) == 5555);
+  CHECK(ct_diffn(rx.src.addr, peer, 16) == 0);
+  CHECK(ct_diffn(rx.our_ip, ours, 16) == 0);
+  CHECK(xdpframe_is_v4(rx.src.addr) == 0);
+  CHECK(rx.dport == 4433);
+  CHECK(rx.payload == xdpft_golden6 + XDPFRAME_HDRS6);
+  CHECK(rx.payload_len == 2 && rx.payload[0] == 'h');
+}
+
+/* 1 if the IPv6 golden frame with byte off set to val (first n bytes) is
+ * rejected under flags. */
+static int xdpft_rejects6(usz n, usz off, u8 val, u32 flags) {
+  u8          f[64];
+  xdpframe_rx rx;
+  bytes_memcpy(f, xdpft_golden6, 64);
+  f[off] = val;
+  return xdpframe_parse(wired_span_of(f, n), flags, &rx) == 0;
+}
+
+/* RFC 8200 3/4/8.1: version, Next Header (an extension header or TCP),
+ * Hop Limit 0, lengths, and the mandatory UDP checksum (zero or wrong) --
+ * the checksum alone is skipped under XDPFRAME_SKIP_UDP_CSUM. */
+static void test_xdpframe_rx6_rejects(void) {
+  CHECK(xdpft_rejects6(XDPFRAME_HDRS6 - 1, 0, 0x02, 0)); /* short */
+  CHECK(xdpft_rejects6(64, 14, 0x40, 0));                /* version 4 */
+  CHECK(xdpft_rejects6(64, 20, 0x00, 0));                /* hop-by-hop ext */
+  CHECK(xdpft_rejects6(64, 20, 0x06, 0));                /* TCP */
+  CHECK(xdpft_rejects6(64, 21, 0x00, 0));                /* hop limit 0 */
+  CHECK(xdpft_rejects6(64, 19, 0x0b, 0));                /* plen past frame */
+  CHECK(xdpft_rejects6(64, 59, 0x0b, 0));                /* udp len != plen */
+  CHECK(xdpft_rejects6(64, 61, 0x69, 0));                /* wrong checksum */
+  CHECK(!xdpft_rejects6(64, 61, 0x69, XDPFRAME_SKIP_UDP_CSUM));
+}
+
+/* RFC 8200 8.1: a zero UDP checksum is never valid over IPv6. */
+static void test_xdpframe_rx6_zero_checksum(void) {
+  u8          f[64];
+  xdpframe_rx rx;
+  bytes_memcpy(f, xdpft_golden6, 64);
+  f[60] = 0;
+  f[61] = 0;
+  CHECK(xdpframe_parse(wired_span_of(f, 64), 0, &rx) == 0);
+}
+
+/* An IPv6 destination builds an IPv6 frame: the golden bytes exactly, and
+ * the independent udp6_check accepts it; too small a buffer is refused. */
+static void test_xdpframe_tx6_golden(void) {
+  u8                buf[64];
+  const xdpframe_tx m = {
+      {0x02, 0x07, 0x00, 0x00, 0x00, 0x01},
+      {0x02, 0x07, 0x00, 0x00, 0x00, 0x02},
+      {5555, 4433},
+      XDPFT_V6(2),
+      XDPFT_V6(1),
+      0};
+  usz n = xdpframe_build(
+      wired_mspan_of(buf, sizeof buf), &m, wired_span_of((const u8*)"hi", 2));
+  CHECK(n == 64);
+  CHECK(ct_diffn(buf, xdpft_golden6, 64) == 0);
+  CHECK(
+      udp6_check(
+          wired_span_of(buf + ETH_HDR + IPV6_HDR, UDP_HDR + 2),
+          (ipv6addrs){m.src, m.dst}) == 1);
+  CHECK(
+      xdpframe_build(
+          wired_mspan_of(buf, 63), &m, wired_span_of((const u8*)"hi", 2)) == 0);
 }
 
 void test_xdpframe(void) {
@@ -247,4 +350,8 @@ void test_xdpframe(void) {
   test_xdpframe_rx_accepts_ihl_with_consistent_options();
   test_xdpframe_tx_roundtrip();
   test_xdpframe_reflect();
+  test_xdpframe_rx6_golden();
+  test_xdpframe_rx6_rejects();
+  test_xdpframe_rx6_zero_checksum();
+  test_xdpframe_tx6_golden();
 }

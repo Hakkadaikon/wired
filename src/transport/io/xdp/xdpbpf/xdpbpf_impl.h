@@ -35,20 +35,27 @@
 #define BPF_FUNC_REDIRECT_MAP 51 /* helper id of bpf_redirect_map() */
 #define XDP_PASS 2
 
-/* Fixed instruction indices past the eth/IPv4/UDP/dport prologue (idx 0-14,
- * unchanged from the original 23-instruction filter): where each named block
- * of the core-routing extension starts, so the jump-offset arithmetic below
- * reads as "index of X" rather than a bare number repeated at every use. */
-#define BPF_IDX_CORE_START 15 /* short-header boundary check begins */
-#define BPF_IDX_SHORT 20      /* Header Form 0: short-header path */
-#define BPF_IDX_LONG 23       /* Header Form 1: long-header path */
-#define BPF_IDX_HAS_DCID 29   /* long header, DCID len != 0 */
-#define BPF_IDX_MIX 31        /* r5 -> DCID: unmask the routing byte */
-#define BPF_IDX_KEY_CHECK 48  /* routing-key range check (< map size) */
-#define BPF_IDX_KEY_SKIP 49   /* key in range: skip the fallback load */
-#define BPF_IDX_FALLBACK 50   /* rx_queue_index fallback key load */
-#define BPF_IDX_REDIRECT 51   /* map fd load + bpf_redirect_map() call */
-#define BPF_IDX_PASS 56       /* dport/boundary miss -> XDP_PASS */
+/* Fixed instruction indices: the eth/IPv4/UDP/dport prologue (idx 0-14),
+ * the IPv6 block (idx 15-24), then the core routing. The IPv6 block ends by
+ * moving r2 (the frame start) 20 bytes on, so every later read at a fixed
+ * offset from r2 lands on the same QUIC byte as for an IPv4 frame (an IPv6
+ * header is 20 bytes longer than an IHL=5 IPv4 one). */
+#define BPF_IDX_DPORT4 14     /* IPv4 dport compare (patched) */
+#define BPF_IDX_V4_SKIP 15    /* IPv4 path: jump over the IPv6 block */
+#define BPF_IDX_V6 16         /* not IPv4: is it IPv6/UDP to dport? */
+#define BPF_IDX_DPORT6 23     /* IPv6 dport compare (patched) */
+#define BPF_IDX_CORE_START 25 /* short-header boundary check begins */
+#define BPF_IDX_SHORT 30      /* Header Form 0: short-header path */
+#define BPF_IDX_LONG 33       /* Header Form 1: long-header path */
+#define BPF_IDX_HAS_DCID 39   /* long header, DCID len != 0 */
+#define BPF_IDX_MIX 41        /* r5 -> DCID: unmask the routing byte */
+#define BPF_IDX_KEY_CHECK 58  /* routing-key range check (< map size) */
+#define BPF_IDX_KEY_SKIP 59   /* key in range: skip the fallback load */
+#define BPF_IDX_FALLBACK 60   /* rx_queue_index fallback key load */
+#define BPF_IDX_REDIRECT 61   /* map fd load + bpf_redirect_map() call */
+#define BPF_IDX_PASS 66       /* dport/boundary miss -> XDP_PASS */
+/* The IPv6 frame's extra header bytes over IPv4's (40 - 20). */
+#define BPF_V6_SHIFT 20
 /* Bytes of the DCID the mix reads past its start: cid[0] plus cid[1..4]
  * (NCID_ROUTE_MIN_LEN), so each path bounds-checks dcid + 5 <= data_end. */
 #define BPF_DCID_SPAN 5

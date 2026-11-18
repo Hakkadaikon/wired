@@ -7,7 +7,6 @@
 set -u
 
 IFINDEX="${IFINDEX:?set IFINDEX=<n> (ip -o link show)}"
-IP="${IP:?set IP=<a.b.c.d>}"
 PORT="${PORT:-4433}"
 WAIT="${WAIT:-20}"
 LOG="$(mktemp /tmp/wired-xdp-diag.XXXXXX)"
@@ -22,7 +21,7 @@ BEFORE="$(counter)"; BEFORE="${BEFORE:-0}"
 echo "udp dpt:$PORT accept pkts: $BEFORE"
 
 echo "=== starting wired_server (skb-mode) ==="
-./wired_server --ifindex "$IFINDEX" --ip "$IP" --port "$PORT" --skb-mode \
+./wired_server --ifindex "$IFINDEX" --port "$PORT" --skb-mode \
   >"$LOG" 2>&1 &
 SRV=$!
 sleep 1

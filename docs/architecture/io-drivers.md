@@ -22,7 +22,7 @@ graph TB
         sock -- "recvmmsg" --> app1["wired process"]
     end
 
-    subgraph xdp["AF_XDP driver (--ifindex, --ip)"]
+    subgraph xdp["AF_XDP driver (--ifindex)"]
         direction TB
         nic2["NIC"] --> bpf["small BPF filter<br/>(reads the QUIC header,<br/>chooses the target socket)"]
         bpf -- "XDP_REDIRECT" --> xsk["AF_XDP socket<br/>(shared memory ring)"]
@@ -32,7 +32,7 @@ graph TB
 
 | 項目 | デフォルトのドライバー | AF_XDP ドライバー |
 |---|---|---|
-| フラグ | なし | `--ifindex <n> --ip <addr>` |
+| フラグ | なし | `--ifindex <n>` |
 | ソケット | `socket()` と `bind()` で作る UDP ソケット | AF_XDP ソケット(カーネルとプロセスが共有するリングバッファー) |
 | パケットごとのカーネルの処理 | ルーティング、ファイアウォールのルール、ソケットの受信バッファーへのコピー | BPF フィルター(`xdpbpf_prog_build`)。通常のスタックより前に動く |
 | コピーとスタックの処理 | AF_XDP より多い | 共有のリングなので 2 度目のコピーがない |
@@ -57,7 +57,7 @@ BPF フィルターは各パケットに次のどちらかを返す。
 | PLAIN | poll | なし | 1 | ブロック(`busy_poll` ならスピン) |
 | WORKERS | fork | `--workers N` | N、fork。`SO_REUSEPORT` で 1 つのポートを共有する | ブロック、ワーカーごと |
 | THREADS | threads | `--cores a,b,c` | 1、CPU ごとに 1 スレッド | 25 ms の上限付き poll(`--ifindex` ならスピン) |
-| XDP | AF_XDP | `--ifindex <n> --ip <addr>` | 1 | スピン |
+| XDP | AF_XDP | `--ifindex <n>` | 1 | スピン |
 
 図はチェックの順序と、関数が 0 を返すすべての場合を示す。
 
@@ -80,10 +80,8 @@ flowchart TD
     list -- "no" --> reject
     list -- "yes" --> txdp{"--ifindex also given?"}
     txdp -- "no" --> ok
-    txdp -- "yes" --> ip
-    xdpk --> ip{"--ip is a valid<br/>IPv4 address?"}
-    ip -- "no" --> reject
-    ip -- "yes" --> ok
+    txdp -- "yes" --> ok
+    xdpk --> ok
     plain -- "always" --> ok
 ```
 

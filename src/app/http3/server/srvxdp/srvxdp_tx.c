@@ -1,28 +1,19 @@
 #include "app/http3/server/srvxdp/srvxdp_impl.h"
 
 static void srvxdp_tx_meta(
-    wired_srvxdp* x, const sockaddr* dst, const u8 peer_mac[6], xdpframe_tx* m);
+    wired_srvxdp* x, const sockaddr* dst, xdpframe_tx* m);
 static i64  srvxdp_tx_submit(wired_srvxdp* x, i64 addr, usz n);
 static void srvxdp_log_stat_line(const char* name, u64 v);
 
-/* Fill in m's addressing: peer_mac/our_mac plus the ports and addresses
- * xdpframe_build needs, all in host order. */
+/* Fill in m's ports, our MAC, the peer's address and the IPv4
+ * Identification; the peer MAC and our address come from the cache. */
 static void srvxdp_tx_meta(
-    wired_srvxdp*   x,
-    const sockaddr* dst,
-    const u8        peer_mac[6],
-    xdpframe_tx*    m) {
-  for (usz i = 0; i < 6; i++) {
-    m->dst_mac[i] = peer_mac[i];
-  }
-  for (usz i = 0; i < 6; i++) {
-    m->src_mac[i] = x->our_mac[i];
-  }
-  m->udp.ports.sport = x->port;
-  m->udp.ports.dport = be_get_be16((const u8*)&dst->port_be);
-  m->udp.addrs.src   = be_get_be32((const u8*)&x->ip_be);
-  m->udp.addrs.dst   = wired_udp_addr4_be(dst);
-  m->ip_id           = x->ip_id++;
+    wired_srvxdp* x, const sockaddr* dst, xdpframe_tx* m) {
+  bytes_memcpy(m->src_mac, x->our_mac, 6);
+  bytes_memcpy(m->dst, dst->addr, 16);
+  m->ports.sport = x->port;
+  m->ports.dport = be_get_be16((const u8*)&dst->port_be);
+  m->ip_id       = x->ip_id++;
 }
 
 /* Submit one TX-pool frame (addr, n bytes already built) to the tx ring and
@@ -45,12 +36,11 @@ static i64 srvxdp_tx_submit(wired_srvxdp* x, i64 addr, usz n) {
 }
 
 i64 wired_srvxdp_send(wired_srvxdp* x, const sockaddr* dst, wired_span pkt) {
-  u8          peer_mac[6];
   xdpframe_tx m;
   i64         addr;
   usz         n;
 
-  if (!xdpmac_lookup(&x->macs, wired_udp_addr4_be(dst), peer_mac)) {
+  if (!xdpmac_lookup(&x->macs, dst->addr, m.dst_mac, m.src)) {
     return 0;
   }
   addr = srvxdp_txpool_get(x);
@@ -58,7 +48,7 @@ i64 wired_srvxdp_send(wired_srvxdp* x, const sockaddr* dst, wired_span pkt) {
     return 0;
   }
 
-  srvxdp_tx_meta(x, dst, peer_mac, &m);
+  srvxdp_tx_meta(x, dst, &m);
   n = xdpframe_build(
       wired_mspan_of(x->xsk.umem + addr, XSKSETUP_FRAME_SIZE), &m, pkt);
   return srvxdp_tx_submit(x, addr, n);
