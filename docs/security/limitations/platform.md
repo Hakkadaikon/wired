@@ -20,7 +20,7 @@ ISA に依存するコードは `src/common/arch/` の `x8664/` と `aarch64/` �
 | ISA | 確かめていること |
 |---|---|
 | x86-64 | ここに挙げるすべての検査 |
-| aarch64 | CI の `aarch64` ジョブ(`ubuntu-24.04-arm`)でのフリースタンディングのビルド、単体テスト、`word_list` への HTTP/3 の POST |
+| aarch64 | CI の `aarch64` ジョブ(`ubuntu-24.04-arm`)でのフリースタンディングのビルド、単体テスト、`word_list` への HTTP/3 の POST。`guide.yml` の `snippets` ジョブの arm64 側での、guide のすべてのスニペット(HTTP/3、WebTransport、MoQT)を実際の UDP で通した出力と golden の一致 |
 
 ### 1.2 aarch64 はページの大きさが 4 KiB のカーネルだけ
 

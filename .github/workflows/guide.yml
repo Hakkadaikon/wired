@@ -38,8 +38,13 @@ jobs:
       - run: pnpm build
       - run: pnpm test:dist
 
+  # Also on arm64: the only real-UDP check of WebTransport and MoQT there.
   snippets:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
