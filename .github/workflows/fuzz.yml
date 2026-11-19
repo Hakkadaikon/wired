@@ -9,10 +9,10 @@ jobs:
   fuzz:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Same pinned toolchain as CI and local dev (flake.nix/flake.lock).
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
       - name: run fuzz harnesses (120s each, bounded regression sweep)
         run: nix develop -c just fuzz-ci 120
@@ -24,7 +24,7 @@ jobs:
       # from this artifact when they're worth keeping.
       - name: upload corpus (new inputs found this run, if any)
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-corpus
           path: fuzz/corpus/
@@ -32,7 +32,7 @@ jobs:
 
       - name: upload crash artifacts
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-crashes
           path: fuzz/crash-*

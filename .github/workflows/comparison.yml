@@ -33,7 +33,7 @@ jobs:
     env:
       QUICHE_TAG: "0.29.3"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install toolchain
         run: |
           sudo apt-get update
@@ -41,7 +41,7 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
             | bash -s -- --tag 1.40.0 --to "$HOME/.local/bin"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: stable
       - name: Run bench unit tests
@@ -56,7 +56,7 @@ jobs:
           (cd bench/client && go build -o benchclient .)
           (cd bench/qgserver && go build -o qgserver .)
       - name: Cache quiche build
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -123,7 +123,7 @@ jobs:
             echo "### Memory / CPU under load"
             node bench/report.mjs usage out/lines.txt
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: loopback-lane
@@ -136,11 +136,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The network simulator's compose setup needs a recent docker engine
       # and the ip6table_filter module -- the same two prerequisites the
       # interop runner's own CI installs (its interop-test.yml).
-      - uses: docker/setup-docker-action@v5
+      - uses: docker/setup-docker-action@3f1ab1ab0e29231562e4db4ca600c1a49653bac6 # v5.7.0
         with:
           version: version=v28.3.0
       - name: Enable IPv6 for the network simulator
@@ -178,7 +178,7 @@ jobs:
             echo
             cat goodput.md
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: goodput-lane

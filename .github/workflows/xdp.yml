@@ -28,14 +28,14 @@ jobs:
   veth-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
       - name: build server
         run: nix develop -c just ninja examples/word_list/wired_server
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: guide/go.mod
 
@@ -54,11 +54,11 @@ jobs:
   interop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The network simulator's compose setup needs a recent docker engine
       # and the ip6table_filter module (the runner's own CI does the same).
-      - uses: docker/setup-docker-action@v5
+      - uses: docker/setup-docker-action@3f1ab1ab0e29231562e4db4ca600c1a49653bac6 # v5.7.0
         with:
           version: version=v28.3.0
 
@@ -72,7 +72,7 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
       - name: build the interop image
         run: |
@@ -81,7 +81,7 @@ jobs:
 
       # The runner fails on Python 3.14 (asyncio's get_event_loop); the
       # interop workflow pins 3.12 for the same reason.
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
@@ -103,7 +103,7 @@ jobs:
           SERVER_PARAMS=af_xdp .venv/bin/python run.py -s wired -c quic-go \
             -t handshake,transfer,http3 -l logs-af-xdp -j af-xdp.json
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: interop-af-xdp
