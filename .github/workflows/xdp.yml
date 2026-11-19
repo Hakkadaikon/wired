@@ -60,7 +60,7 @@ jobs:
       # and the ip6table_filter module (the runner's own CI does the same).
       - uses: docker/setup-docker-action@3f1ab1ab0e29231562e4db4ca600c1a49653bac6 # v5.7.0
         with:
-          version: version=v28.3.0
+          version: v29.10.0
 
       - name: Enable IPv6 for the network simulator
         run: sudo modprobe ip6table_filter
