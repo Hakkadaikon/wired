@@ -46,14 +46,12 @@
 #define BPF_IDX_DPORT6 23     /* IPv6 dport compare (patched) */
 #define BPF_IDX_CORE_START 25 /* short-header boundary check begins */
 #define BPF_IDX_SHORT 30      /* Header Form 0: short-header path */
-#define BPF_IDX_LONG 33       /* Header Form 1: long-header path */
-#define BPF_IDX_HAS_DCID 39   /* long header, DCID len != 0 */
-#define BPF_IDX_MIX 41        /* r5 -> DCID: unmask the routing byte */
-#define BPF_IDX_KEY_CHECK 58  /* routing-key range check (< map size) */
-#define BPF_IDX_KEY_SKIP 59   /* key in range: skip the fallback load */
-#define BPF_IDX_FALLBACK 60   /* rx_queue_index fallback key load */
-#define BPF_IDX_REDIRECT 61   /* map fd load + bpf_redirect_map() call */
-#define BPF_IDX_PASS 66       /* dport/boundary miss -> XDP_PASS */
+#define BPF_IDX_MIX 32        /* r5 -> DCID: unmask the routing byte */
+#define BPF_IDX_KEY_CHECK 49  /* routing-key range check (< map size) */
+#define BPF_IDX_KEY_SKIP 50   /* key in range: skip the fallback load */
+#define BPF_IDX_FALLBACK 51   /* rx_queue_index fallback key load */
+#define BPF_IDX_REDIRECT 52   /* map fd load + bpf_redirect_map() call */
+#define BPF_IDX_PASS 57       /* dport/boundary miss -> XDP_PASS */
 /* The IPv6 frame's extra header bytes over IPv4's (40 - 20). */
 #define BPF_V6_SHIFT 20
 /* Bytes of the DCID the mix reads past its start: cid[0] plus cid[1..4]
@@ -62,9 +60,9 @@
 
 /* Number of XSKMAP slots the DCID-byte routing key must stay under. The
  * server-side XSKMAP is always sized WIRED_SRVXDPBPF_MAP_ENTRIES
- * (app/http3/server/srvxdpbpf/srvxdpbpf.h), currently 64; a client's
- * self-chosen initial DCID (RFC 9000 7.2) is an unconstrained random byte,
- * so the key this filter reads is NOT guaranteed to fall inside the map --
+ * (app/http3/server/srvxdpbpf/srvxdpbpf.h), currently 64; a short header
+ * carrying a CID this server never issued decodes to any byte, so the key
+ * this filter reads is NOT guaranteed to fall inside the map --
  * unlike the fallback key (rx_queue_index), which stays under the RX queue
  * count and is assumed in-range (see BPF_IDX_KEY_CHECK's comment). Kept as
  * a fixed constant here rather than a xdpbpf_prog_build() parameter: this

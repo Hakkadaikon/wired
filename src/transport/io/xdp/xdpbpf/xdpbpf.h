@@ -13,28 +13,25 @@
  * XSKMAP, keyed by the worker/core index the QUIC destination CID carries
  * (ncid_route_encode: cid[0] masked by a keyed mix of cid[1..4], the key
  * patched into the program, RFC 9312 2.6) when the packet's QUIC header is
- * readable; it falls back to the NIC rx_queue_index when the
- * core-id byte cannot be located (too-short packet, a zero-length DCID on a
- * long header, or a DCID byte value that is out of range for the XSKMAP --
- * a client's self-chosen initial DCID, RFC 9000 7.2, is an unconstrained
- * random byte, unlike a server-issued CID's core-routing byte). Anything
+ * readable as a short header; a long header, a too-short packet, or a
+ * decoded byte out of range for the XSKMAP uses the NIC rx_queue_index. A
+ * long header's DCID may be the client's self-chosen initial one (RFC 9000
+ * 7.2), whose byte decodes to an empty slot as often as not, and
+ * bpf_redirect_map() then passes the packet to the kernel, which drops it:
+ * the handshake never completes. Anything
  * that is not IPv4- or IPv6-UDP/dport-match is XDP_PASS, so the kernel keeps
  * handling ARP/ICMP/ICMPv6 neighbour discovery/other traffic.
  *
  * Header-format offsets (RFC 9000 17.2/17.3), all relative to the fixed
  * UDP-payload start at byte 42 (Ethernet 14 + IPv4 IHL=5 20 + UDP 8; an
  * IPv6 frame's 62 is read through a frame pointer moved 20 bytes on): a short
- * header's DCID starts right after the 1-byte flags (offset 43); a long
- * header's DCID starts after flags+version(4)+DCID-len(1) (offset 48), and
- * is only present when that DCID-len byte is non-zero. The DCID's length
- * itself never changes where its OWN first byte lands relative to the flags
- * byte in the short-header case (the receiver's fixed CID length is not on
- * the wire at all, RFC 9000 17.3), so short-header routing needs no
- * build-time DCID-length parameter -- only the long-header path reads an
- * explicit length byte, straight off the wire. */
+ * header's DCID starts right after the 1-byte flags (offset 43). The DCID's
+ * length never changes where its first byte lands (the receiver's fixed CID
+ * length is not on the wire at all, RFC 9000 17.3), so routing needs no
+ * build-time DCID-length parameter. */
 
 /** Number of u64 instructions xdpbpf_prog_build() emits. */
-#define XDPBPF_PROG_LEN 68
+#define XDPBPF_PROG_LEN 59
 
 /** Build the XDP filter into out: eth/IPv4 (IHL=5, non-fragment)/UDP with
  * dport == port is redirected to the XSKMAP map_fd, keyed by the core index

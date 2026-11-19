@@ -119,10 +119,9 @@ void xdpbpf_bpf_prog_prologue(u64 out[XDPBPF_PROG_LEN]) {
 
 /* idx 25-29: short-header boundary check (data+48<=data_end: the DCID's
  * first BPF_DCID_SPAN bytes start at offset 43), read the QUIC header's first
- * byte, and split on the Header Form bit (RFC 9000 17.2/17.3: 1 = long
- * header, 0 = short header). An earlier revision sent Header Form 0 to the
- * fallback and treated 0x80-without-0x40 as "short", so real 1-RTT packets
- * were never routed by CID. */
+ * byte, and split on the Header Form bit (RFC 9000 17.2/17.3): a long header
+ * goes to the rx_queue_index fallback (see xdpbpf.h), a short header falls
+ * through to the CID routing. */
 void xdpbpf_bpf_prog_header_split(u64 out[XDPBPF_PROG_LEN]) {
   int i      = BPF_IDX_CORE_START;
   out[i]     = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
@@ -131,18 +130,16 @@ void xdpbpf_bpf_prog_header_split(u64 out[XDPBPF_PROG_LEN]) {
       BPF_INSN_JGT_REG, 5, 3, xdpbpf_bpf_off(i + 2, BPF_IDX_FALLBACK), 0);
   out[i + 3] = xdpbpf_bpf_insn(BPF_INSN_LDXB, 4, 2, 42, 0);
   out[i + 4] = xdpbpf_bpf_insn(
-      BPF_INSN_JSET_IMM, 4, 0, xdpbpf_bpf_off(i + 4, BPF_IDX_LONG), 0x80);
+      BPF_INSN_JSET_IMM, 4, 0, xdpbpf_bpf_off(i + 4, BPF_IDX_FALLBACK), 0x80);
 }
 
-/* idx 30-32 (BPF_IDX_SHORT): the short path points r5 at the DCID in the
- * fixed short-header layout (offset 43, RFC 9000 17.3) and jumps to the
- * shared unmasking block (BPF_IDX_MIX). */
+/* idx 30-31 (BPF_IDX_SHORT): the short path points r5 at the DCID in the
+ * fixed short-header layout (offset 43, RFC 9000 17.3) and falls through to
+ * the unmasking block (BPF_IDX_MIX). */
 void xdpbpf_bpf_prog_short_path(u64 out[XDPBPF_PROG_LEN]) {
   int i      = BPF_IDX_SHORT;
   out[i]     = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
   out[i + 1] = xdpbpf_bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 43);
-  out[i + 2] =
-      xdpbpf_bpf_insn(BPF_INSN_JA, 0, 0, xdpbpf_bpf_off(i + 2, BPF_IDX_MIX), 0);
 }
 
 /* Emit the 16-byte LDDW r_dst = imm (imm low half in the first slot's imm,
@@ -152,7 +149,7 @@ static void bpf_lddw(u64* out, u8 dst, u64 imm) {
   out[1] = xdpbpf_bpf_insn(0, 0, 0, 0, (i32)(u32)(imm >> 32));
 }
 
-/* idx 41-48: load cid[0] into r6 and w = LE cid[1..4] into r7, then
+/* idx 32-39: load cid[0] into r6 and w = LE cid[1..4] into r7, then
  * r7 = (w ^ k0) * k1 (ncid_route_mask's first round). */
 static void bpf_prog_mix_head(u64* out, const ncid_route_key* key) {
   out[0] = xdpbpf_bpf_insn(BPF_INSN_LDXB, 6, 5, 0, 0);
@@ -163,7 +160,7 @@ static void bpf_prog_mix_head(u64* out, const ncid_route_key* key) {
   out[7] = xdpbpf_bpf_insn(BPF_INSN_MUL64_REG, 7, 8, 0, 0);
 }
 
-/* idx 49-57: r7 ^= r7 >> 32; r7 *= k2; mask = r7 >> 56; r2 = cid[0] ^ mask
+/* idx 40-48: r7 ^= r7 >> 32; r7 *= k2; mask = r7 >> 56; r2 = cid[0] ^ mask
  * (the routing key), exactly ncid_route_decode. */
 static void bpf_prog_mix_tail(u64* out, const ncid_route_key* key) {
   out[0] = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 8, 7, 0, 0);
@@ -176,7 +173,7 @@ static void bpf_prog_mix_tail(u64* out, const ncid_route_key* key) {
   out[8] = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 2, 6, 0, 0);
 }
 
-/* idx 41-57 (BPF_IDX_MIX): r5 points at a DCID whose first BPF_DCID_SPAN
+/* idx 32-48 (BPF_IDX_MIX): r5 points at a DCID whose first BPF_DCID_SPAN
  * bytes are bounds-checked; recover the core index into r2 (RFC 9312 2.6
  * obfuscated routing byte, see ncid_route_key) and fall into KEY_CHECK. */
 void xdpbpf_bpf_prog_mix(u64 out[XDPBPF_PROG_LEN], const ncid_route_key* key) {
