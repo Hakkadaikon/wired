@@ -12,7 +12,7 @@
 #   docker build -t wired-moqt-interop -f interop/Dockerfile.moqt .
 #
 # busybox supplies the sh + grep the runner's compose healthcheck needs.
-FROM busybox:stable
+FROM busybox:stable@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
 
 COPY --chmod=755 examples/moqt_interop/wired_server /wired/wired_server
 COPY --chmod=755 interop/run_endpoint_moqt.sh /run_endpoint.sh

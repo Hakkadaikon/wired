@@ -8,7 +8,7 @@
 #
 # The runner's network-simulator base image supplies the wait-for-it
 # behavior; endpoints derive from it per the interop-runner contract.
-FROM martenseemann/quic-network-simulator-endpoint:latest
+FROM martenseemann/quic-network-simulator-endpoint:latest@sha256:3b2b9e6fa317da238c8140a7b6d2bf8d4d45a8464b873eecac3ff2a32520b71a
 
 COPY examples/word_list/wired_server /wired/wired_server
 COPY interop/run_endpoint.sh /run_endpoint.sh
