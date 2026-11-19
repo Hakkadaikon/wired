@@ -1,6 +1,21 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
-  ]
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    "docker:pinDigests"
+  ],
+  "ignorePaths": ["**/node_modules/**"],
+  "minimumReleaseAge": "2 days",
+  "internalChecksFilter": "strict",
+  "prCreation": "not-pending",
+  "automerge": true,
+  "automergeType": "pr",
+  "platformAutomerge": false,
+  "nix": {
+    "enabled": true,
+    "lockFileMaintenance": {
+      "enabled": true
+    }
+  }
 }
