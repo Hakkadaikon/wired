@@ -39,9 +39,8 @@ int tlsext_pre_shared_key(const tlsext_psk_in* in, wired_obuf* out) {
 
 /* The 4-byte header names pre_shared_key with the full body readable. */
 static int psk_header_ok(const u8* out, usz n) {
-  usz dlen = (usz)out[2] << 8 | out[3];
   return n >= 4 && ((u16)out[0] << 8 | out[1]) == TLSEXT_T_PRE_SHARED_KEY &&
-         4 + dlen <= n;
+         4 + ((usz)out[2] << 8 | out[3]) <= n;
 }
 
 /* CID lengths (identity, binder) of a single-entry offer. */
@@ -64,10 +63,14 @@ static int psk_prefix_ok(const u8* out, usz n, usz id_len) {
 }
 
 /* The full single-entry offer is well formed: prefix readable then both
- * single-entry lists exactly fill the body. */
+ * single-entry lists exactly fill the body. The binder length byte is read
+ * only after the prefix check proves it lies inside the extension. */
 static int psk_offer_ok(const u8* out, usz n, usz id_len) {
+  if (!psk_prefix_ok(out, n, id_len)) {
+    return 0;
+  }
   psk_lens l = {id_len, out[14 + id_len]};
-  return psk_prefix_ok(out, n, id_len) && psk_shape_ok(out, n, l);
+  return psk_shape_ok(out, n, l);
 }
 
 int tlsext_pre_shared_key_parse(const u8* out, usz n, tlsext_psk_offer* off) {

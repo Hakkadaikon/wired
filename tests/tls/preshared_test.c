@@ -54,6 +54,12 @@ static void test_preshared_guards(void) {
   /* wrong type */
   buf[1] = 0x2a;
   CHECK(tlsext_pre_shared_key_parse(buf, ob.len, &off) == 0);
+  /* an 8-byte extension must not have its binder-length byte (offset 14)
+   * read before the bounds check (ASan in test-san catches the overread) */
+  u8 cut[8] = {0x00, 0x29, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00};
+  CHECK(tlsext_pre_shared_key_parse(cut, sizeof(cut), &off) == 0);
+  /* shorter than the 4-byte header */
+  CHECK(tlsext_pre_shared_key_parse(cut, 3, &off) == 0);
 }
 
 static void test_preshared_encode_guard(void) {
