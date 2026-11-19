@@ -115,7 +115,23 @@ static void test_sreset_build_fixed_bits(void) {
   CHECK(out[0] == 0x40);
 }
 
+static int fill_fail(u8* buf, usz len) {
+  (void)buf;
+  (void)len;
+  return 0;
+}
+
+/* A failed RNG draw refuses the reset: sending it would put whatever the
+ * send buffer held before (an earlier packet) on the wire. */
+static void test_sreset_build_rng_fail(void) {
+  u8         key[SRESET_KEY] = {0}, out[64];
+  const u8   cid[8]          = {1, 2, 3, 4, 5, 6, 7, 8};
+  wired_obuf ob              = obuf_of(out, sizeof out);
+  CHECK(sreset_build(key, cid, 8, 40, fill_fail, &ob) == 0);
+}
+
 void test_sreset(void) {
+  test_sreset_build_rng_fail();
   test_sreset_build_fixed_bits();
   test_sreset_token();
   test_sreset_size();

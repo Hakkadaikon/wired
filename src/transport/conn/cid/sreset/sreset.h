@@ -43,7 +43,8 @@ usz sreset_size(usz trigger_len);
  * Size is sreset_size(trigger_len), clamped to out->cap. The leading
  * bytes are random (via `rand_fill`, e.g. rng_bytes) and the trailing
  * 16 bytes are the token derived from `key`+`cid`. Sets out->len to the
- * packet length. Returns 1 on success, 0 if out->cap is below the minimum. */
+ * packet length. Returns 1 on success, 0 if out->cap is below the minimum
+ * or `rand_fill` fails. */
 int sreset_build(
     const u8  key[SRESET_KEY],
     const u8* cid,

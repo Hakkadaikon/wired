@@ -37,12 +37,11 @@ int sreset_build(
     usz       trigger_len,
     int (*rand_fill)(u8* buf, usz len),
     wired_obuf* out) {
-  if (out->cap < SRESET_MIN) {
+  usz len = u64_min(sreset_size(trigger_len), out->cap);
+  /* A failed draw would leave the buffer's earlier bytes in the packet. */
+  if (out->cap < SRESET_MIN || !rand_fill(out->p, len)) {
     return 0;
   }
-  usz len = u64_min(sreset_size(trigger_len), out->cap);
-
-  rand_fill(out->p, len);
   /* RFC 9000 10.3 Figure 10: Header Form 0, Fixed Bit 1, rest random --
    * RFC 9287 3.1: the peer's grease_quic_bit support is unknown here. */
   out->p[0] = (u8)((out->p[0] & 0x3f) | 0x40);
