@@ -160,6 +160,37 @@ static void test_roundtrip_status_name_checked(void) {
   CHECK(rt_recv_h3(ok_indexed, sizeof ok_indexed));
 }
 
+/* RFC 9110 15: a status code outside 100..599 is invalid even when it is
+ * three digits; the boundary values 100 and 599 stay accepted. All via the
+ * literal :status name reference (static 24, 0x5f 0x09). */
+static void test_roundtrip_status_range(void) {
+  static const u8 low[]   = {0x01, 0x08, 0x00, 0x00, 0x5f,
+                             0x09, 0x03, '0',  '9',  '9'};
+  static const u8 high[]  = {0x01, 0x08, 0x00, 0x00, 0x5f,
+                             0x09, 0x03, '6',  '0',  '0'};
+  static const u8 lo_ok[] = {0x01, 0x08, 0x00, 0x00, 0x5f,
+                             0x09, 0x03, '1',  '0',  '0'};
+  static const u8 hi_ok[] = {0x01, 0x08, 0x00, 0x00, 0x5f,
+                             0x09, 0x03, '5',  '9',  '9'};
+  CHECK(!rt_recv_h3(low, sizeof low));
+  CHECK(!rt_recv_h3(high, sizeof high));
+  CHECK(rt_recv_h3(lo_ok, sizeof lo_ok));
+  CHECK(rt_recv_h3(hi_ok, sizeof hi_ok));
+}
+
+/* RFC 7541 5.2 / App. B: a Huffman-coded literal value decodes the same.
+ * "200" is '2'=00010 '0'=00000 '0'=00000 (5 bits each), padded with a 1 to
+ * 16 bits -> 0x10 0x01; the value header is H=1 | length 2 = 0x82. */
+static void test_roundtrip_status_huffman_value(void) {
+  static const u8 huff[] = {0x01, 0x07, 0x00, 0x00, 0x5f,
+                            0x09, 0x82, 0x10, 0x01};
+  u8              sf[64];
+  h3conn_resp     out = {0};
+  usz             len = rt_stream_wrap(huff, sizeof huff, sf);
+  CHECK(h3conn_recv_response(wired_span_of(sf, len), &out));
+  CHECK(out.status == 200);
+}
+
 void test_h3conn_roundtrip(void) {
   test_roundtrip_stream();
   test_roundtrip_empty_body();
@@ -168,4 +199,6 @@ void test_h3conn_roundtrip(void) {
   test_roundtrip_literal_status();
   test_roundtrip_recv_malformed();
   test_roundtrip_status_name_checked();
+  test_roundtrip_status_range();
+  test_roundtrip_status_huffman_value();
 }

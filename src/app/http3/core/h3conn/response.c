@@ -33,6 +33,19 @@ static u16 digits_to_status(const u8* d) {
 
 static int status_digit(u8 c) { return c >= '0' && c <= '9'; }
 
+/* RFC 9110 15: status codes range from 100 to 599 inclusive. */
+static int status_in_range(u16 s) { return s >= 100 && s <= 599; }
+
+/* Convert three digits, requiring the RFC 9110 15 range. Returns 1 ok. */
+static int status_take(const u8* d, u16* status) {
+  u16 s = digits_to_status(d);
+  if (!status_in_range(s)) {
+    return 0;
+  }
+  *status = s;
+  return 1;
+}
+
 /* RFC 9110 15: exactly three decimal ASCII digits. */
 static int status_digits3(const u8* d) {
   return status_digit(d[0]) && status_digit(d[1]) && status_digit(d[2]);
@@ -80,8 +93,7 @@ static int status_from_indexed(const u8* buf, usz n, u16* status) {
   if (!status_entry_ok(is_static, name, value)) {
     return 0;
   }
-  *status = digits_to_status((const u8*)value);
-  return 1;
+  return status_take((const u8*)value, status);
 }
 
 /* RFC 9114 4.3.2: the literal's name reference is the static :status
@@ -109,8 +121,7 @@ static int status_from_literal(const u8* buf, usz n, u16* status) {
   if (!literal_status_ok(&r, &vb)) {
     return 0;
   }
-  *status = digits_to_status(val);
-  return 1;
+  return status_take(val, status);
 }
 
 /* RFC 9204 4.5: decode the single :status field line after the section prefix.
