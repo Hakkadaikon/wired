@@ -78,7 +78,8 @@ void srvrun_feed_ack_range(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
  * when the step raised largest_acked (13.4.2.1: an endpoint MUST NOT fail
  * validation on a reordered ACK that does not). Every packet this server
  * sends is ECT(0)-marked (wired_udp_ect0_enable on the listen socket), so
- * l.tx_pn -- 1-RTT packets sealed so far -- bounds the ECT(0) counts the
+ * l.tx_pn -- at or above the 1-RTT packets sealed so far (purposely
+ * skipped numbers included, RFC 9000 21.4) -- bounds the ECT(0) counts the
  * peer can truthfully report, and the packets the step newly acked
  * (ecn_newly) bound the increase from below. A step whose ACKs carried no
  * ECN counts while marked packets are out fails validation instead

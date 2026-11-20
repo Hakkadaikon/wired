@@ -9,6 +9,7 @@
 #include "app/http3/server/srvloop/keys.h"
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvloop/send.h"
+#include "app/http3/server/srvloop/srvloop_sent.h"
 #include "app/http3/server/srvwire/wire.h"
 #include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/instruction.h"
@@ -7995,6 +7996,265 @@ static void test_srvloop_ack_of_unsent_pn_violation(void) {
   CHECK(lp_ack_error(100) == ERR_PROTOCOL_VIOLATION);
 }
 
+/* One PING sealed and recorded through srvloop_send_onertt_rec -- the
+ * production 1-RTT send path the packet-number skip rides on. */
+static void lp_send_rec_ping(struct lp_fix* f) {
+  u8                    sealed[256];
+  wired_obuf            sob  = {sealed, sizeof sealed, 0};
+  u8                    ping = 0x01;
+  wired_srvloop_send_in sin  = {
+      wired_span_of(f->l.cli_scid, f->l.cli_scid_len),
+      f->l.tx_pn++,
+      -1,
+      wired_span_of(&ping, 1),
+      0,
+      0,
+      0,
+      0};
+  CHECK(srvloop_send_onertt_rec(&f->l, &f->s, &sin, &sob) == 1);
+}
+
+/* Step one client ACK frame with the given ranges into f; the resulting
+ * transport error. */
+static u64 lp_step_peer_ack(struct lp_fix* f, const ack_frame* a) {
+  u8         out[1024], fr[64], spkt[256];
+  usz        fl, slen;
+  wired_obuf ob = {out, sizeof out, 0};
+  fl            = ack_encode(fr, sizeof fr, a);
+  CHECK(fl != 0);
+  slen = client_seal_onertt_pn(f, 7, fr, fl, spkt, sizeof spkt);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, slen), &ob);
+  return f->l.transport_error;
+}
+
+/* RFC 9000 21.4: with the skip armed and due, the recorded send skips the
+ * next 1-RTT packet number, remembers it in the ring, and immediately
+ * re-arms from the RNG 1..WIRED_SRVLOOP_PN_GAP_MAX numbers past the next
+ * unsent number -- so every number past the one right after the skip can
+ * be the next skipped one. */
+static void test_srvloop_pn_skip_skips_next_number(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  u64           pn;
+  lp_confirm(&f, &ob);
+  srvloop_test_force_pn_skip_rng_fail(0); /* the real RNG, for the re-arm */
+  CHECK(f.l.tx_pn >= 1);
+  f.l.pn_skip_at = 1; /* armed and due */
+  pn             = f.l.tx_pn;
+  lp_send_rec_ping(&f);
+  CHECK(f.l.tx_pn == pn + 2);              /* pn sent, pn + 1 skipped */
+  CHECK(f.l.pn_skipped1[0] == pn + 1 + 1); /* stored as 1 + pn */
+  CHECK(f.l.pn_skip_at >= f.l.tx_pn + 1);  /* re-armed inside the skip */
+  CHECK(f.l.pn_skip_at <= f.l.tx_pn + WIRED_SRVLOOP_PN_GAP_MAX);
+  srvloop_test_force_pn_skip_rng_fail(1); /* the harness default */
+}
+
+/* RFC 9000 21.4: the distance between two skipped numbers is exactly 2
+ * with an all-zero draw and exactly 513 with an all-one draw -- the
+ * extremes of the 2..WIRED_SRVLOOP_PN_GAP_MAX + 1 range the arm can
+ * produce. */
+static void test_srvloop_pn_skip_distance_bounds(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  u64           s1, s2, s3;
+  lp_confirm(&f, &ob);
+  srvloop_test_pin_pn_skip_rng(1, 0, 0); /* the minimum draw */
+  f.l.pn_skip_at = 1;                    /* first skip at the next send */
+  lp_send_rec_ping(&f);                  /* skips s1, re-arms at s1 + 2 */
+  s1 = f.l.pn_skipped1[0] - 1;
+  CHECK(f.l.pn_skip_at == s1 + 2);
+  lp_send_rec_ping(&f); /* consumes s1 + 1, then skips s1 + 2 */
+  s2 = f.l.pn_skipped1[1] - 1;
+  CHECK(s2 == s1 + 2);                         /* the minimum distance */
+  srvloop_test_pin_pn_skip_rng(1, 0xff, 0xff); /* the maximum draw */
+  f.l.pn_skip_at = f.l.tx_pn;                  /* due at the next send */
+  lp_send_rec_ping(&f);
+  s3 = f.l.pn_skipped1[2] - 1;
+  CHECK(f.l.pn_skip_at == s3 + WIRED_SRVLOOP_PN_GAP_MAX + 1);
+  for (int i = 0; i < 511; i++) {
+    lp_send_rec_ping(&f);
+  }
+  CHECK(f.l.pn_skipped1[3] == 0); /* 511 sends later: no skip yet */
+  lp_send_rec_ping(&f);
+  CHECK(f.l.pn_skipped1[3] - 1 == s3 + 513); /* the maximum distance */
+  srvloop_test_pin_pn_skip_rng(0, 0, 0);
+}
+
+/* RFC 9000 21.4: a failed RNG read never blocks sending and never skips --
+ * the skip stays unarmed until a read succeeds. */
+static void test_srvloop_pn_skip_rng_fail_no_skip(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  u64           pn;
+  lp_confirm(&f, &ob);
+  srvloop_test_force_pn_skip_rng_fail(1);
+  f.l.pn_skip_at = 0; /* unarmed: every arm draw will fail */
+  pn             = f.l.tx_pn;
+  lp_send_rec_ping(&f);
+  lp_send_rec_ping(&f);
+  CHECK(f.l.tx_pn == pn + 2); /* consecutive, nothing skipped */
+  CHECK(f.l.pn_skip_at == 0);
+  CHECK(f.l.pn_skipped1[0] == 0);
+}
+
+/* RFC 9000 21.4: an ACK whose ranges cover a skipped packet number claims
+ * receipt of a packet never sent -- PROTOCOL_VIOLATION; ranges adjacent on
+ * both sides of the skipped number are accepted. */
+static void test_srvloop_ack_of_skipped_pn_violation(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a  = {0};
+  u64           k;
+  lp_confirm(&f, &ob);
+  lp_send_rec_ping(&f);
+  lp_send_rec_ping(&f);
+  lp_send_rec_ping(&f);
+  k                  = f.l.tx_pn - 2;
+  f.l.pn_skipped1[0] = k + 1; /* k was skipped */
+  a.n_ranges         = 2;     /* adjacent on both sides, k uncovered */
+  a.ranges[0].hi     = k + 1;
+  a.ranges[0].lo     = k + 1;
+  a.ranges[1].hi     = k - 1;
+  a.ranges[1].lo     = k - 1;
+  CHECK(lp_step_peer_ack(&f, &a) == 0);
+  a.n_ranges     = 1; /* exactly the skipped number */
+  a.ranges[0].hi = k;
+  a.ranges[0].lo = k;
+  CHECK(lp_step_peer_ack(&f, &a) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 21.4: a wide ACK range covering the skipped number in its
+ * middle is a PROTOCOL_VIOLATION too. */
+static void test_srvloop_ack_range_over_skipped_pn_violation(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a  = {0};
+  u64           k;
+  lp_confirm(&f, &ob);
+  lp_send_rec_ping(&f);
+  lp_send_rec_ping(&f);
+  lp_send_rec_ping(&f);
+  k                  = f.l.tx_pn - 2;
+  f.l.pn_skipped1[0] = k + 1;
+  a.n_ranges         = 1;
+  a.ranges[0].hi     = k + 1;
+  a.ranges[0].lo     = k - 1;
+  CHECK(lp_step_peer_ack(&f, &a) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 21.4: when the ring wraps, the oldest skipped number falls out
+ * and merely stops being checked -- an ACK covering it is accepted, never
+ * a false violation. */
+static void test_srvloop_pn_skip_ring_wrap_no_false_violation(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a  = {0};
+  u64           first;
+  lp_confirm(&f, &ob);
+  f.l.pn_skip_at = 1;
+  lp_send_rec_ping(&f);
+  first = f.l.pn_skipped1[0] - 1; /* the first skipped number */
+  for (usz i = 0; i < WIRED_SRVLOOP_PN_SKIPS; i++) {
+    f.l.pn_skip_at = 1; /* force one more skip per send */
+    lp_send_rec_ping(&f);
+  }
+  CHECK(f.l.pn_skipped1[0] != first + 1); /* slot 0 overwritten */
+  a.n_ranges     = 1;
+  a.ranges[0].hi = first;
+  a.ranges[0].lo = first;
+  CHECK(lp_step_peer_ack(&f, &a) == 0);
+}
+
+/* RFC 9000 21.4: the check walks every ACK range against every ring slot
+ * -- a middle range covering a number held in a later slot is caught. */
+static void test_srvloop_ack_middle_range_slot1_violation(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a  = {0};
+  u64           k;
+  lp_confirm(&f, &ob);
+  for (int i = 0; i < 5; i++) {
+    lp_send_rec_ping(&f);
+  }
+  k                  = f.l.tx_pn - 3;
+  f.l.pn_skipped1[1] = k + 1; /* slot 1; slot 0 stays empty */
+  a.n_ranges         = 3;
+  a.ranges[0].hi     = k + 2;
+  a.ranges[0].lo     = k + 2;
+  a.ranges[1].hi     = k; /* the middle range covers the skipped number */
+  a.ranges[1].lo     = k;
+  a.ranges[2].hi     = k - 2;
+  a.ranges[2].lo     = k - 2;
+  CHECK(lp_step_peer_ack(&f, &a) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 21.4 end to end: a real recorded send skips a number, and an
+ * ACK of exactly that number closes with PROTOCOL_VIOLATION. */
+static void test_srvloop_ack_of_real_skipped_pn_violation(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a  = {0};
+  lp_confirm(&f, &ob);
+  f.l.pn_skip_at = 1; /* due: the next recorded send skips */
+  lp_send_rec_ping(&f);
+  CHECK(f.l.pn_skipped1[0] != 0);
+  a.n_ranges     = 1;
+  a.ranges[0].hi = f.l.pn_skipped1[0] - 1;
+  a.ranges[0].lo = f.l.pn_skipped1[0] - 1;
+  CHECK(lp_step_peer_ack(&f, &a) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 19.3.2 / 21.4: an ACK frame carrying ECN counts (type 0x03) is
+ * checked against the skipped numbers like a plain ACK. */
+static void test_srvloop_ack_ecn_of_skipped_pn_violation(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a  = {0};
+  u64           k;
+  lp_confirm(&f, &ob);
+  lp_send_rec_ping(&f);
+  lp_send_rec_ping(&f);
+  k                  = f.l.tx_pn - 2;
+  f.l.pn_skipped1[0] = k + 1;
+  a.n_ranges         = 1;
+  a.ranges[0].hi     = k;
+  a.ranges[0].lo     = k;
+  a.has_ecn          = 1;
+  a.ect0             = 1;
+  CHECK(lp_step_peer_ack(&f, &a) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 21.4: one ACK range spanning two skipped numbers is a
+ * violation (either hit suffices). */
+static void test_srvloop_ack_range_spans_two_skipped_violation(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a  = {0};
+  u64           k;
+  lp_confirm(&f, &ob);
+  for (int i = 0; i < 5; i++) {
+    lp_send_rec_ping(&f);
+  }
+  k                  = f.l.tx_pn - 4;
+  f.l.pn_skipped1[0] = k + 1;
+  f.l.pn_skipped1[1] = k + 2 + 1; /* k and k + 2 both skipped */
+  a.n_ranges         = 1;
+  a.ranges[0].hi     = k + 3;
+  a.ranges[0].lo     = k - 1;
+  CHECK(lp_step_peer_ack(&f, &a) == ERR_PROTOCOL_VIOLATION);
+}
+
 /* RFC 9001 5.3: the AEAD's associated data is the header through the
  * packet number -- one changed header byte (a DCID byte, outside header
  * protection) and the packet no longer opens. */
@@ -8502,6 +8762,16 @@ void test_srvloop(void) {
   test_srvloop_key_update_keeps_hp_never_reverts();
   test_srvloop_zerortt_keys_dropped_after_finished();
   test_srvloop_ack_of_unsent_pn_violation();
+  test_srvloop_pn_skip_skips_next_number();
+  test_srvloop_pn_skip_distance_bounds();
+  test_srvloop_pn_skip_rng_fail_no_skip();
+  test_srvloop_ack_of_skipped_pn_violation();
+  test_srvloop_ack_range_over_skipped_pn_violation();
+  test_srvloop_pn_skip_ring_wrap_no_false_violation();
+  test_srvloop_ack_middle_range_slot1_violation();
+  test_srvloop_ack_of_real_skipped_pn_violation();
+  test_srvloop_ack_ecn_of_skipped_pn_violation();
+  test_srvloop_ack_range_spans_two_skipped_violation();
   test_srvloop_header_is_aead_aad();
   test_srvloop_send_at_aead_limit_initiates_key_update();
   test_srvloop_no_second_update_before_peer_follows();

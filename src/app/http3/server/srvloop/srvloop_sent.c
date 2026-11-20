@@ -1,6 +1,7 @@
 #include "app/http3/server/srvloop/srvloop_sent.h"
 
 #include "common/bytes/util/num.h"
+#include "common/platform/rng/rng.h"
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
@@ -44,7 +45,7 @@ static void srvloop_ackd_note(wired_srvloop* l, u64 pn, u64 ack_largest1) {
 
 /* 1 if remembered slot i's packet lies in [lo, hi]. */
 static int srvloop_ackd_hit(const wired_srvloop* l, usz i, u64 lo, u64 hi) {
-  return l->ackst.ackd_pn1[i] > lo && l->ackst.ackd_pn1[i] - 1 <= hi;
+  return u64_pn1_in(l->ackst.ackd_pn1[i], lo, hi);
 }
 
 void srvloop_ackd_on_acked(wired_srvloop* l, u64 lo, u64 hi) {
@@ -96,6 +97,84 @@ static void srvloop_sent_elicit(wired_srvloop* l, int eliciting) {
   l->ackst.probe_n        = (u8)(l->ackst.probe_n ? l->ackst.probe_n - 1 : 0);
 }
 
+/* Test-only override forcing the skip RNG to fail (getrandom failing is
+ * not practically triggerable from a test). The test harness entries
+ * (tests/run.c main, build/shards/shard_main.c) turn it on at startup so a
+ * unit run never skips at a random position; skip tests turn it off for
+ * their own scope. Production never sets it (0: the real RNG). */
+static int g_srvloop_pn_skip_rng_fail;
+
+void srvloop_test_force_pn_skip_rng_fail(int v) {
+  g_srvloop_pn_skip_rng_fail = v;
+}
+
+/* Test-only pin for the arm's draw bytes (pinned wins over the force-fail
+ * flag); on = 0 restores the real RNG. Reset after the owning test. */
+static int g_srvloop_pn_skip_rng_pinned;
+static u8  g_srvloop_pn_skip_rng_pin[2];
+
+__attribute__((unused)) static void srvloop_test_pin_pn_skip_rng(
+    int on, u8 b0, u8 b1) {
+  g_srvloop_pn_skip_rng_pinned = on;
+  g_srvloop_pn_skip_rng_pin[0] = b0;
+  g_srvloop_pn_skip_rng_pin[1] = b1;
+}
+
+static int srvloop_pn_skip_rng(u8 r[2]) {
+  if (g_srvloop_pn_skip_rng_pinned) {
+    r[0] = g_srvloop_pn_skip_rng_pin[0];
+    r[1] = g_srvloop_pn_skip_rng_pin[1];
+    return 1;
+  }
+  return !g_srvloop_pn_skip_rng_fail && rng_bytes(r, 2);
+}
+
+/* RFC 9000 21.4: place the next skip 1..WIRED_SRVLOOP_PN_GAP_MAX numbers
+ * (9 random bits + 1) past the next unsent number (tx_pn). Armed right
+ * after a skip of S (tx_pn = S + 1), that puts the next skipped number
+ * uniformly in S+2..S+513: every number past S+1 has a nonzero chance of
+ * being the skipped one, so a peer gets no window it could ACK
+ * optimistically with zero risk. A geometric draw would make the
+ * per-packet hazard constant (memoryless), but needs a draw per packet or
+ * log arithmetic; the uniform draw costs one fixed-size read per skip and
+ * bounds the worst-case interval, so detection latency is bounded too. A
+ * failed RNG read leaves the skip unarmed (no skip; sending never blocks)
+ * and the next send retries. */
+static void srvloop_pn_skip_arm(wired_srvloop* l) {
+  u8 r[2];
+  if (!srvloop_pn_skip_rng(r)) {
+    return;
+  }
+  l->pn_skip_at = l->tx_pn + 1 + (((u64)(r[1] & 1) << 8) | r[0]);
+}
+
+/* RFC 9000 21.4: skip the next 1-RTT packet number (tx_pn, not yet used)
+ * and remember it -- a peer acknowledging it claims receipt of a packet
+ * never sent, the optimistic-ACK tripwire srvloop_validate.c checks. The
+ * ring overwrite drops the oldest number, which merely stops being
+ * checked. Re-arming here lets the next skip fire as early as two numbers
+ * later; the number right after a skipped one always exists, but two
+ * consecutive skips would be indistinguishable from one to the validator
+ * anyway. */
+static void srvloop_pn_skip(wired_srvloop* l) {
+  l->pn_skipped1[l->pn_skip_next] = l->tx_pn + 1;
+  l->pn_skip_next = (u8)((l->pn_skip_next + 1) % WIRED_SRVLOOP_PN_SKIPS);
+  l->tx_pn++;
+  l->pn_skip_at = 0; /* on an RNG failure the next send retries the arm */
+  srvloop_pn_skip_arm(l);
+}
+
+/* Arm, or fire, the packet-number skip after a recorded 1-RTT send. */
+static void srvloop_pn_skip_maybe(wired_srvloop* l) {
+  if (!l->pn_skip_at) {
+    srvloop_pn_skip_arm(l);
+    return;
+  }
+  if (l->tx_pn >= l->pn_skip_at) {
+    srvloop_pn_skip(l);
+  }
+}
+
 int srvloop_send_onertt_rec(
     wired_srvloop*               l,
     wired_server*                s,
@@ -103,6 +182,9 @@ int srvloop_send_onertt_rec(
     wired_obuf*                  out) {
   srvloop_sent_kind k;
   if (!wired_srvloop_send_onertt(s, in, out)) {
+    /* shortcut: a pn consumed by a failed seal stays unsent and is not in
+     * the skip ring, so an ACK of it passes; upgrade if seal failures ever
+     * become reachable from peer input. */
     return 0;
   }
   k = srvloop_sent_classify(in, out->len);
@@ -112,5 +194,6 @@ int srvloop_send_onertt_rec(
                           pkt_in_flight(k.eliciting, k.padded), out->len});
   srvloop_ackd_note(l, in->pn, k.ack_largest1);
   srvloop_sent_elicit(l, k.eliciting);
+  srvloop_pn_skip_maybe(l);
   return 1;
 }

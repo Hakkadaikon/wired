@@ -7,6 +7,15 @@ void srvloop_pending_priority_reset(wired_srvloop* l) {
   }
 }
 
+/* RFC 9000 21.4: no packet numbers skipped yet, the skip unarmed. */
+static void srvloop_init_pn_skip(wired_srvloop* l) {
+  l->pn_skip_next = 0;
+  l->pn_skip_at   = 0;
+  for (usz i = 0; i < WIRED_SRVLOOP_PN_SKIPS; i++) {
+    l->pn_skipped1[i] = 0;
+  }
+}
+
 /* Packet-number spaces and handshake progress. */
 void srvloop_init_pn(wired_srvloop* l) {
   l->tx_pn           = 0;
@@ -19,6 +28,7 @@ void srvloop_init_pn(wired_srvloop* l) {
   for (usz i = 0; i < WIRED_SRVLOOP_ACKD; i++) {
     l->ackst.ackd_pn1[i] = 0;
   }
+  srvloop_init_pn_skip(l);
   l->ackst.rx_ce    = 0;
   l->app_rx_seen    = 0;
   l->np_hi          = 0;

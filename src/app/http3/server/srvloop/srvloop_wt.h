@@ -547,7 +547,17 @@ typedef struct {
    * flight then stands down its NEW_CONNECTION_ID frame (the parameter
    * already delivered the CID; a frame would re-issue the same sequence). */
   u8  spare_cid_in_tp;
-  u64 tx_pn;     /**< monotone packet number for sealed 1-RTT output */
+  u64 tx_pn; /**< monotone packet number for sealed 1-RTT output */
+  /** RFC 9000 21.4: 1-RTT packet numbers skipped on purpose (stored as
+   * 1 + pn, 0 = free) -- an ACK covering one acknowledges a packet never
+   * sent, a PROTOCOL_VIOLATION (srvloop_validate.c). The skip fires in
+   * srvloop_sent.c after a recorded send; the oldest slot is overwritten. */
+  u64 pn_skipped1[WIRED_SRVLOOP_PN_SKIPS];
+  /** The pn_skipped1 slot the next skip overwrites. */
+  u8 pn_skip_next;
+  /** The tx_pn at or above which the next skip fires; 0 = not armed
+   * (re-armed from the RNG at the next recorded send, RFC 9000 21.4). */
+  u64 pn_skip_at;
   u64 hs_tx_pn;  /**< monotone packet number for sealed Handshake output */
   u64 app_rx_pn; /**< last received 1-RTT (application) packet number to ACK */
   /** Largest 1-RTT packet number received, valid with app_rx_seen: the

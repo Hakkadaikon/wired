@@ -20,4 +20,10 @@ int srvloop_send_onertt_rec(
  * Acknowledged. */
 void srvloop_ackd_on_acked(wired_srvloop* l, u64 lo, u64 hi);
 
+/** Test-only: force the packet-number-skip RNG (RFC 9000 21.4) to fail,
+ * so no number is ever skipped. The test harness entries set 1 at startup
+ * to keep unit runs deterministic; skip tests set 0 for their own scope
+ * and restore 1. Production never calls this. */
+void srvloop_test_force_pn_skip_rng_fail(int v);
+
 #endif

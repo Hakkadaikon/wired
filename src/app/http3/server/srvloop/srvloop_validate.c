@@ -91,17 +91,44 @@ static u64 srvloop_frame_value_error(
   return srvloop_frame_stream_bad(l, fr, k) ? ERR_STREAM_STATE_ERROR : 0;
 }
 
+/* 1 if some range of f covers skipped-slot pn1 (1 + pn, 0 = free). */
+static int srvloop_slot_acked(const ack_frame* f, u64 pn1) {
+  for (usz i = 0; i < f->n_ranges; i++) {
+    if (u64_pn1_in(pn1, f->ranges[i].lo, f->ranges[i].hi)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* RFC 9000 21.4: 1 if the ACK acknowledges a packet number this server
+ * skipped on purpose (srvloop_sent.c) -- the peer claims receipt of a
+ * packet never sent, an optimistic ACK. A number the ring has since
+ * overwritten is no longer checked. */
+static int srvloop_ack_skipped(const wired_srvloop* l, const ack_frame* f) {
+  for (usz i = 0; i < WIRED_SRVLOOP_PN_SKIPS; i++) {
+    if (srvloop_slot_acked(f, l->pn_skipped1[i])) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 /* 1 if the ACK frame fr acknowledges a 1-RTT packet number at or past
- * l->tx_pn, the next one to send -- a packet never sent. */
+ * l->tx_pn, the next one to send, or one skipped on purpose -- either way
+ * a packet never sent. */
 static int srvloop_ack_past_sent(
     const wired_srvloop* l, const framewalk_item* fr) {
   ack_frame f;
-  return ack_decode(fr->start, fr->remaining, &f) && f.ranges[0].hi >= l->tx_pn;
+  if (!ack_decode(fr->start, fr->remaining, &f)) {
+    return 0;
+  }
+  return f.ranges[0].hi >= l->tx_pn || srvloop_ack_skipped(l, &f);
 }
 
-/* RFC 9000 13.1: "An endpoint SHOULD treat receipt of an acknowledgment
- * for a packet it did not send as a connection error of type
- * PROTOCOL_VIOLATION". Only 1-RTT: l->tx_pn numbers that space. */
+/* RFC 9000 13.1 / 21.4: "An endpoint SHOULD treat receipt of an
+ * acknowledgment for a packet it did not send as a connection error of
+ * type PROTOCOL_VIOLATION". Only 1-RTT: l->tx_pn numbers that space. */
 static int srvloop_ack_unsent(
     const wired_srvloop*  l,
     const framewalk_item* fr,

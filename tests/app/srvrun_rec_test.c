@@ -945,6 +945,87 @@ static void test_srvrun_dg_pending_by_urgency(void) {
       'd');
 }
 
+/* RFC 9000 21.4 / RFC 9002 6.1.1: a purposely skipped packet number has no
+ * sent record, so recovery across the gap stays correct -- the packet
+ * threshold still counts from the largest acked number, the hole itself is
+ * never declared lost, and acking the real packets on both sides of it
+ * reclaims them all. */
+static void test_srvrun_rec_skip_gap_recovery(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  u64           pn0, pn1, pn2, r[1][2];
+  srvrec_bare(&c, &f, &ob);
+  pn0            = srvrec_ctrl(&c, 10);
+  c.l.pn_skip_at = 1; /* force the skip right after this send */
+  pn1            = srvrec_ctrl(&c, 10);
+  pn2            = srvrec_ctrl(&c, 10);
+  CHECK(pn2 == pn1 + 2); /* pn1 + 1 was skipped */
+  CHECK(sentmeta_find(&c.l.ackst.sent, pn1 + 1) == SENTMETA_CAP);
+  r[0][0] = pn2;
+  r[0][1] = pn2;
+  srvrec_ack_n(&c, r, 1, 0, 10); /* 0ms RTT: only the packet threshold */
+  /* kPacketThreshold 3: pn2 - pn0 = 3 declares pn0 lost (the skipped hole
+   * counts as number distance, RFC 9002 6.1.1); pn2 - pn1 = 2 does not. */
+  CHECK(sentmeta_find(&c.l.ackst.sent, pn0) == SENTMETA_CAP);
+  CHECK(sentmeta_find(&c.l.ackst.sent, pn1) < SENTMETA_CAP);
+  r[0][0] = pn0;
+  r[0][1] = pn1;
+  srvrec_ack_n(&c, r, 1, 0, 11);
+  CHECK(sentmeta_find(&c.l.ackst.sent, pn1) == SENTMETA_CAP);
+  CHECK(c.l.ackst.sent.total_in_flight == 0);
+}
+
+/* RFC 9000 21.4: a long transfer crosses many real skips (one forced per
+ * pump round, at an explicit position -- no RNG) and still completes:
+ * every slice is acknowledged around the holes, nothing is declared lost
+ * from a hole, and the connection never errors. */
+static void test_srvrun_rec_skip_long_transfer_completes(void) {
+  static u8     body[20 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg    cfg = srvrec_cfg();
+  srvrun_state  st  = {0, &c};
+  u64           r[2][2];
+  int           rounds, slots = 0;
+  srvrec_conn(&c, &f, body, sizeof body, &ob);
+  c.cc.cwnd = 2 * SRVRUN_CHUNK; /* a few slices per round, many rounds */
+  for (rounds = 0; rounds < 60; rounds++) {
+    u64             start = c.l.tx_pn, end;
+    srvrun_step_ctx ctx   = {&cfg, 0, &st, 10 + (u64)rounds, 0};
+    c.l.pn_skip_at        = 1; /* skip right after the round's first send */
+    srvrun_pump_sess(&ctx, 0);
+    end = c.l.tx_pn;
+    if (end == start) {
+      break; /* everything sent and acknowledged */
+    }
+    CHECK(end > start + 1); /* >= one send, then the skip of start + 1 */
+    if (end > start + 2) {
+      r[0][0] = start + 2; /* the honest ACK: everything but the hole */
+      r[0][1] = end - 1;
+      r[1][0] = start;
+      r[1][1] = start;
+      srvrec_ack_n(&c, r, 2, 0, 10 + (u64)rounds);
+    } else {
+      r[0][0] = start;
+      r[0][1] = start;
+      srvrec_ack_n(&c, r, 1, 0, 10 + (u64)rounds);
+    }
+  }
+  CHECK(rounds < 60);
+  CHECK(c.l.transport_error == 0);
+  CHECK(c.l.ackst.sent.total_in_flight == 0);
+  CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0);
+  CHECK(wired_sendsess_done(&c.resp[0].sess) == 1);
+  for (usz i = 0; i < WIRED_SRVLOOP_PN_SKIPS; i++) {
+    slots += c.l.pn_skipped1[i] != 0;
+  }
+  CHECK(slots >= 3); /* the transfer really crossed several skips */
+}
+
 void test_srvrun_rec(void) {
   test_srvrun_rec_time_threshold_latest_rtt();
   test_srvrun_rec_granularity_floor();
@@ -976,4 +1057,6 @@ void test_srvrun_rec(void) {
   test_srvrun_dg_priority_vs_stream();
   test_srvrun_dg_pending_by_urgency();
   test_srvrun_rec_idle_restarts_on_any_eliciting();
+  test_srvrun_rec_skip_gap_recovery();
+  test_srvrun_rec_skip_long_transfer_completes();
 }

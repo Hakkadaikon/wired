@@ -18,6 +18,11 @@ static inline int u64_add_ok(u64 a, u64 b, u64* out) {
   return 1;
 }
 
+/* 1 if the packet number stored as 1 + pn (0 = none) lies in [lo, hi]. */
+static inline int u64_pn1_in(u64 pn1, u64 lo, u64 hi) {
+  return pn1 > lo && pn1 - 1 <= hi;
+}
+
 /* 1 if v is in list (n entries), else 0. */
 static inline int u32_in(u32 v, const u32* list, usz n) {
   for (usz i = 0; i < n; i++) {

@@ -170,7 +170,11 @@ def render_main():
         "\n".join(
             [GENERATED, "#include <stdio.h>"]
             + ["int wired_test_shard_%d(void);" % n for n in range(K)]
+            # deterministic unit runs: no random 1-RTT pn skip (run.c main
+            # does the same; skip tests re-enable the RNG themselves)
+            + ["void srvloop_test_force_pn_skip_rng_fail(int v);"]
             + ["int main(void) {", "  int fails = 0;"]
+            + ["  srvloop_test_force_pn_skip_rng_fail(1);"]
             + ["  fails += wired_test_shard_%d();" % n for n in range(K)]
             + [
                 '  if (fails) { printf("%d failure(s)\\n", fails); return 1; }',

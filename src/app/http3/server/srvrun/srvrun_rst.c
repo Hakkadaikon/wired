@@ -2,7 +2,6 @@
 
 static srvrun_rst* srvrun_rst_free(srvrun_conn* c);
 static int         srvrun_rst_fits(usz pln);
-static int         srvrun_pn_in(u64 pn, u64 lo, u64 hi);
 static int         srvrun_rst_acked(const srvrun_rst* e, u64 lo, u64 hi);
 
 /* srvrun_seal_kept, then send it with log line msg. */
@@ -99,12 +98,11 @@ void srvrun_send_wt_busy_reset(
   srvrun_wt_send_done_mark(c, stream_id);
 }
 
-/* 1 iff pn lies in [lo, hi]. */
-static int srvrun_pn_in(u64 pn, u64 lo, u64 hi) { return lo <= pn && pn <= hi; }
-
-/* 1 iff e awaits an ACK that the range [lo, hi] carries. */
+/* 1 iff e awaits an ACK that the range [lo, hi] carries. e->pn is a plain
+ * packet number (e->pln is the in-use flag), so + 1 converts it to the
+ * 1 + pn form u64_pn1_in takes. */
 static int srvrun_rst_acked(const srvrun_rst* e, u64 lo, u64 hi) {
-  return e->pln && srvrun_pn_in(e->pn, lo, hi);
+  return e->pln && u64_pn1_in(e->pn + 1, lo, hi);
 }
 
 static void srvrun_rst_ack_all(srvrun_conn* c, u64 lo, u64 hi) {

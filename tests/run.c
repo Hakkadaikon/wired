@@ -1362,6 +1362,9 @@
 // clang-format on
 
 int main(void) {
+  /* Deterministic unit runs: no 1-RTT packet-number skip at a random
+   * position (RFC 9000 21.4). Skip tests re-enable the RNG themselves. */
+  srvloop_test_force_pn_skip_rng_fail(1);
   test_varint();
   test_header();
   test_dcidresolve();

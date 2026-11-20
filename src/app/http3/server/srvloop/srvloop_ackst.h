@@ -9,6 +9,23 @@
  * range pruning (srvloop_ackst.ackd_pn1); the oldest is overwritten. */
 #define WIRED_SRVLOOP_ACKD 8
 
+/** RFC 9000 21.4 optimistic-ACK defense: purposely skipped 1-RTT packet
+ * numbers each connection remembers (wired_srvloop.pn_skipped1). The ring
+ * holds the last 8 skipped numbers -- at the mean skip distance (~257,
+ * srvloop_pn_skip_arm) roughly the last ~2000 numbers sent. When it
+ * wraps, the overwritten number simply stops being checked: an ACK
+ * covering it is accepted, so a wrap can never cause a false violation. */
+#define WIRED_SRVLOOP_PN_SKIPS 8
+
+/** Largest arm offset: the next skip lands 1..this (9 random bits + 1)
+ * numbers past the next unsent number. Re-armed right after a skip, the
+ * distance between two skipped numbers is uniform 2..this + 1 (2..513,
+ * mean ~257) -- the number right after a skipped one always exists, every
+ * later one can be the next skipped one, so no safe zone the peer could
+ * ACK optimistically with zero risk (RFC 9000 21.4); see
+ * srvloop_pn_skip_arm (srvloop_sent.c). */
+#define WIRED_SRVLOOP_PN_GAP_MAX 512
+
 /** The sent-packet record and ACK state loss recovery reads and the
  * receive path keeps. */
 typedef struct {
