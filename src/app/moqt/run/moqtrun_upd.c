@@ -69,10 +69,14 @@ static void moqtrun_upd_priority(
   s->has_priority = 1;
 }
 
+/* The update's OBJECT_DELIVERY_TIMEOUT re-mins against the PUBLISH's
+ * initial one (draft-22 9.8; t 0 while the publisher is away), as
+ * moqtrun_upd_sgt does for the Track Property. */
 static void moqtrun_upd_timeout(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* p) {
-  (void)t;
-  s->delivery_timeout     = p->vi;
+  s->own_delivery_timeout     = p->vi;
+  s->has_own_delivery_timeout = 1;
+  s->delivery_timeout = moqtrun_timeout_min(t ? t->pub_delivery_ms : 0, p->vi);
   s->has_delivery_timeout = 1;
 }
 

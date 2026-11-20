@@ -472,6 +472,200 @@ static void test_moqtrun_timeout_zero(void) {
   CHECK(mtrq_reset_code(sid) == -1);
 }
 
+/* ====== PUBLISH initial subscription parameters (draft-22/23 9.8) ====== */
+
+/* A's control stream of the last mtup_pub_setup (re-PUBLISH rides it). */
+static u64 mtup_pub_ctrl;
+/* B's control stream of the last mtup_pub_setup. */
+static u64 mtup_sub_ctrl;
+
+/* A PUBLISHes alice with params on its control stream; B joined. */
+static moqctl_ftn mtup_pub_setup(const moqctl_params* params) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  mtup_pub_ctrl = mtst_join(SESS_A);
+  mtup_sub_ctrl = mtst_join(SESS_B);
+  mtst_publish_p(SESS_A, mtup_pub_ctrl, &f, 1, params);
+  return f;
+}
+
+/* One-shot uni streams the hub opened toward s. */
+static usz mtup_uni_n(const wired_wt_session* s) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    n += g_calls[i].kind == 4 && g_calls[i].s == s;
+  }
+  return n;
+}
+
+/* 9.8: the PUBLISH's LOCATION_FILTER is the subscription's initial
+ * state -- Groups outside it are not forwarded, even to a subscriber
+ * that named no filter of its own. */
+static void test_moqtrun_pub_filter_bounds_subs(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params r               = mtst_params_filter(MOQCTL_FILTER_ABS_RANGE);
+  r.items[0].lf.start.group     = 2;
+  r.items[0].lf.end_group_delta = 1;
+  moqctl_ftn f                  = mtup_pub_setup(&r);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  moqtrun_test_reset();
+  for (u64 g = 1; g <= 4; g++) {
+    usz n = mtst_stream(g, 1, 1, buf);
+    mt_feed(&mtst_hub, SESS_A, 2002 + 4 * g, wired_span_of(buf, n), g != 2);
+  }
+  CHECK(moqtrun_test_count_kind(4) == 1); /* Group 3, one-shot */
+  CHECK(moqtrun_test_count_kind(5) == 1); /* Group 2, keep-open */
+}
+
+/* mtup_ring_lagging with OBJECT_DELIVERY_TIMEOUT 100 riding the PUBLISH
+ * instead of the SUBSCRIBE. */
+static u64 mtup_pub_ring_lagging(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  moqctl_ftn    f = mtup_pub_setup(&p);
+  mtst_hub.reliable_alias_limit = 100;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  wired_moqt_tick(&mtst_hub, 0);
+  usz n = mtst_stream(1, 1, 1, buf);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  u64 sid                   = moqtrun_test_last_kind(5)->stream_id;
+  g_stream_send_reject_sess = SESS_B;
+  n                         = mtst_stream(1, 1, 0, buf);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  return sid;
+}
+
+/* 9.8: the PUBLISH's OBJECT_DELIVERY_TIMEOUT is the subscription's
+ * initial state: an Object still unsent past it expires the stream of a
+ * subscriber that named no timeout (test_moqtrun_timeout_ring's shape). */
+static void test_moqtrun_pub_timeout_expires(void) {
+  u64 sid = mtup_pub_ring_lagging();
+  wired_moqt_tick(&mtst_hub, 50);
+  CHECK(mtrq_reset_code(sid) == -1);
+  wired_moqt_tick(&mtst_hub, 150);
+  CHECK(mtrq_reset_code(sid) == 0x2);
+  g_stream_send_reject_sess = 0;
+}
+
+/* ... and a REQUEST_UPDATE raising the subscriber's own timeout re-mins
+ * against the PUBLISH's: the smaller initial value keeps expiring. */
+static void test_moqtrun_pub_timeout_update_remin(void) {
+  moqctl_params p   = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 5000);
+  u64           sid = mtup_pub_ring_lagging();
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  wired_moqt_tick(&mtst_hub, 150);
+  CHECK(mtrq_reset_code(sid) == 0x2);
+  g_stream_send_reject_sess = 0;
+}
+
+/* 9.8 + the subscriber's own LOCATION_FILTER: the intersection delivers.
+ * B's looser range is clamped to the PUBLISH's (Groups 2..3); C's
+ * tighter end (2..2) stands. */
+static void test_moqtrun_pub_filter_intersects_sub_filter(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params pub               = mtst_params_filter(MOQCTL_FILTER_ABS_RANGE);
+  moqctl_params loose             = mtst_params_filter(MOQCTL_FILTER_ABS_RANGE);
+  moqctl_params tight             = mtst_params_filter(MOQCTL_FILTER_ABS_RANGE);
+  pub.items[0].lf.start.group     = 2;
+  pub.items[0].lf.end_group_delta = 1;
+  loose.items[0].lf.start.group   = 1;
+  loose.items[0].lf.end_group_delta = 4;
+  tight.items[0].lf.start.group     = 2;
+  tight.items[0].lf.end_group_delta = 0;
+  moqctl_ftn f                      = mtup_pub_setup(&pub);
+  mtst_join(SESS_C);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &loose);
+  mtst_subscribe_p(SESS_C, MTRQ_S1, &f, 2, &tight);
+  moqtrun_test_reset();
+  for (u64 g = 1; g <= 4; g++) {
+    usz n = mtst_stream(g, 1, 1, buf);
+    mt_feed(&mtst_hub, SESS_A, 2002 + 4 * g, wired_span_of(buf, n), 1);
+  }
+  CHECK(mtup_uni_n(SESS_B) == 2); /* Groups 2 and 3 */
+  CHECK(mtup_uni_n(SESS_C) == 1); /* Group 2 only */
+}
+
+/* A draft-18/19 re-PUBLISH must leave surviving subscriptions' resolved
+ * filters alone (9.8's initial-state rule is draft-22/23 only): a Next
+ * Group start would otherwise collapse to {0, 0} while the new
+ * incarnation's Largest is still unknown. */
+static void test_moqtrun_pub_republish_keeps_start_old_drafts(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params ng = mtst_params_filter(MOQCTL_FILTER_NEXT_GROUP);
+  moqctl_ftn    f  = mtup_pub_setup(0);
+  usz           n  = mtst_stream(3, 1, 1, buf);
+  mt_feed(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 1);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &ng);
+  wired_moqtrun_sub* s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->start.group == 4 && s->start.object == 0);
+  mtst_publish_p(SESS_A, mtup_pub_ctrl, &f, 1, 0);
+  s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->start.group == 4 && s->start.object == 0);
+}
+
+/* draft-22/23: a re-PUBLISH is a new incarnation, so a Largest-relative
+ * filter re-resolves against ITS Largest and the Joining Location
+ * follows -- the same re-resolve a re-attach does (the stored Locations
+ * name the old incarnation's Objects, moqtrun_sub_reresolve). */
+static void test_moqtrun_pub_republish_reresolves_relative(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params ng = mtst_params_filter(MOQCTL_FILTER_NEXT_GROUP);
+  moqctl_params lg = {0};
+  lg.items[0].type = MOQCTL_PARAM_LARGEST_OBJECT;
+  lg.items[0].enc  = MOQCTL_PENC_LOCATION;
+  lg.items[0].loc  = moqctl_loc_of(7, 1);
+  lg.n             = 1;
+  moqctl_ftn f     = mtup_pub_setup(0);
+  usz        n     = mtst_stream(3, 1, 1, buf);
+  mt_feed(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 1);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &ng);
+  wired_moqtrun_sub* s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->start.group == 4 && s->start.object == 0);
+  mtst_publish_p(SESS_A, mtup_pub_ctrl, &f, 1, &lg);
+  s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->start.group == 8 && s->start.object == 0);
+  CHECK(s && s->has_jl && s->jl.group == 7 && s->jl.object == 1);
+}
+
+/* The re-attach path (the track died with its publisher's session)
+ * recombines the saved subscription state with the NEW PUBLISH's 9.8
+ * parameters: the subscriber's own OBJECT_DELIVERY_TIMEOUT is kept, the
+ * old publisher's is dropped. The subscription rides B's control stream:
+ * a request stream's PUBLISH_DONE forgets the remembered name
+ * (moqtrun_done_send), so no re-attach would follow. */
+static void test_moqtrun_pub_params_reattach_new_publisher(void) {
+  moqctl_params p100 = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  moqctl_params p500 = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 500);
+  moqctl_ftn    f    = mtup_pub_setup(&p100);
+  mtst_subscribe_p(SESS_B, mtup_sub_ctrl, &f, 2, &p500);
+  wired_moqtrun_sub* s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->delivery_timeout == 100 && s->own_delivery_timeout == 500);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  u64 ca = mtst_join(SESS_A);
+  mtst_publish_p(SESS_A, ca, &f, 1, 0); /* no timeout this time */
+  s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->active);
+  CHECK(s && s->delivery_timeout == 500 && s->own_delivery_timeout == 500);
+}
+
+/* The PUBLISH's 9.8 state belongs to its incarnation: a re-PUBLISH's
+ * parameters replace the old ones for the re-attached subscription (the
+ * subscriber's own values stay). */
+static void test_moqtrun_pub_params_reattach_refresh(void) {
+  moqctl_params p100 = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  moqctl_params ord  = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 2);
+  moqctl_ftn    f    = mtup_pub_setup(&p100);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  wired_moqtrun_sub* s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->delivery_timeout == 100 && s->has_delivery_timeout);
+  mtst_publish_p(SESS_A, mtup_pub_ctrl, &f, 1, 0); /* no parameters */
+  s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->delivery_timeout == 0 && !s->has_delivery_timeout);
+  mtst_publish_p(SESS_A, mtup_pub_ctrl, &f, 1, &ord);
+  s = mtst_sub(SESS_A, SESS_B);
+  CHECK(s && s->group_order == 2);
+}
+
 /* A timeout set by REQUEST_UPDATE applies from then on. */
 static void test_moqtrun_timeout_by_update(void) {
   moqctl_params p   = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
@@ -1078,6 +1272,26 @@ void test_moqtrun_upd(void) {
   moqtrun_test_vers(
       MOQVER_CAP_PREFIX_OVERLAP, 0, test_moqtrun_upd_ns_prefix_overlap_refused);
   moqtrun_test_vers(0, MOQVER_CAP_FETCH_BODY_V22, mtall_upd_fetch19);
+  moqtrun_test_vers(
+      MOQVER_CAP_PUB_INIT_PARAMS, 0, test_moqtrun_pub_filter_bounds_subs);
+  moqtrun_test_vers(
+      MOQVER_CAP_PUB_INIT_PARAMS, 0, test_moqtrun_pub_timeout_expires);
+  moqtrun_test_vers(
+      MOQVER_CAP_PUB_INIT_PARAMS, 0, test_moqtrun_pub_timeout_update_remin);
+  moqtrun_test_vers(
+      MOQVER_CAP_PUB_INIT_PARAMS, 0,
+      test_moqtrun_pub_filter_intersects_sub_filter);
+  moqtrun_test_vers(
+      MOQVER_CAP_PUB_INIT_PARAMS, 0, test_moqtrun_pub_params_reattach_refresh);
+  moqtrun_test_vers(
+      0, MOQVER_CAP_PUB_INIT_PARAMS,
+      test_moqtrun_pub_republish_keeps_start_old_drafts);
+  moqtrun_test_vers(
+      MOQVER_CAP_PUB_INIT_PARAMS, 0,
+      test_moqtrun_pub_republish_reresolves_relative);
+  moqtrun_test_vers(
+      MOQVER_CAP_PUB_INIT_PARAMS, 0,
+      test_moqtrun_pub_params_reattach_new_publisher);
   moqtrun_test_vers(MOQVER_CAP_RANGE_FILTERS, 0, mtall_upd_rngf);
   moqtrun_test_vers(
       MOQVER_CAP_MAX_REQUEST_UPDATES, 0, test_moqtrun_upd_credit_too_many);

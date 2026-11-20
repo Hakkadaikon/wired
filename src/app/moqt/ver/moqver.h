@@ -116,6 +116,10 @@
 /** NAMESPACE ends with Number of Parameters; no parameter is scoped to it,
  * so the hub writes 0 (draft-23 9.15). */
 #define MOQVER_CAP_NS_PARAMS (1u << 31)
+/** PUBLISH parameters governing delivery are the publisher's initial
+ * subscription state (draft-22/23 9.8 "inform the Subscriber of the
+ * initial Subscription parameters"; earlier drafts have no such text). */
+#define MOQVER_CAP_PUB_INIT_PARAMS (1ull << 32)
 /** A relay counts REQUEST_UPDATE_OK and PUBLISH_STATE_NOTIFY toward its
  * LARGEST_OBJECT, answers only from an unpaused upstream and includes the
  * parameter in its PUBLISH once it received Objects (draft-23 7.5,

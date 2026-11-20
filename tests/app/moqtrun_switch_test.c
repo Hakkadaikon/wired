@@ -890,6 +890,32 @@ static void test_moqtrun_switch_filter_update_keeps_bounds(void) {
   CHECK(mtsw_lo() && mtsw_lo()->start.group == 4);
 }
 
+/* A re-PUBLISH on a live slot (draft-22 9.8 re-resolves every surviving
+ * filtered subscription) re-applies the switch bound, as a
+ * LOCATION_FILTER update does: hi still ends at G-1 = 3, lo still starts
+ * at {G, 0} = {4, 0}. */
+static void test_moqtrun_switch_republish_keeps_bounds(void) {
+  moqctl_ftn    hi = mtsw_ftn("hi"), lo = mtsw_ftn("lo");
+  moqctl_params fs = mtst_params_filter(MOQCTL_FILTER_ABS_START);
+  moqctl_params sw = mtsw_with_sw(fs, MTSW_RID_HI, MOQCTL_SWITCH_SOFT, 1);
+  mtst_init();
+  mtst_hub.switch_track = 1;
+  mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, MTSW_PUB_HI, &hi, MTSW_HI);
+  mtst_publish(SESS_A, MTSW_PUB_LO, &lo, MTSW_LO);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &hi, MTSW_RID_HI, &fs);
+  mtsw_group(mtsw_sid(MTSW_HI, 3), MTSW_HI, 3, 0);
+  mtst_subscribe_p(SESS_B, MTRQ_S2, &lo, MTSW_RID_LO, &sw); /* G = 4 */
+  mtst_publish(SESS_A, MTRQ_ID(5), &lo, MTSW_LO);
+  wired_moqtrun_sub* l = mtsw_lo();
+  CHECK(l && l->start.group == 4 && l->start.object == 0);
+  mtst_publish(SESS_A, MTRQ_ID(6), &hi, MTSW_HI);
+  wired_moqtrun_sub* h = mtsw_hi();
+  CHECK(h && h->has_end_group && h->end_group == 3);
+  CHECK(h && h->sw_role == MOQTSW_ROLE_OLD);
+}
+
 /* N3: once hi ended, lo is no longer clamped to G -- a later filter
  * update moves its start freely. */
 static void test_moqtrun_switch_new_role_cleared(void) {
@@ -1207,6 +1233,7 @@ static void test_moqtrun_switch_d22(void) {
   test_moqtrun_switch_cancel_new_soft_keeps_draining();
   test_moqtrun_switch_no_leak();
   test_moqtrun_switch_reattach_keeps_bounds();
+  test_moqtrun_switch_republish_keeps_bounds();
   test_moqtrun_switch_rejects_ended_old();
   test_moqtrun_switch_off_closes();
   test_moqtrun_switch_update();

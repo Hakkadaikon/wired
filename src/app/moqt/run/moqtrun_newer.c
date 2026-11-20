@@ -42,6 +42,9 @@ void moqtrun_track_claim(
   t->sgf_set          = 0;
   t->malformed        = 0;
   t->props_len        = 0;
+  t->pub_delivery_ms  = 0; /* PUBLISH parameters; moqtrun_track_pub_params */
+  t->pub_has_filter   = 0;
+  t->pub_group_order  = 0;
   moqtrun_track_drop_rings(hub, t);
   moqtrun_track_clear_relays(t);
   moqtrun_record_track_key(t, k);

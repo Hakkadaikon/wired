@@ -145,6 +145,7 @@
 #include "app/moqt/run/moqtrun_peer.c"
 #include "app/moqt/run/moqtrun_pre.c"
 #include "app/moqt/run/moqtrun_pubdone.c"
+#include "app/moqt/run/moqtrun_pubinit.c"
 #include "app/moqt/run/moqtrun_pubst.c"
 #include "app/moqt/run/moqtrun_pubst_move.c"
 #include "app/moqt/run/moqtrun_pubupd.c"

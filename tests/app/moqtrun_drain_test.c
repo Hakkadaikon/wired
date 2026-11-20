@@ -911,6 +911,54 @@ static void mtall_drain(void) {
   test_moqtrun_sched_fill_shares_flow();
 }
 
+/* A PUBLISHes alice with pub's parameters; B (no parameters) and C (own
+ * parameters) subscribe under the recording scheduler. */
+static void mtdr_pub_order_setup(
+    const moqctl_params* pub, const moqctl_params* own) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_join(SESS_C);
+  mtst_publish_p(SESS_A, ca, &f, 1, pub);
+  mtdr_sched_on();
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
+  mtst_subscribe_p(SESS_C, MTRQ_S1, &f, 2, own);
+  usz n = mtst_stream(3, 1, 1, buf);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+}
+
+/* draft-22/23 9.8: the PUBLISH's GROUP_ORDER is the subscription's
+ * initial state (the publisher's preference, 9.20.8) for a subscriber
+ * that named none; a subscriber's own value wins. Its
+ * SUBSCRIBER_PRIORITY is NOT taken over: a SUBSCRIBE that omits it is
+ * 128 (9.20.7) -- the 9.8 subscription is the publisher's own. */
+static void test_moqtrun_sched_pub_initial_order(void) {
+  moqctl_params pub = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 10);
+  pub.items[1].type = MOQCTL_PARAM_GROUP_ORDER;
+  pub.items[1].enc  = MOQCTL_PENC_UINT8;
+  pub.items[1].u8v  = 2;
+  pub.n             = 2;
+  moqctl_params own = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 1);
+  mtdr_pub_order_setup(&pub, &own);
+  const mtdr_sched_rec* b = mtdr_sched_last(SESS_B);
+  const mtdr_sched_rec* c = mtdr_sched_last(SESS_C);
+  CHECK(b && b->k.fine == 0x8080 && b->k.order == ~3ULL);
+  CHECK(c && c->k.fine == 0x8080 && c->k.order == 3);
+}
+
+/* draft-19 10.2.8 allows GROUP_ORDER on PUBLISH, but only draft-22/23
+ * 9.8 makes PUBLISH parameters the subscription's initial state: a
+ * draft-19 publisher's GROUP_ORDER does not reorder a downstream
+ * subscription that named none. */
+static void test_moqtrun_sched_pub_order_not_initial_d19(void) {
+  moqctl_params pub = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 2);
+  mtdr_pub_order_setup(&pub, 0);
+  const mtdr_sched_rec* b = mtdr_sched_last(SESS_B);
+  CHECK(b && b->k.order == 3);
+}
+
 void test_moqtrun_drain(void) {
   test_moqtrun_upd_failed_resets_first();
   test_moqtrun_upd_failed_ends_subscription();
@@ -923,4 +971,9 @@ void test_moqtrun_drain(void) {
   moqtrun_test_allver(mtall_drain);
   moqtrun_test_vers(
       0, MOQVER_CAP_FETCH_BODY_V22, test_moqtrun_sched_fetch_own_flow);
+  moqtrun_test_vers(
+      MOQVER_CAP_PUB_INIT_PARAMS, 0, test_moqtrun_sched_pub_initial_order);
+  moqtrun_test_vers(
+      MOQVER_CAP_RANGE_FILTERS, MOQVER_CAP_PUB_INIT_PARAMS,
+      test_moqtrun_sched_pub_order_not_initial_d19);
 }

@@ -5,10 +5,8 @@ static usz moqtrun_cutoff_scan(
     const wired_moqtrun_sub* s, wired_span wire, usz off0, moqdata_objseq seq0);
 static usz moqtrun_startobj_scan(
     const wired_moqtrun_sub* s, wired_span wire, usz off, moqdata_objseq* seq);
-static int  moqtrun_sub_in_objects(const wired_moqtrun_sub* s, moqctl_loc l);
-static int  moqtrun_late_by(u64 timeout_ms, u64 age_ms);
-static void moqtrun_sub_reresolve(
-    wired_moqtrun_sub* s, const wired_moqtrun_track* t);
+static int moqtrun_sub_in_objects(const wired_moqtrun_sub* s, moqctl_loc l);
+static int moqtrun_late_by(u64 timeout_ms, u64 age_ms);
 
 /* 1 iff sub's End Object could fall somewhere inside Group group's wire
  * at all -- the moqtrun_wire_cutoff guard, split out to keep its own
@@ -114,8 +112,7 @@ int moqtrun_sub_late(const wired_moqtrun_sub* s, u64 age_ms) {
  * filter start (9.3.1) and the Joining Location (5.1) are resolved again
  * against its Largest -- the stored ones name the old incarnation's
  * Objects. An absolute filter keeps the subscriber's own Locations. */
-static void moqtrun_sub_reresolve(
-    wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
+void moqtrun_sub_reresolve(wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
   moqtrun_sub_resolve(s, t);
   s->jl     = t->largest;
   s->has_jl = (u8)t->has_largest;
@@ -140,6 +137,7 @@ void moqtrun_reattach_one_sub(
   *slot             = p->sub_state[n];
   slot->session_idx = i;
   slot->active      = 1;
+  moqtrun_sub_pub_defaults(slot, track); /* the NEW PUBLISH's 9.8 state */
   moqtrun_sub_reresolve(slot, track);
   /* SSTS (moqtssts_run.c): the set dropped it while it had no track */
   moqtss_sub_leave(hub, slot);

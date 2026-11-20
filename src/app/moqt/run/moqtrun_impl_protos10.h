@@ -42,4 +42,11 @@ int moqtrun_disc_live_mask(wired_moqt_hub* hub, u64 kind, u64* mask);
 int moqtrun_disc_ns_masks(wired_moqt_hub* hub, u64* subs, u64* pubs);
 u64 moqtrun_req_used_word(wired_moqt_hub* hub, usz w);
 
+void moqtrun_track_pub_params(
+    wired_moqtrun_track* t, u64 caps, const moqctl_params* params);
+void moqtrun_sub_pub_defaults(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t);
+void moqtrun_sub_reresolve(wired_moqtrun_sub* s, const wired_moqtrun_track* t);
+void moqtrun_sub_clamp_pub(wired_moqtrun_sub* s, const wired_moqtrun_track* t);
+
 #endif

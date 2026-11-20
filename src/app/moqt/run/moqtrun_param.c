@@ -6,8 +6,10 @@ static moqctl_loc moqtrun_start_next(
     const moqctl_loc* top, const moqctl_rangeloc* f);
 static moqctl_loc moqtrun_start_abs(
     const moqctl_loc* top, const moqctl_rangeloc* f);
-static int moqtrun_ptype_is_rngf(u64 t);
-static int moqtrun_filter_before(const moqctl_param* f, const moqctl_loc* top);
+static int  moqtrun_ptype_is_rngf(u64 t);
+static int  moqtrun_filter_before(const moqctl_param* f, const moqctl_loc* top);
+static void moqtrun_sub_resolve_own(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t);
 
 /* ===== subscription state (draft 10.6 SUBSCRIBE parameters) ===== */
 
@@ -59,12 +61,8 @@ static moqctl_loc moqtrun_start_abs(
 const moqtrun_start_fn MOQTRUN_START_FNS[] = {
     moqtrun_start_rel, moqtrun_start_next, moqtrun_start_abs};
 
-/* s's start/end from its filter (unfiltered: everything from {0, 0}),
- * resolved against t now -- at SUBSCRIBE, update and re-attach alike. */
-void moqtrun_sub_resolve(wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
-  s->start          = moqctl_loc_of(0, 0);
-  s->has_end_group  = 0;
-  s->has_end_object = 0;
+static void moqtrun_sub_resolve_own(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
   if (!s->has_filter) {
     return;
   }
@@ -73,6 +71,18 @@ void moqtrun_sub_resolve(wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
   s->has_end_object = s->filter.ek == MOQCTL_REK_OBJ;
   s->end_group      = s->filter.end_group;
   s->end_object     = s->filter.end_object;
+}
+
+/* s's start/end from its filter (unfiltered: everything from {0, 0}),
+ * resolved against t now -- at SUBSCRIBE, update and re-attach alike --
+ * then clamped to the PUBLISH's own filter (moqtrun_sub_clamp_pub,
+ * moqtrun_pubinit.c). */
+void moqtrun_sub_resolve(wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
+  s->start          = moqctl_loc_of(0, 0);
+  s->has_end_group  = 0;
+  s->has_end_object = 0;
+  moqtrun_sub_resolve_own(s, t);
+  moqtrun_sub_clamp_pub(s, t);
 }
 
 int moqtrun_param_has_filter(const moqctl_param* f) {
@@ -117,12 +127,15 @@ void moqtrun_sub_scalars(wired_moqtrun_sub* s, const moqctl_subscribe* m) {
       moqtrun_sub_param(m, MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT);
   s->priority     = moqtrun_param_u8(pr);
   s->has_priority = pr != 0;
-  s->group_order =
+  s->own_group_order =
       moqtrun_param_u8(moqtrun_sub_param(m, MOQCTL_PARAM_GROUP_ORDER));
+  s->group_order = s->own_group_order;
   s->forward_off =
       moqtrun_forward_off(moqtrun_sub_param(m, MOQCTL_PARAM_FORWARD));
-  s->delivery_timeout     = moqtrun_param_vi(dt);
-  s->has_delivery_timeout = dt != 0;
+  s->own_delivery_timeout     = moqtrun_param_vi(dt);
+  s->has_own_delivery_timeout = dt != 0;
+  s->delivery_timeout         = s->own_delivery_timeout;
+  s->has_delivery_timeout     = s->has_own_delivery_timeout;
 }
 
 /* ===== Range Filters (draft-19 10.2.10-10.2.14) ===== */

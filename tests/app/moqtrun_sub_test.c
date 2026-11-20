@@ -1152,6 +1152,14 @@ static void test_moqtrun_pub_params_forward_all_drafts(void) {
   CHECK(mtver_publish_answered(MOQVER_D22, &p));
 }
 
+/* draft-22/23 9.20: an unknown Message Parameter in PUBLISH closes the
+ * session ("MUST close the session with PROTOCOL_VIOLATION"). */
+static void test_moqtrun_pub_param_unknown_closes(void) {
+  moqctl_params p = mtver_params_vi(0x51, 1);
+  CHECK(!mtver_publish_answered(MOQVER_D22, &p));
+  CHECK(!mtver_publish_answered(MOQVER_D23, &p));
+}
+
 /* draft-18 has no range filters (0x25-0x29): an unknown parameter. */
 static void test_moqtrun_sub_params_range_filter_d18(void) {
   static const u8 rng[] = {0x00, 0x03}; /* SetID 0, Start 3 */
@@ -2434,6 +2442,7 @@ void test_moqtrun_sub(void) {
   test_moqtrun_pub_params_delivery_timeout_d22();
   test_moqtrun_pub_params_group_order_d19();
   test_moqtrun_pub_params_forward_all_drafts();
+  test_moqtrun_pub_param_unknown_closes();
   test_moqtrun_sub_params_range_filter_d18();
   test_moqtrun_req_goaway_watermark_d18();
   moqtrun_test_allver(mtall_sub);

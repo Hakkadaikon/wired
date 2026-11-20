@@ -4,6 +4,8 @@ static int moqtrun_set_stream_pass(
     const wired_moqtrun_sub* s, u8 set, u64 sg, u64 prio);
 static u64 moqtrun_sub_sgt(
     const wired_moqtrun_track* t, const moqctl_subscribe* m);
+static void moqtrun_sub_pub_order(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t);
 static int moqtrun_sub_in_range(const wired_moqtrun_sub* s, u64 g);
 
 /* SetIDs OR together (10.2.10): the Object passes when any set's
@@ -57,6 +59,29 @@ static u64 moqtrun_sub_sgt(
                                   m, MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT)));
 }
 
+static void moqtrun_sub_pub_order(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
+  s->group_order = s->own_group_order ? s->own_group_order : t->pub_group_order;
+}
+
+/* draft-22/23 9.8: the PUBLISH's initial subscription parameters reach a
+ * subscription where it named none of its own -- GROUP_ORDER as the
+ * publisher's preference (9.20.8), the delivery timeout min()ed like
+ * SUBGROUP_DELIVERY_TIMEOUT (draft-19 8). SUBSCRIBER_PRIORITY is NOT
+ * taken over: a SUBSCRIBE that omits it is 128 (draft-22 9.20.7), the
+ * 9.8 subscription being the publisher's, not this downstream one.
+ * Recomputed from the subscriber's own values (own_*), so a re-attach
+ * to a new incarnation applies the NEW track's values
+ * (moqtrun_reattach_one_sub). */
+void moqtrun_sub_pub_defaults(
+    wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
+  s->delivery_timeout =
+      moqtrun_timeout_min(t->pub_delivery_ms, s->own_delivery_timeout);
+  s->has_delivery_timeout =
+      (u8)(s->has_own_delivery_timeout | (t->pub_delivery_ms != 0));
+  moqtrun_sub_pub_order(s, t);
+}
+
 /* Opens slot s on t for peer_idx under alias, its state taken from
  * SUBSCRIBE m. */
 void moqtrun_sub_open(
@@ -78,6 +103,7 @@ void moqtrun_sub_open(
   s->jl     = t->largest;
   s->has_jl = (u8)t->has_largest;
   moqtrun_sub_scalars(s, m);
+  moqtrun_sub_pub_defaults(s, t);
   s->subgroup_timeout = moqtrun_sub_sgt(t, m);
   moqtrun_sub_rngf_set(s, &m->params);
   moqtrun_sub_filter(s, t, moqtrun_sub_param(m, MOQCTL_PARAM_LOCATION_FILTER));

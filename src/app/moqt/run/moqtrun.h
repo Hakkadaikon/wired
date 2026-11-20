@@ -95,6 +95,19 @@ typedef struct {
   /** MAX_CACHE_DURATION Track Property (draft-18 12.3) in ms, ~0 when
    * absent: a cached Object is served at most this long after it came. */
   u64 max_cache_ms;
+  /** The PUBLISH's OBJECT_DELIVERY_TIMEOUT parameter (draft-22/23 9.8:
+   * the publisher's initial subscription state) in ms, 0 when absent:
+   * min()ed into each subscription's effective timeout like
+   * subgroup_timeout_ms. */
+  u64 pub_delivery_ms;
+  /** The PUBLISH's LOCATION_FILTER resolved at claim time, valid while
+   * pub_has_filter: every subscription of the track is clamped to it
+   * (moqtrun_sub_resolve). */
+  moqctl_loc pub_start;
+  /** Its last Group, valid while pub_has_end_group. */
+  u64 pub_end_group;
+  /** Its last Object of pub_end_group, valid while pub_has_end_object. */
+  u64 pub_end_object;
   /** Capability bits (MOQVER_CAP_*) of the publisher's session: the
    * draft its Objects' Properties are checked in. */
   u64 pub_caps;
@@ -155,6 +168,15 @@ typedef struct {
    * still due before it (answers come in order, draft-23 9.5); 0 when none
    * is outstanding. */
   u8 resume_in;
+  /** 1 while pub_start / pub_end_* hold the PUBLISH's filter. */
+  u8 pub_has_filter;
+  /** 1 when the PUBLISH's filter names a last Group. */
+  u8 pub_has_end_group;
+  /** 1 when it names a last Object. */
+  u8 pub_has_end_object;
+  /** The PUBLISH's GROUP_ORDER; 0 = absent. The publisher's preference
+   * for a subscription that named none (draft-22/23 9.8, 9.20.8). */
+  u8 pub_group_order;
   /** Bytes of props in use: the claiming PUBLISH's (or upstream
    * SUBSCRIBE_OK's) Track Properties, 0 when none (a longer block than
    * WIRED_MOQTRUN_TRACK_PROPS_MAX refuses the track). */

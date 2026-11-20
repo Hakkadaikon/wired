@@ -15,6 +15,13 @@ static int moqtrun_publish_slot_ok(
     const moqctl_publish* m);
 static int moqtrun_publish_refuse(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_publish* m);
+static void moqtrun_publish_open(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    usz                   peer_idx,
+    const moqctl_publish* m,
+    wired_moqtrun_track*  t,
+    moqtrun_key           k);
 
 static u8 moqtrun_track_prop_prio(wired_span props) {
   u64 v = moqtrun_tprop(props, MOQTRUN_PROP_DEFAULT_PUB_PRIO, 128);
@@ -115,6 +122,30 @@ static int moqtrun_publish_refuse(
   return 1;
 }
 
+/* The accepted PUBLISH m claims slot t for k: the track opened with its
+ * parameters (d22/23 9.8 initial state included), subscribers
+ * re-attached, and the REQUEST_OK queued. */
+static void moqtrun_publish_open(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    usz                   peer_idx,
+    const moqctl_publish* m,
+    wired_moqtrun_track*  t,
+    moqtrun_key           k) {
+  moqtrun_supersede_name(hub, peer_idx, k);
+  t->pub_caps = moqver_caps(p->ver);
+  moqtrun_track_open(
+      hub, t, k, m->track_alias, &m->params, m->track_properties,
+      m->request_id);
+  moqtrun_track_pub_params(t, t->pub_caps, &m->params); /* d22/23 9.8 */
+  moqtrun_reattach_subs(hub, t, peer_idx, k);
+  moqtrun_rdv_resolve(hub, t, k);
+  moqtrun_up_crossed(hub, p, k);
+  moqtrun_queue_request_ok(p, 0);
+  moqtrun_req_mark_live(p);
+  moqtrun_pub_resume(hub, t);
+}
+
 /* A vetted PUBLISH: claim a track into a free (or matching-name) slot
  * and reply REQUEST_OK; a third distinct track name (no free slot), or a
  * name a newer session already owns (moqtrun_publish_slot), gets
@@ -130,20 +161,9 @@ void moqtrun_publish_checked(
   }
   moqtrun_key          k = moqtrun_key_of(&m->name, ns_buf);
   wired_moqtrun_track* t = moqtrun_publish_slot(hub, p, peer_idx, k);
-  if (!moqtrun_publish_slot_ok(hub, p, t, m)) {
-    return;
+  if (moqtrun_publish_slot_ok(hub, p, t, m)) {
+    moqtrun_publish_open(hub, p, peer_idx, m, t, k);
   }
-  moqtrun_supersede_name(hub, peer_idx, k);
-  t->pub_caps = moqver_caps(p->ver);
-  moqtrun_track_open(
-      hub, t, k, m->track_alias, &m->params, m->track_properties,
-      m->request_id);
-  moqtrun_reattach_subs(hub, t, peer_idx, k);
-  moqtrun_rdv_resolve(hub, t, k);
-  moqtrun_up_crossed(hub, p, k);
-  moqtrun_queue_request_ok(p, 0);
-  moqtrun_req_mark_live(p);
-  moqtrun_pub_resume(hub, t);
 }
 
 /* draft-19 10.2 (draft-18 10.2, draft-22 9.20): a request body that fails
