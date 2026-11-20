@@ -250,23 +250,41 @@ static void test_moqtrun_ns_own_echoed(void) {
   CHECK(mtns_is(SESS_A, MTRQ_S2, "OK|NS:room1|"));
 }
 
-/* 10.18 PREFIX_OVERLAP, read strictly: within a session two prefixes
- * overlap when either is empty or their first fields are equal. The
- * refusal FINs the stream; other sessions are independent. */
+/* 10.18 PREFIX_OVERLAP "shares a common prefix": within a session two
+ * prefixes overlap when one is a field-wise prefix of the other (equal
+ * included; the empty prefix overlaps everything). The refusal FINs the
+ * stream; other sessions are independent. */
 static void test_moqtrun_ns_prefix_overlap(void) {
   mtns_init();
-  mtns_sub(SESS_B, MTRQ_S1, "chat/room1");
-  mtns_sub(SESS_B, MTRQ_S2, "chat/room2");
+  mtns_sub(SESS_B, MTRQ_S1, "video/x");
+  mtns_sub(SESS_B, MTRQ_S2, "video/x");
   CHECK(mtns_is(SESS_B, MTRQ_S2, "ERR:30|"));
   CHECK(mtrq_fin_on(MTRQ_S2) == 1);
-  mtns_sub(SESS_B, MTRQ_ID(5), "video");
-  CHECK(mtns_is(SESS_B, MTRQ_ID(5), "OK|"));
-  mtns_sub(SESS_B, MTRQ_ID(6), "");
+  mtns_sub(SESS_B, MTRQ_ID(5), "video"); /* shorter over longer */
+  CHECK(mtns_is(SESS_B, MTRQ_ID(5), "ERR:30|"));
+  mtns_sub(SESS_B, MTRQ_ID(6), "video/x/hd"); /* longer under shorter */
   CHECK(mtns_is(SESS_B, MTRQ_ID(6), "ERR:30|"));
-  mtns_sub(SESS_B, MTRQ_ID(7), "video/x");
+  mtns_sub(SESS_B, MTRQ_ID(7), "");
   CHECK(mtns_is(SESS_B, MTRQ_ID(7), "ERR:30|"));
-  mtns_sub(SESS_A, MTRQ_S1, "chat");
+  mtns_sub(SESS_A, MTRQ_S1, "video");
   CHECK(mtns_is(SESS_A, MTRQ_S1, "OK|"));
+}
+
+/* Prefixes where neither is a field-wise prefix of the other do not
+ * overlap: one namespace can never match both (9.5 Namespace Prefix
+ * Matching compares whole fields, so a field that is only a byte prefix
+ * of another's field does not overlap either). */
+static void test_moqtrun_ns_sibling_prefixes_not_overlap(void) {
+  mtns_init();
+  mtns_sub(SESS_B, MTRQ_S1, "a/b");
+  mtns_sub(SESS_B, MTRQ_S2, "a/c"); /* siblings */
+  CHECK(mtns_is(SESS_B, MTRQ_S2, "OK|"));
+  mtns_sub(SESS_B, MTRQ_ID(5), "x/y/z1");
+  mtns_sub(SESS_B, MTRQ_ID(6), "x/y/z2"); /* last field differs */
+  CHECK(mtns_is(SESS_B, MTRQ_ID(6), "OK|"));
+  mtns_sub(SESS_B, MTRQ_ID(7), "ab");
+  mtns_sub(SESS_B, MTRQ_ID(8), "abc"); /* byte prefix, not a field */
+  CHECK(mtns_is(SESS_B, MTRQ_ID(8), "OK|"));
 }
 
 /* A session publishing a namespace it already publishes is refused
@@ -657,6 +675,9 @@ void test_moqtrun_ns(void) {
   /* draft-23 3.6 / 4.2 accept overlaps (moqtrun_nsx_test.c) */
   moqtrun_test_vers(
       MOQVER_CAP_PREFIX_OVERLAP, 0, test_moqtrun_ns_prefix_overlap);
+  moqtrun_test_vers(
+      MOQVER_CAP_PREFIX_OVERLAP, 0,
+      test_moqtrun_ns_sibling_prefixes_not_overlap);
   /* draft-23 4.1 accepts duplicates (moqtrun_nsx_test.c) */
   moqtrun_test_vers(0, MOQVER_CAP_PUBNS_DUP, test_moqtrun_ns_duplicate_refused);
 }

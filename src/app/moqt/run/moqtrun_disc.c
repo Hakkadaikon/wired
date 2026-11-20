@@ -1,7 +1,6 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static wired_span moqtrun_disc_head(const wired_moqtrun_req* q);
-static int        moqtrun_disc_rel(
+static int moqtrun_disc_rel(
     const wired_moqtrun_req* r,
     const wired_moqtrun_req* q,
     u64                      kind,
@@ -132,26 +131,16 @@ int moqtrun_disc_under(
       moqtrun_disc_fields(sub, &n), moqtrun_disc_fields(pub, &n));
 }
 
-/* The first field of q's encoded fields; empty for zero fields. */
-static wired_span moqtrun_disc_head(const wired_moqtrun_req* q) {
-  u64        n, len = 0;
-  usz        at = 0;
-  wired_span f  = moqtrun_disc_fields(q, &n);
-  moqvi_take(f, &at, &len);
-  return wired_span_of(f.p, at + (usz)len);
-}
-
-/* 10.18 PREFIX_OVERLAP "shares a common prefix", read strictly: the same
- * session's prefixes overlap when either is empty or their first fields
- * are equal. */
+/* draft-18/19 10.18, draft-22 4.2 PREFIX_OVERLAP "shares a common
+ * prefix": the same session's prefixes overlap when one is a field-wise
+ * prefix of the other (equal included; the empty prefix overlaps
+ * everything) -- only then can one namespace match both subscriptions
+ * (Namespace Prefix Matching, draft-19 9.5 / draft-22 2.4.2, applied
+ * both ways). */
 int moqtrun_disc_overlap(
     const wired_moqtrun_req* a, const wired_moqtrun_req* b) {
-  u64 n;
   return a->wt == b->wt &&
-         (moqtrun_disc_starts(
-              moqtrun_disc_head(a), moqtrun_disc_fields(b, &n)) ||
-          moqtrun_disc_starts(
-              moqtrun_disc_head(b), moqtrun_disc_fields(a, &n)));
+         (moqtrun_disc_under(a, b) || moqtrun_disc_under(b, a));
 }
 
 int moqtrun_disc_same(const wired_moqtrun_req* a, const wired_moqtrun_req* b) {
