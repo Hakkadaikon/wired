@@ -130,6 +130,36 @@ static void test_roundtrip_recv_malformed(void) {
   CHECK(!h3conn_recv_response(wired_span_of(type_only, 1), &out));
 }
 
+/* RFC 9114 4.3.2 / RFC 9110 15: a response's field line must be a static
+ * :status reference with a three-digit value -- any other name (here index
+ * 0, :authority with an empty value), a dynamic reference (indexed or as a
+ * literal's name), or a non-digit value is a malformed response. The old
+ * conversion read 2 bytes past :authority's empty value; that over-read
+ * itself is visible only under test-san (ASan). */
+static void test_roundtrip_status_name_checked(void) {
+  /* indexed static index 0 (:authority "") */
+  static const u8 not_status[] = {0x01, 0x03, 0x00, 0x00, 0xc0};
+  /* indexed dynamic index 0 */
+  static const u8 dyn_index[] = {0x01, 0x03, 0x00, 0x00, 0x80};
+  /* literal from static name 15 (:method CONNECT), value "200" */
+  static const u8 wrong_name[] = {0x01, 0x08, 0x00, 0x00, 0x5f,
+                                  0x00, 0x03, '2',  '0',  '0'};
+  /* literal from dynamic name index 0, value "200" */
+  static const u8 dyn_name[] = {0x01, 0x07, 0x00, 0x00, 0x40,
+                                0x03, '2',  '0',  '0'};
+  /* literal :status (static 24), value "2x0": not three digits */
+  static const u8 not_digits[] = {0x01, 0x08, 0x00, 0x00, 0x5f,
+                                  0x09, 0x03, '2',  'x',  '0'};
+  /* indexed static 25 (:status 200) stays accepted */
+  static const u8 ok_indexed[] = {0x01, 0x03, 0x00, 0x00, 0xd9};
+  CHECK(!rt_recv_h3(not_status, sizeof not_status));
+  CHECK(!rt_recv_h3(dyn_index, sizeof dyn_index));
+  CHECK(!rt_recv_h3(wrong_name, sizeof wrong_name));
+  CHECK(!rt_recv_h3(dyn_name, sizeof dyn_name));
+  CHECK(!rt_recv_h3(not_digits, sizeof not_digits));
+  CHECK(rt_recv_h3(ok_indexed, sizeof ok_indexed));
+}
+
 void test_h3conn_roundtrip(void) {
   test_roundtrip_stream();
   test_roundtrip_empty_body();
@@ -137,4 +167,5 @@ void test_h3conn_roundtrip(void) {
   test_roundtrip_body_too_big();
   test_roundtrip_literal_status();
   test_roundtrip_recv_malformed();
+  test_roundtrip_status_name_checked();
 }

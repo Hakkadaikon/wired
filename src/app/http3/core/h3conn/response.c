@@ -31,20 +31,71 @@ static u16 digits_to_status(const u8* d) {
   return (u16)((d[0] - '0') * 100 + (d[1] - '0') * 10 + (d[2] - '0'));
 }
 
+static int status_digit(u8 c) { return c >= '0' && c <= '9'; }
+
+/* RFC 9110 15: exactly three decimal ASCII digits. */
+static int status_digits3(const u8* d) {
+  return status_digit(d[0]) && status_digit(d[1]) && status_digit(d[2]);
+}
+
+/* RFC 9114 4.3.2: the response pseudo-header name is exactly ":status". */
+static int status_name_ok(const char* name) {
+  static const char want[] = ":status";
+  for (usz i = 0; i < sizeof want; i++) {
+    if (name[i] != want[i]) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+/* The static entry's value is exactly three digits (checked before any
+ * conversion reads it -- :authority's value, say, is a single NUL). */
+static int status_value3(const char* v) {
+  return status_digits3((const u8*)v) && v[3] == 0;
+}
+
+/* RFC 9114 4.3.2 / RFC 9110 15: a static reference naming :status with a
+ * three-digit value; anything else is a malformed response. */
+static int status_entry_ok(int is_static, const char* name, const char* v) {
+  return is_static && status_name_ok(name) && status_value3(v);
+}
+
+/* Decode an indexed field line into a static-table entry. Returns 1 ok. */
+static int indexed_entry(
+    const u8* buf, usz n, int* is_static, const char** nm, const char** v) {
+  u64 index = 0;
+  return qpack_indexed_decode(wired_span_of(buf, n), &index, is_static) &&
+         qpack_static_get((usz)index, nm, v);
+}
+
 /* RFC 9204 4.5.2: Indexed :status -> look up the static entry's value. */
 static int status_from_indexed(const u8* buf, usz n, u16* status) {
-  u64         index     = 0;
   int         is_static = 0;
   const char* name      = 0;
   const char* value     = 0;
-  if (!qpack_indexed_decode(wired_span_of(buf, n), &index, &is_static)) {
+  if (!indexed_entry(buf, n, &is_static, &name, &value)) {
     return 0;
   }
-  if (!qpack_static_get((usz)index, &name, &value)) {
+  if (!status_entry_ok(is_static, name, value)) {
     return 0;
   }
   *status = digits_to_status((const u8*)value);
   return 1;
+}
+
+/* RFC 9114 4.3.2: the literal's name reference is the static :status
+ * entry -- a dynamic one has no table on this response path. */
+static int literal_names_status(const qpack_nameref* r) {
+  const char* name  = 0;
+  const char* value = 0;
+  return r->is_static && qpack_static_get((usz)r->index, &name, &value) &&
+         status_name_ok(name);
+}
+
+/* RFC 9114 4.3.2 / RFC 9110 15: :status name and a three-digit value. */
+static int literal_status_ok(const qpack_nameref* r, const wired_obuf* vb) {
+  return literal_names_status(r) && vb->len == 3 && status_digits3(vb->p);
 }
 
 /* RFC 9204 4.5.4: Literal :status with name reference -> its 3-octet value. */
@@ -55,7 +106,7 @@ static int status_from_literal(const u8* buf, usz n, u16* status) {
   if (!qpack_literal_namref_decode(wired_span_of(buf, n), &r, &vb)) {
     return 0;
   }
-  if (vb.len != 3) {
+  if (!literal_status_ok(&r, &vb)) {
     return 0;
   }
   *status = digits_to_status(val);
