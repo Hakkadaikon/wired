@@ -1,14 +1,34 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
-/* Pin id's stateless-reset secret to a copy of its current cert_seed held
- * in env, unless the caller already set one: tokens advertised before a
- * certificate reload stay valid after it (RFC 9000 10.3). */
-void srvrun_pin_reset_seed(wired_srvrun_env* env, wired_srvboot_id* id) {
-  if (id->reset_seed) {
-    return;
-  }
-  bytes_memcpy(env->reset_seed, id->cert_seed, sizeof env->reset_seed);
+/* Pin id's stateless-reset secret to a per-worker copy, held in env, of the
+ * start-time seed (the caller's reset_seed when set, else cert_seed): tokens
+ * advertised before a certificate reload stay valid after it (RFC 9000
+ * 10.3), and salting with the worker index keeps the key per worker, so
+ * only the worker that issued a CID can build its reset (RFC 9000 10.3.2);
+ * the salt is deterministic, so a restarted worker keeps its tokens. In
+ * the non-XDP fork/threads modes nothing steers a CID to its worker, so a
+ * reset there is only valid when the datagram happens to reach the worker
+ * with the same index -- defense in depth, not delivery. */
+void srvrun_pin_reset_seed(
+    wired_srvrun_env* env, wired_srvboot_id* id, int worker) {
+  bytes_memcpy(env->reset_seed, srvboot_reset_seed(id), sizeof env->reset_seed);
+  /* mix the whole value: fork/threads indexes stay below 64, but with
+   * core_id -1 a lone AF_XDP socket's identity is its full u32 queue_id */
+  env->reset_seed[0] ^= (u8)worker;
+  env->reset_seed[1] ^= (u8)((u32)worker >> 8);
+  env->reset_seed[2] ^= (u8)((u32)worker >> 16);
+  env->reset_seed[3] ^= (u8)((u32)worker >> 24);
   id->reset_seed = env->reset_seed;
+}
+
+/* The worker identity salted into the reset key: the fork/threads worker
+ * index (cfg->core_id), the AF_XDP socket's own queue when no index was
+ * set, or 0 for a single-process run. */
+static int srvrun_reset_worker(const srvrun_cfg* cfg) {
+  if (cfg->core_id >= 0) {
+    return cfg->core_id;
+  }
+  return cfg->xdp ? (int)cfg->xdp->queue_id : 0;
 }
 
 /* No ticket/Retry seed, or a server connection ID length outside 1..20
@@ -78,7 +98,7 @@ int wired_srvrun_serve_env(
   if (cfg.fd < 0) {
     return 0;
   }
-  srvrun_pin_reset_seed(env, id);
+  srvrun_pin_reset_seed(env, id, srvrun_reset_worker(&cfg));
   srvrun_env_take(env, h, opt);
   srvrun_pref_listen(&cfg, id, opt);
   wired_certcache_prime(&env->certcache, id);

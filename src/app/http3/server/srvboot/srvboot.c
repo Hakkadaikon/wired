@@ -89,14 +89,24 @@ const u8* srvboot_reset_seed(const wired_srvboot_id* id) {
   return id->reset_seed ? id->reset_seed : id->cert_seed;
 }
 
+void srvboot_reset_key(const wired_srvboot_id* id, u8* key) {
+  sreset_key_derive(srvboot_reset_seed(id), key);
+}
+
+void srvboot_reset_token(
+    const wired_srvboot_id* id, const u8* cid, u8 len, u8* token) {
+  u8 key[SRESET_KEY];
+  srvboot_reset_key(id, key);
+  sreset_token(key, cid, len, token);
+}
+
 /* RFC 9000 10.3.1: advertise a stateless_reset_token for this connection's
  * server SCID, derived from the signing key's secret so the token survives
  * a server restart -- the one situation the token exists for. */
 static void srvboot_set_reset_token(
     const wired_srvboot_conn* conn, const wired_srvboot_id* id) {
-  u8 key[SRESET_KEY], token[SRESET_TOKEN];
-  sreset_key_derive(srvboot_reset_seed(id), key);
-  sreset_token(key, id->scid, id->scid_len, token);
+  u8 token[SRESET_TOKEN];
+  srvboot_reset_token(id, id->scid, id->scid_len, token);
   wired_server_set_reset_token(conn->s, token);
 }
 

@@ -146,16 +146,17 @@ int srvrun_cc_algo(const srvrun_cfg* cfg) {
 
 /* RFC 9000 5.1.1: the one spare CID this slot's NEW_CONNECTION_ID frame
  * advertises at confirmation (respond.c's append_ncid_frame), with its
- * stateless reset token. Best-effort: an RNG failure just leaves
- * spare_cid_len 0 and no frame is ever sent -- the connection works, the
- * client simply cannot migrate. */
+ * stateless reset token derived from the worker's static reset key
+ * (RFC 9000 10.3.2: reproducible when the reset is later built).
+ * Best-effort: an RNG failure on the CID draw just leaves spare_cid_len 0
+ * and no frame is ever sent -- the connection works, the client simply
+ * cannot migrate. */
 void srvrun_issue_spare_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
   if (!srvrun_issue_cid(cfg, c->l.spare_cid, cfg->id->scid_len)) {
     return;
   }
-  if (!cid_generate(c->l.spare_cid_token, NCID_TOKEN)) {
-    return;
-  }
+  srvboot_reset_token(
+      cfg->id, c->l.spare_cid, cfg->id->scid_len, c->l.spare_cid_token);
   c->l.spare_cid_len = cfg->id->scid_len;
   c->mig.spare       = 1;
   c->mig.next        = 2;

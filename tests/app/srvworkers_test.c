@@ -273,7 +273,8 @@ static void test_srvworkers_fork_all_seeds_child_run_base(void) {
 }
 
 /* The child's own run = the base, with the per-worker fork-model fields
- * layered on top: incoming_cpu is the worker index, xdp/core_id stay off. */
+ * layered on top: incoming_cpu and core_id are the worker index (the latter
+ * salts the child's stateless-reset key, RFC 9000 10.3.2), xdp stays off. */
 static void test_srvworkers_child_opt_layers_worker_fields(void) {
   wired_srvrun_opt o;
   g_srvworkers_run_base                = (wired_srvrun_opt){0};
@@ -284,7 +285,7 @@ static void test_srvworkers_child_opt_layers_worker_fields(void) {
   CHECK(o.busy_poll == 1);
   CHECK(o.incoming_cpu == 3);
   CHECK(o.xdp == 0);
-  CHECK(o.core_id == -1);
+  CHECK(o.core_id == 3);
   g_srvworkers_run_base = (wired_srvrun_opt){0};
 }
 

@@ -94,6 +94,7 @@ static void test_srvthreads_fill_arg_maps_cores_to_pin_target(void) {
   srvthreads_fill_arg(&a, &common, 1, envs, mesh, 2, opt.cores);
   CHECK(a.index == 1); /* mesh row/column and XDP queue id stay the index */
   CHECK(a.core == 9);  /* the CPU to pin to comes from cores[i] */
+  CHECK(a.run.core_id == 1); /* salts the worker's stateless-reset key */
 }
 
 /* TEST: srvthreads_alloc_envs reserves exactly n_cores * env_size() bytes --
@@ -187,18 +188,6 @@ static void test_srvthreads_xdp_worker_passes_own_core_id_to_cid_issuance(
   CHECK(a.run.core_id == 5);
 }
 
-/* NON-XDP MODE: srvthreads_arm_xdp_run is only ever called from the xdp
- * dispatch branch (srvthreads_worker_main); a UDP-mode worker's run.core_id
- * is whatever wired_srvthreads_opt.run.core_id was (untouched, default -1
- * from a zero-initialized opt), never overwritten with the worker index. */
-static void test_srvthreads_non_xdp_mode_uses_plain_cid_generation(void) {
-  srvthreads_worker_arg a = {0};
-  a.index                 = 5;
-  a.run.core_id           = -1;
-  CHECK(a.xdp_cfg == 0);
-  CHECK(a.run.core_id == -1);
-}
-
 void test_srvthreads(void) {
   test_srvthreads_run_joins_all_workers_on_shutdown();
   test_srvthreads_fill_arg_maps_cores_to_pin_target();
@@ -212,5 +201,4 @@ void test_srvthreads(void) {
   test_srvthreads_parse_cores_trailing_comma();
   test_srvthreads_parse_cores_leading_comma();
   test_srvthreads_xdp_worker_passes_own_core_id_to_cid_issuance();
-  test_srvthreads_non_xdp_mode_uses_plain_cid_generation();
 }

@@ -6,7 +6,11 @@ static int srvrun_evict_candidate(const srvrun_state* st);
 static int srvrun_evict_grace_ok(const srvrun_step_ctx* ctx, int cand);
 static int srvrun_evict_applies(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial);
-static int srvrun_sreset_applies(wired_span dcid, wired_mspan dg);
+static int  srvrun_sreset_applies(wired_span dcid, wired_mspan dg);
+static void srvrun_sreset_refill(wired_srvrun_env* env, u64 now_ms);
+static int  srvrun_sreset_take(wired_srvrun_env* env, u64 now_ms);
+static int  srvrun_sreset_permitted(
+    const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg);
 static int srvrun_seal_stateless_reset(
     const srvrun_cfg* cfg, wired_span dcid, usz trigger_len, wired_obuf* out);
 
@@ -109,6 +113,35 @@ static int srvrun_sreset_applies(wired_span dcid, wired_mspan dg) {
          dg.n > SRESET_MIN;
 }
 
+/* Earn spent reset budget back from elapsed time; the stamp advances only
+ * by the time the earned tokens account for, so fractional credit between
+ * calls is never lost. */
+static void srvrun_sreset_refill(wired_srvrun_env* env, u64 now_ms) {
+  u64 earned = (now_ms - env->sreset_ms) * SRVRUN_SRESET_PER_SEC / 1000;
+  env->sreset_used -= u64_min(earned, env->sreset_used);
+  env->sreset_ms += earned * 1000 / SRVRUN_SRESET_PER_SEC;
+}
+
+/* Spend one unit of the per-second reset budget (RFC 9000 10.3 / 21.11:
+ * limit stateless resets so an unknown-DCID flood cannot use this server
+ * as a reflector or oracle); 0 when the bucket is empty. */
+static int srvrun_sreset_take(wired_srvrun_env* env, u64 now_ms) {
+  srvrun_sreset_refill(env, now_ms);
+  if (env->sreset_used >= SRVRUN_SRESET_PER_SEC) {
+    return 0;
+  }
+  env->sreset_used++;
+  return 1;
+}
+
+/* The reset both applies to this datagram and fits the per-second budget,
+ * which it spends. */
+static int srvrun_sreset_permitted(
+    const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
+  return srvrun_sreset_applies(dcid, dg) &&
+         srvrun_sreset_take(ctx->cfg->env, ctx->now_ms);
+}
+
 /* Build the reset for dcid: random-looking bytes ending in the token the
  * connection's handshake advertised (same sreset_key_derive derivation
  * srvboot used, so the token survives a server restart -- the exact
@@ -118,7 +151,7 @@ static int srvrun_seal_stateless_reset(
     const srvrun_cfg* cfg, wired_span dcid, usz trigger_len, wired_obuf* out) {
   u8         key[SRESET_KEY];
   wired_obuf ob = obuf_of(out->p, u64_min(out->cap, trigger_len - 1));
-  sreset_key_derive(srvboot_reset_seed(cfg->id), key);
+  srvboot_reset_key(cfg->id, key);
   if (!sreset_build(key, dcid.p, dcid.n, trigger_len, rng_bytes, &ob)) {
     return 0;
   }
@@ -130,7 +163,7 @@ void srvrun_send_stateless_reset(
     const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_sreset_applies(dcid, dg)) {
+  if (!srvrun_sreset_permitted(ctx, dcid, dg)) {
     return;
   }
   if (!srvrun_seal_stateless_reset(ctx->cfg, dcid, dg.n, &ob)) {

@@ -57,15 +57,15 @@ static void srvrun_own_route(
       ctx->st->table, WIRED_CONNTABLE_CAP, slot, o->cid, o->len);
 }
 
-/* RFC 9000 19.15: NEW_CONNECTION_ID for o, with a fresh reset token. */
+/* RFC 9000 19.15: NEW_CONNECTION_ID for o, its reset token derived from
+ * the worker's static reset key (RFC 9000 10.3.2: the token must be
+ * reproducible from the CID when the reset is later built for it). */
 static void srvrun_own_announce(
     const srvrun_cfg* cfg, srvrun_conn* c, const srvrun_own_id* o) {
   ncid_frame f = {*o->seq, 0, o->len, {0}, {0}};
   u8         pl[48];
   bytes_memcpy(f.cid, o->cid, o->len);
-  if (!cid_generate(f.token, NCID_TOKEN)) {
-    return;
-  }
+  srvboot_reset_token(cfg->id, o->cid, o->len, f.token);
   srvrun_send_kept(
       cfg, c, pl, ncid_encode(pl, sizeof pl, &f), "NEW_CONNECTION_ID sent\n");
 }

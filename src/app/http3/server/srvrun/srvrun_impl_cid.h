@@ -6,6 +6,7 @@
  * IDs this server issued (5.1.1, srvrun_own_cid.c). Not public API. */
 
 #include "common/platform/sys/syscall.h"
+#include "transport/packet/header/packet/header.h"
 
 /** One connection's migration bookkeeping (RFC 9000 5.1.1, 9.4). */
 typedef struct {
@@ -21,5 +22,29 @@ typedef struct {
   u64 spare;
   u64 next;
 } srvrun_mig;
+
+/* RFC 9000 10.2.2: a just-closed connection's scid, remembered briefly so
+ * its stragglers (the peer's CONNECTION_CLOSE retransmit, a final ack) are
+ * swallowed instead of answered with a stateless reset -- freeing the slot
+ * instantly made them unroutable, and the reset (RFC 9000 10.3) read to
+ * one peer as a transport error on a cleanly closed connection (neqo
+ * aborted its whole multiconnect run over it). */
+typedef struct {
+  u8  scid[WIRED_MAX_CID_LEN];
+  u8  len;
+  u64 until_ms;
+} srvrun_ghost;
+
+/* How many freshly closed connections to remember, and for how long --
+ * covers the peer's own closing period (a few RTTs to a few seconds)
+ * without holding real slots. */
+#define SRVRUN_GHOST_SLOTS 8
+#define SRVRUN_GHOST_MS 2000
+
+/* RFC 9000 10.3 / 21.11: stateless resets sent per second, at most --
+ * plenty for a restarted server to shed its stale clients, too few to
+ * abuse for reflection/amplification or for probing which connection IDs
+ * have live state (RFC 9000 21.11). */
+#define SRVRUN_SRESET_PER_SEC 16
 
 #endif

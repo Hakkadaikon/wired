@@ -68,12 +68,13 @@ static wired_srvrun_opt g_srvworkers_run_base;
 /* This child's run options: the app-set base, with the per-worker fields the
  * fork model owns layered on top -- incoming_cpu hints the kernel to steer
  * this worker's packets toward the CPU it is pinned to (worker_index), and
- * core_id stays -1 (never AF_XDP in fork mode). */
+ * core_id carries the worker index so each child's stateless-reset key is
+ * its own (RFC 9000 10.3.2); with xdp 0 it never reaches CID routing. */
 static wired_srvrun_opt srvworkers_child_opt(int worker_index) {
   wired_srvrun_opt opt = g_srvworkers_run_base;
   opt.incoming_cpu     = worker_index;
   opt.xdp              = 0;
-  opt.core_id          = -1;
+  opt.core_id          = worker_index;
   return opt;
 }
 

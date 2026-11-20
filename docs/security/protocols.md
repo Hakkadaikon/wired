@@ -22,7 +22,7 @@ QUIC は送信元アドレスを偽装しやすい UDP の上で動く。ここ�
 | 増幅攻撃対策の上限 | アドレスの検証前に送るバイト数を抑える。0-RTT の受け入れとハンドシェイク中の応答量も同じ検査で制限する | `test_srvrun_default_config_gates_response_volume_pre_validation`、`test_srvrun_0rtt_accept_requires_or_limits_unvalidated_address` |
 | Initial パケットのパディング | 1200 バイトまでパディングする(RFC 9001 9.3)。クライアントの最初のパケットで、サーバーは応答に足りる送信枠を得る | `test_initpad`、`test_client_initial_padded` |
 | チケットと Retry トークンの鍵 | 起動時に CSPRNG から取ったシードから導出し、バイナリの中のバイトからは導出しない | `test_srvkeys_random_and_distinct` |
-| ステートレスリセットのシークレット | 起動時の署名鍵に固定する。証明書を再読み込みしても、すでに配ったトークンは変わらない | `test_srvrun_stateless_reset_survives_cert_reload` |
+| ステートレスリセットのシークレット | 起動時の署名鍵に固定し、ワーカー番号を混ぜて導出する。証明書を再読み込みしても、すでに配ったトークンは変わらない。CID でワーカーへ誘導しない fork / threads の UDP モードでは、リセットが有効なのは同じ番号のワーカーにパケットが届いたときだけ | `test_srvrun_stateless_reset_survives_cert_reload`、`test_srvrun_reset_seed_per_worker` |
 | Retry トークンとステートレスリセットのトークン | HMAC で導出し、定数時間で比較し、不正な入力の長さを検査する | `test_retrytoken_wire_verify_rejects_short_token`、`test_newtoken_wire_verify_rejects_long_token`、`test_retry_second_discarded` |
 
 ### 1.2 ECN

@@ -103,8 +103,12 @@ typedef struct {
   int alpn_client_order;
   /** RFC 9000 10.3: the 32-byte secret stateless-reset tokens derive from,
    * or 0 to use cert_seed. wired_srvrun_serve_env pins it to a copy of the
-   * start-time cert_seed, so a certificate reload (which rewrites cert_seed
-   * in place) never changes a token a live connection was already given. */
+   * start-time seed salted with the worker's index (RFC 9000 10.3.2), so a
+   * certificate reload (which rewrites cert_seed in place) never changes a
+   * token a live connection was already given, and no worker can build a
+   * reset for a CID another worker issued. In the non-XDP fork/threads
+   * modes no CID steering exists, so such a reset is only valid when the
+   * packet lands on the worker with the same index. */
   const u8* reset_seed;
   /** RFC 8446 Appendix E.5: 1 to accept 0-RTT (early data) on resumed
    * connections and advertise it in issued tickets; 0 (the default)
@@ -142,6 +146,24 @@ int wired_srvboot_is_initial(const u8* dg, usz len);
  * @param id the server identity
  * @return 32 bytes */
 const u8* srvboot_reset_seed(const wired_srvboot_id* id);
+
+/** The static reset key id's stateless-reset tokens and packets derive
+ * from -- the one seed -> key step the handshake's token, the
+ * NEW_CONNECTION_ID/preferred_address tokens and the reset packet itself
+ * all share (RFC 9000 10.3.2).
+ * @param id the server identity whose seed to derive from
+ * @param key out: SRESET_KEY (32) bytes */
+void srvboot_reset_key(const wired_srvboot_id* id, u8* key);
+
+/** The stateless-reset token for cid under id's static reset key --
+ * reproducible from the CID alone, so the reset later built for it matches
+ * what the peer stored (RFC 9000 10.3.2).
+ * @param id the server identity whose key to derive
+ * @param cid the connection ID the token is advertised for
+ * @param len cid's length in bytes
+ * @param token out: SRESET_TOKEN (16) bytes */
+void srvboot_reset_token(
+    const wired_srvboot_id* id, const u8* cid, u8 len, u8* token);
 
 /** RFC 9000 17.2.3: 1 if dg is a long-header 0-RTT datagram. Read before any
  * key exists to open it with -- only the type bits are needed, same scope

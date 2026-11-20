@@ -1028,24 +1028,6 @@ _Static_assert(
  * server loop (wired_srvrun_env_size/init + wired_srvrun_serve_env).
  * shutdown/reload live outside this struct (srvrun.h's doc): they are
  * process-wide signal-driven flags, not per-instance state. */
-/* RFC 9000 10.2.2: a just-closed connection's scid, remembered briefly so
- * its stragglers (the peer's CONNECTION_CLOSE retransmit, a final ack) are
- * swallowed instead of answered with a stateless reset -- freeing the slot
- * instantly made them unroutable, and the reset (RFC 9000 10.3) read to
- * one peer as a transport error on a cleanly closed connection (neqo
- * aborted its whole multiconnect run over it). */
-typedef struct {
-  u8  scid[WIRED_MAX_CID_LEN];
-  u8  len;
-  u64 until_ms;
-} srvrun_ghost;
-
-/* How many freshly closed connections to remember, and for how long --
- * covers the peer's own closing period (a few RTTs to a few seconds)
- * without holding real slots. */
-#define SRVRUN_GHOST_SLOTS 8
-#define SRVRUN_GHOST_MS 2000
-
 struct wired_srvrun_env {
   /* RFC 9000 5.1: a fixed pool of connection slots keyed by DCID, so one
    * socket serves several clients at once. */
@@ -1105,10 +1087,15 @@ struct wired_srvrun_env {
    * if_requested); a single-threaded run sees at most one pending generation
    * at a time, so "gen != seen" behaves exactly like the old boolean flag. */
   u32 reload_seen_gen;
-  /* RFC 9000 10.3: a copy of the start-time cert_seed that stateless-reset
-   * tokens derive from (srvrun_pin_reset_seed), kept apart from the
+  /* RFC 9000 10.3: a per-worker copy of the start-time seed that stateless-
+   * reset tokens derive from (srvrun_pin_reset_seed), kept apart from the
    * id->cert_seed a SIGHUP reload rewrites. */
   u8 reset_seed[SRESET_KEY];
+  /* RFC 9000 10.3 / 21.11: stateless-reset token bucket -- sreset_used
+   * tokens of the per-second budget are spent, srvrun_sreset_take earns
+   * them back from the ms clock. All-zero (BSS/env_init) = a full bucket. */
+  u64 sreset_used;
+  u64 sreset_ms;
   /* Issue #182: the run's own copy of the id, obs paths and WebTransport
    * subprotocol list it was started with (srvrun_own_config). */
   srvrun_own own;

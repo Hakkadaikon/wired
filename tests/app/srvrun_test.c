@@ -1954,6 +1954,124 @@ static void test_srvrun_unknown_dcid_short_header_sends_reset(void) {
   CHECK(g_srvrun_env.tx_flush_count == tx_before + 1);
 }
 
+/* RFC 9000 10.3 / 21.11: stateless resets are rate limited -- once a flood
+ * of unknown-DCID datagrams drains the per-second budget no further reset
+ * is sent, and advancing the clock by a second earns the budget back. */
+static void test_srvrun_stateless_reset_rate_limited(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  sockaddr         peer = {0};
+  u8               short_hdr[64];
+  u8               dcid[8] = {0xd4, 1, 2, 3, 4, 5, 6, 7};
+  usz              tx_before;
+  short_hdr[0] = 0x40;
+  for (usz i = 1; i < sizeof short_hdr; i++) {
+    short_hdr[i] = (u8)(0x40 + i);
+  }
+  sr_make_id(&id, priv, pub, seed, rnd);
+  g_srvrun_env.sreset_used = 0;
+  g_srvrun_env.sreset_ms   = 0;
+  tx_before                = g_srvrun_env.tx_flush_count;
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, 0, 1, 0};
+    for (usz i = 0; i < SRVRUN_SRESET_PER_SEC + 3; i++) {
+      srvrun_send_stateless_reset(
+          &ctx, wired_span_of(dcid, 8),
+          wired_mspan_of(short_hdr, sizeof short_hdr));
+    }
+    CHECK(g_srvrun_env.tx_flush_count == tx_before + SRVRUN_SRESET_PER_SEC);
+    ctx.now_ms += 1000; /* one second later: the budget has refilled */
+    srvrun_send_stateless_reset(
+        &ctx, wired_span_of(dcid, 8),
+        wired_mspan_of(short_hdr, sizeof short_hdr));
+    CHECK(g_srvrun_env.tx_flush_count == tx_before + SRVRUN_SRESET_PER_SEC + 1);
+  }
+  g_srvrun_env.sreset_used = 0; /* leave a full bucket for later tests */
+  g_srvrun_env.sreset_ms   = 0;
+}
+
+/* RFC 9000 10.3 / 21.11 refill boundaries: just under one token's worth of
+ * elapsed time earns nothing, exactly one token's worth earns exactly one
+ * send, and a long idle gap refills to the burst cap, never beyond it. */
+static void test_srvrun_stateless_reset_refill_boundaries(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  sockaddr         peer = {0};
+  u8               short_hdr[64];
+  u8               dcid[8] = {0xd5, 1, 2, 3, 4, 5, 6, 7};
+  usz              tx_before;
+  /* ms per token, rounded up so earned = elapsed*rate/1000 reaches 1 */
+  u64 one_tok  = (1000 + SRVRUN_SRESET_PER_SEC - 1) / SRVRUN_SRESET_PER_SEC;
+  short_hdr[0] = 0x40;
+  for (usz i = 1; i < sizeof short_hdr; i++) {
+    short_hdr[i] = (u8)(0x50 + i);
+  }
+  sr_make_id(&id, priv, pub, seed, rnd);
+  g_srvrun_env.sreset_used = SRVRUN_SRESET_PER_SEC; /* a drained bucket */
+  g_srvrun_env.sreset_ms   = 5000;
+  tx_before                = g_srvrun_env.tx_flush_count;
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, 0, 5000 + one_tok - 1, 0};
+    srvrun_send_stateless_reset(
+        &ctx, wired_span_of(dcid, 8),
+        wired_mspan_of(short_hdr, sizeof short_hdr));
+    CHECK(g_srvrun_env.tx_flush_count == tx_before); /* under one token */
+    ctx.now_ms = 5000 + one_tok;
+    srvrun_send_stateless_reset(
+        &ctx, wired_span_of(dcid, 8),
+        wired_mspan_of(short_hdr, sizeof short_hdr));
+    CHECK(g_srvrun_env.tx_flush_count == tx_before + 1); /* exactly one */
+    srvrun_send_stateless_reset(
+        &ctx, wired_span_of(dcid, 8),
+        wired_mspan_of(short_hdr, sizeof short_hdr));
+    CHECK(g_srvrun_env.tx_flush_count == tx_before + 1); /* and only one */
+    ctx.now_ms += 100 * 1000; /* long idle: burst capped at the budget */
+    for (usz i = 0; i < SRVRUN_SRESET_PER_SEC + 3; i++) {
+      srvrun_send_stateless_reset(
+          &ctx, wired_span_of(dcid, 8),
+          wired_mspan_of(short_hdr, sizeof short_hdr));
+    }
+    CHECK(g_srvrun_env.tx_flush_count == tx_before + 1 + SRVRUN_SRESET_PER_SEC);
+  }
+  g_srvrun_env.sreset_used = 0; /* leave a full bucket for later tests */
+  g_srvrun_env.sreset_ms   = 0;
+}
+
+/* RFC 9000 10.3.2: the reset token a NEW_CONNECTION_ID/preferred_address
+ * advertises for the spare CID is derived from the worker's static reset
+ * key, so the Stateless Reset later built for that CID
+ * (srvrun_seal_stateless_reset) ends in the very token the peer stored --
+ * a random token could never be reproduced at reset time. */
+static void test_srvrun_spare_cid_token_matches_reset(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], out[128];
+  wired_obuf       ob = obuf_of(out, sizeof out);
+  srvrun_conn*     c  = &g_srvrun_state.conns[0];
+  sr_make_id(&id, priv, pub, seed, rnd);
+  /* memset, not a (srvrun_conn){0} literal: the literal's stack temporary
+   * (see wired_srvrun_env_init) overflowed test_srvrun's inlined frame */
+  bytes_memset(c, 0, sizeof *c);
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_issue_spare_cid(&cfg, c);
+    CHECK(c->l.spare_cid_len == id.scid_len);
+    CHECK(
+        srvrun_seal_stateless_reset(
+            &cfg, wired_span_of(c->l.spare_cid, c->l.spare_cid_len), 64, &ob) ==
+        1);
+  }
+  CHECK(ct_diffn(out + ob.len - SRESET_TOKEN, c->l.spare_cid_token, 16) == 0);
+  bytes_memset(c, 0, sizeof *c);
+}
+
 /* AF_XDP CORE ROUTING (wired_srvrun_opt.core_id): a fresh slot's generated
  * SCID has its leading byte overwritten with this worker's core/queue index
  * when both an XDP driver and a non-negative core_id are configured -- the
@@ -4508,18 +4626,36 @@ static usz sr_seal_at(
 }
 
 /* Serve slot 0 of st one 1-RTT packet carrying pl at pn as arrival a. */
+/* When set, sr_serve_at's cfg carries this identity -- the NCID reissue
+ * path derives reset tokens from cfg->id (srvboot_reset_token). Null keeps
+ * the historic id-less cfg (and so no ghost recording side effects). */
+static wired_srvboot_id* g_sr_serve_id;
+
 static void sr_serve_at(
     struct lp_fix*    f,
     srvrun_state*     st,
     const sr_arrival* a,
     u64               pn,
     wired_span        pl) {
-  u8         spkt[256];
-  usz        n   = sr_seal_at(f, a, pn, pl, spkt);
-  srvrun_cfg cfg = {
-      a->cfg_fd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
-      0,         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0,         0};
+  u8              spkt[256];
+  usz             n   = sr_seal_at(f, a, pn, pl, spkt);
+  srvrun_cfg      cfg = {a->cfg_fd, g_sr_serve_id,
+                         0,         0,
+                         0,         0,
+                         0,         0,
+                         0,         0,
+                         0,         0,
+                         0,         0,
+                         0,         &g_srvrun_env,
+                         0,         0,
+                         0,         0,
+                         0,         0,
+                         0,         0,
+                         0,         0,
+                         0,         0,
+                         0,         0,
+                         0,         0,
+                         0,         0};
   srvrun_step_ctx ctx = {&cfg, a->peer, st, a->now, 0};
   g_srvrun_env.rx_fd  = a->rx_fd;
   srvrun_serve_slot(&ctx, 0, wired_mspan_of(spkt, n));
@@ -5468,12 +5604,28 @@ static void test_srvrun_retired_cid_replenished(void) {
   bytes_memcpy(old, c.l.spare_cid, 6);
   sr_net_open(&n, &c);
   {
-    sr_arrival a = {&n.a, n.sfd, 0, 0, 0};
+    sr_arrival a  = {&n.a, n.sfd, 0, 0, 0};
+    g_sr_serve_id = &id; /* the reissued NCID derives its token from id */
     sr_serve_at(&f, &st, &a, 5, wired_span_of(retire, sizeof retire));
+    g_sr_serve_id = 0;
   }
   r = sr_drain(&f, n.afd);
   CHECK(r.ncid == 1);
   CHECK(sr_kept(&c, 0x18) == 1);
+  /* RFC 9000 10.3.2: the kept NEW_CONNECTION_ID's trailing 16 bytes are
+   * the token derived for the replacement CID -- not a random draw. */
+  {
+    u8  want[16];
+    usz found = 0;
+    srvboot_reset_token(&id, c.l.spare_cid, 6, want);
+    for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+      if (c.rst[i].pln && c.rst[i].pl[0] == 0x18) {
+        found++;
+        CHECK(ct_diffn(c.rst[i].pl + c.rst[i].pln - 16, want, 16) == 0);
+      }
+    }
+    CHECK(found == 1);
+  }
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, old, 6) == -1);
   CHECK(ct_diffn(c.l.spare_cid, old, 6) != 0);
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, c.l.spare_cid, 6) == 0);
@@ -27915,7 +28067,7 @@ static void test_srvrun_stateless_reset_survives_cert_reload(void) {
   u8                dcid[8] = {0xd3, 1, 2, 3, 4, 5, 6, 7};
   wired_obuf        ob      = obuf_of(out, sizeof out);
   sr_make_id(&id, priv, pub, seed, rnd);
-  srvrun_pin_reset_seed(env, &id);
+  srvrun_pin_reset_seed(env, &id, 0);
   for (usz i = 0; i < 32; i++) {
     seed2[i] = (u8)(seed[i] ^ 0x5a);
   }
@@ -27933,6 +28085,72 @@ static void test_srvrun_stateless_reset_survives_cert_reload(void) {
   CHECK(ct_diffn(out + ob.len - SRESET_TOKEN, want, 16) == 0);
   /* and the token the handshake advertises comes from the same secret */
   CHECK(srvboot_reset_seed(&id) == env->reset_seed);
+}
+
+/* RFC 9000 10.3.2: only the worker that issued a CID can build its reset --
+ * each worker's reset key is salted with its own index, so worker 1 derives
+ * a different secret (hence token) than worker 0 for the same identity; the
+ * salt is deterministic, so a restarted worker 0 derives worker 0's secret
+ * again and keeps the tokens it advertised. */
+static void test_srvrun_reset_seed_per_worker(void) {
+  wired_srvboot_id  id;
+  wired_srvrun_env* env = &g_srvrun_env;
+  u8                priv[32], pub[32], seed[32], rnd[32];
+  u8                w0[SRESET_KEY], w1[SRESET_KEY];
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrun_pin_reset_seed(env, &id, 0);
+  bytes_memcpy(w0, env->reset_seed, SRESET_KEY);
+  id.reset_seed = 0;
+  srvrun_pin_reset_seed(env, &id, 1);
+  bytes_memcpy(w1, env->reset_seed, SRESET_KEY);
+  id.reset_seed = 0;
+  srvrun_pin_reset_seed(env, &id, 0); /* worker 0, restarted */
+  CHECK(ct_diffn(w0, w1, SRESET_KEY) != 0);
+  CHECK(ct_diffn(w0, env->reset_seed, SRESET_KEY) == 0);
+  id.reset_seed = 0;
+  srvrun_pin_reset_seed(env, &id, 256); /* an AF_XDP queue id past 1 byte */
+  CHECK(ct_diffn(w0, env->reset_seed, SRESET_KEY) != 0);
+}
+
+/* The worker identity the reset key is salted with (srvrun_reset_worker):
+ * an explicit fork/threads index (core_id) wins; with no index an AF_XDP
+ * socket falls back to its own queue; a single-process run is worker 0. */
+static void test_srvrun_reset_worker_sources(void) {
+  wired_srvxdp x = {0};
+  {
+    srvrun_cfg cfg = {.core_id = 3};
+    CHECK(srvrun_reset_worker(&cfg) == 3);
+  }
+  {
+    srvrun_cfg cfg = {.core_id = -1};
+    CHECK(srvrun_reset_worker(&cfg) == 0);
+  }
+  {
+    srvrun_cfg cfg = {.core_id = -1, .xdp = &x};
+    x.queue_id     = 2;
+    CHECK(srvrun_reset_worker(&cfg) == 2);
+  }
+}
+
+/* A caller-supplied reset_seed is separated per worker too: worker 0 and
+ * worker 1 pin different secrets from the same configured seed (RFC 9000
+ * 10.3.2) -- the explicit-seed path must not reopen the shared-key hole. */
+static void test_srvrun_caller_reset_seed_also_per_worker(void) {
+  wired_srvboot_id  id;
+  wired_srvrun_env* env = &g_srvrun_env;
+  u8                priv[32], pub[32], seed[32], rnd[32];
+  u8                custom[32], w0[SRESET_KEY];
+  sr_make_id(&id, priv, pub, seed, rnd);
+  for (usz i = 0; i < 32; i++) {
+    custom[i] = (u8)(0xb0 + i);
+  }
+  id.reset_seed = custom;
+  srvrun_pin_reset_seed(env, &id, 0);
+  bytes_memcpy(w0, env->reset_seed, SRESET_KEY);
+  CHECK(ct_diffn(w0 + 1, custom + 1, 31) == 0); /* derives from the seed */
+  id.reset_seed = custom;
+  srvrun_pin_reset_seed(env, &id, 1);
+  CHECK(ct_diffn(w0, env->reset_seed, SRESET_KEY) != 0);
 }
 
 /* ===== A streamed request body that ends without fin is reported to the
@@ -28966,10 +29184,14 @@ static u64 sr_fv_close(const u8* pl, usz n) {
  * (sequence 0) gets a fresh primary ID with the next sequence number, routed
  * and announced in its place. */
 static void test_srvrun_retire_primary_cid_reissued(void) {
-  srvrun_conn* c = sr_sl_fixture();
-  u8           old[WIRED_MAX_CID_LEN];
-  usz          n = c->s.sdrv.iscid_len;
+  srvrun_conn*     c = sr_sl_fixture();
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               old[WIRED_MAX_CID_LEN];
+  usz              n = c->s.sdrv.iscid_len;
   bytes_memcpy(old, c->scid, n);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  g_sl_cfg.id       = &id; /* the reissued NCID's token derives from id */
   c->mig.scid       = 0;
   c->mig.spare      = 1;
   c->mig.next       = 2;
@@ -28979,7 +29201,21 @@ static void test_srvrun_retire_primary_cid_reissued(void) {
   srvrun_path_take_retires(&g_sl_ctx, c);
   CHECK(c->mig.scid == 2 && c->mig.next == 3);
   CHECK(n != 0 && ct_diffn(old, c->scid, n) != 0);
+  /* RFC 9000 10.3.2: the announced token is derived for the new primary */
+  {
+    u8  want[16];
+    usz found = 0;
+    srvboot_reset_token(&id, c->scid, (u8)n, want);
+    for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+      if (c->rst[i].pln && c->rst[i].pl[0] == 0x18) {
+        found++;
+        CHECK(ct_diffn(c->rst[i].pl + c->rst[i].pln - 16, want, 16) == 0);
+      }
+    }
+    CHECK(found == 1);
+  }
   g_sl_st.table = 0;
+  g_sl_cfg.id   = 0;
 }
 
 /* RFC 9114 7.2.5: PUSH_PROMISE from a client on a request stream is a
@@ -29586,6 +29822,29 @@ static void test_srvrun_refuses_bad_scid_len(void) {
           (wired_srvrun_obs){0}, 0) == 0);
 }
 
+/* END-TO-END WIRING (RFC 9000 10.3.2): a real wired_srvrun_serve_env run
+ * with opt.core_id = 3 pins a reset secret salted with THAT worker index --
+ * byte 0 is the start-time seed XOR 3, the rest the seed unchanged. Run
+ * with the shutdown word pre-set, so the serve loop exits right after the
+ * pin; hardcoding worker 0 at the call site turns this red. */
+static void test_srvrun_serve_env_salts_reset_seed_with_core_id(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  wired_srvrun_opt opt = {0};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  opt.core_id            = 3;
+  opt.incoming_cpu       = -1;
+  opt.no_signal_handlers = 1;
+  __atomic_store_n(wired_srvrun_shutdown_word(), 1, __ATOMIC_RELEASE);
+  CHECK(
+      wired_srvrun_serve_env(
+          &g_srvrun_env, 0, &id, (wired_srvrun_handler){0},
+          (wired_srvrun_obs){0}, &opt) == 1);
+  __atomic_store_n(wired_srvrun_shutdown_word(), 0, __ATOMIC_RELEASE);
+  CHECK(g_srvrun_env.reset_seed[0] == (u8)(seed[0] ^ 3));
+  CHECK(ct_diffn(g_srvrun_env.reset_seed + 1, seed + 1, 31) == 0);
+}
+
 /* RFC 9000 12.3: once the sending packet number reaches 2^62-1 the
  * connection is dropped silently by the next sweep (no CONNECTION_CLOSE). */
 static void test_srvrun_pn_exhausted_reaped(void) {
@@ -29777,6 +30036,9 @@ void test_srvrun(void) {
   test_srvrun_stateless_reset_token_survives_restart();
   test_srvrun_stateless_reset_gates();
   test_srvrun_unknown_dcid_short_header_sends_reset();
+  test_srvrun_stateless_reset_rate_limited();
+  test_srvrun_stateless_reset_refill_boundaries();
+  test_srvrun_spare_cid_token_matches_reset();
   test_srvrun_full_table_evicts_oldest_idle_slot();
   test_srvrun_full_table_all_active_still_refuses();
   test_srvrun_full_table_grace_boundary_admits();
@@ -30067,6 +30329,7 @@ void test_srvrun(void) {
   test_srvrun_path_move_resets_spin();
   test_srvrun_spin_off_opt_applies_on_accept();
   test_srvrun_refuses_bad_scid_len();
+  test_srvrun_serve_env_salts_reset_seed_with_core_id();
   test_srvrun_pn_exhausted_reaped();
   test_srvrun_resp_claim_starts_with_empty_send_state();
   test_srvrun_peer_reset_leaves_response();
@@ -30393,6 +30656,9 @@ void test_srvrun(void) {
   test_srvrun_peer_stop_on_raw_stream3_no_close();
   test_srvrun_qdec_send_checks_slot_owner();
   test_srvrun_stateless_reset_survives_cert_reload();
+  test_srvrun_reset_seed_per_worker();
+  test_srvrun_reset_worker_sources();
+  test_srvrun_caller_reset_seed_also_per_worker();
   test_srvrun_on_body_reset_mid_body_aborts();
   test_srvrun_on_body_done_body_not_aborted();
   test_srvrun_on_body_conn_free_aborts();

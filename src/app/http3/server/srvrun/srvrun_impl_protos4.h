@@ -138,5 +138,7 @@ int  srvrun_path_is_gated_target(const srvrun_conn* c, const pathsel_key* k);
 void srvrun_path_seed(const srvrun_cfg* cfg, srvrun_conn* c);
 int  srvrun_path_tracked(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k);
+void srvrun_pin_reset_seed(
+    wired_srvrun_env* env, wired_srvboot_id* id, int worker);
 
 #endif

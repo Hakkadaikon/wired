@@ -405,8 +405,9 @@ typedef struct {
    * generates (ncid_route_encode under xdp->route_key) so the BPF filter
    * routes by CID instead of NIC queue after a connection migrates. -1 (the
    * default, a sentinel like incoming_cpu since core 0 is itself valid)
-   * embeds the xdp socket's own queue_id. Ignored when xdp is 0
-   * (SO_REUSEPORT/plain UDP mode never embeds a core id). */
+   * embeds the xdp socket's own queue_id. When xdp is 0 no core id is ever
+   * embedded in a CID; a non-negative value then only salts this worker's
+   * stateless-reset key (RFC 9000 10.3.2, srvrun_pin_reset_seed). */
   int core_id;
   /** WebTransport subprotocol negotiation (draft-ietf-webtrans-http3-15
    * SS3.4): the server's own supported subprotocols as a space-separated

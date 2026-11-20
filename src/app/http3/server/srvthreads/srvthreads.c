@@ -181,4 +181,7 @@ void srvthreads_fill_arg(
   a->n_total   = n;
   a->inbox_row = srvthreads_row_at(mesh, i, n);
   a->env       = srvthreads_env_at(envs, i);
+  /* Salt this worker's stateless-reset key with its index (RFC 9000
+   * 10.3.2); XDP mode re-sets the same value when its queue arms. */
+  a->run.core_id = i;
 }
