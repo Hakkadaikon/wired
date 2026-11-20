@@ -51,11 +51,18 @@ static int sdrv_chain_offered(const sdrv* s, const sdrv_cert_list* l) {
   return ok;
 }
 
+/* The "not offered" log is meaningful only when this handshake will send a
+ * certificate -- a resumption omitting signature_algorithms is legitimate
+ * (RFC 8446 9.2), not worth a warning. */
+static int sdrv_cert_sigs_log_worthy(const sdrv* s) {
+  return !s->cert_sigs_offered && !s->psk_accepted;
+}
+
 void sdrv_ch_note_cert_sigs(sdrv* s, const u8* ch_msg, usz ch_len) {
   sdrv_cert_list l;
   s->cert_sigs_offered =
       sdrv_cert_list_find(ch_msg, ch_len, &l) && sdrv_chain_offered(s, &l);
-  if (!s->cert_sigs_offered) {
+  if (sdrv_cert_sigs_log_worthy(s)) {
     WIRED_LOG("sdrv: chain signature not offered by the client\n");
   }
 }

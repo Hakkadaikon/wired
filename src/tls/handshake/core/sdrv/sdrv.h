@@ -136,8 +136,10 @@ typedef struct {
    * meaningful when psk_accepted. */
   u64 psk_origin_at;
   /** RFC 8446 4.2.9: 1 when the ClientHello's psk_key_exchange_modes
-   * offered psk_dhe_ke, the only mode this server resumes with; a session
-   * ticket is issued only then. Set by sdrv_recv_client_hello. */
+   * offered psk_dhe_ke, the only mode this server resumes with. Recorded
+   * before PSK selection: without it the PSK is not selected (full
+   * handshake, no abort) and no session ticket is issued. Set by
+   * sdrv_recv_client_hello. */
   int psk_dhe_ke;
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1/9.2: set by
    * sdrv_recv_client_hello when the ClientHello carries early_data
@@ -462,16 +464,21 @@ int sdrv_set_client_auth(sdrv* s, int mode, const castore* ca);
  *
  * RFC 8446 4.2.11/4.2.11.2 session resumption, only when has_ticket_key: if
  * the ClientHello carries no pre_shared_key extension, behavior is exactly
- * the full-handshake path above (psk_accepted stays 0). If it does, this
- * opens the offered ticket (its identity bytes) under ticket_key; a ticket
- * that fails to open (wrong key, malformed, tampered) is a silent MAY-
- * degrade to a full handshake (psk_accepted stays 0, no error). A ticket
- * that opens has its PSK binder verified against the resumption secret and
- * the truncated ClientHello; a binder mismatch instead makes this whole call
- * fail (0) -- RFC 8446 4.2.11.2 MUST abort the handshake, never fall back
- * silently. On a verified binder, psk_accepted is set to 1 and psk_secret
- * holds the opened ticket's resumption secret, for
- * sdrv_build_server_flight's key schedule.
+ * the full-handshake path above (psk_accepted stays 0). A pre_shared_key
+ * whose psk_key_exchange_modes lacks psk_dhe_ke is likewise a silent
+ * fallback (RFC 8446 4.2.9: the PSK is not selected, the handshake
+ * continues with a certificate). Otherwise this opens the offered ticket
+ * (its identity bytes) under ticket_key; a ticket that fails to open
+ * (wrong key, malformed, tampered) is a silent MAY-degrade to a full
+ * handshake (psk_accepted stays 0, no error). A ticket that opens has its
+ * PSK binder verified against the resumption secret and the truncated
+ * ClientHello; a binder mismatch instead makes this whole call fail (0) --
+ * RFC 8446 4.2.11.2 MUST abort the handshake, never fall back silently. On
+ * a verified binder, psk_accepted is set to 1 and psk_secret holds the
+ * opened ticket's resumption secret, for sdrv_build_server_flight's key
+ * schedule. RFC 8446 9.2: signature_algorithms is judged only after this
+ * PSK decision -- an accepted PSK needs none; a declined PSK without it is
+ * rejected with missing_extension (alert 109).
  *
  * RFC 9001 8.2: a ClientHello missing the quic_transport_parameters
  * extension (0x39) is rejected before any other field is taken; s->last_error

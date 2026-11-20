@@ -15,14 +15,14 @@
  * sequence is well-formed, 0 on a repeat or a malformed TLV. */
 int chguard_no_dup_ext(wired_span exts);
 
-/* RFC 8446 4.2.10 / 4.2.9: pre_shared_key MUST NOT be offered unless the
- * ClientHello also carries psk_key_exchange_modes advertising psk_dhe_ke
- * (the only mode this SDK -- and QUIC, RFC 9001 4.6.1 -- ever accepts).
- * has_psk is whether pre_shared_key is present; modes_dhe_ke is whether
- * psk_key_exchange_modes was found AND named psk_dhe_ke. Returns 1 if the
- * requirement is met (no PSK offered, or PSK offered with the mode), 0 if
- * PSK was offered without a qualifying psk_key_exchange_modes. */
-int chguard_psk_modes_ok(int has_psk, int modes_dhe_ke);
+/* RFC 8446 4.2.9: pre_shared_key MUST NOT be offered without a
+ * psk_key_exchange_modes extension. has_psk is whether pre_shared_key is
+ * present; has_modes is whether psk_key_exchange_modes was found at all --
+ * whether its list names a mode the server supports only gates PSK
+ * selection, never an abort (a client offering only unsupported modes gets
+ * a full handshake). Returns 1 if the requirement is met, 0 if PSK was
+ * offered without the extension. */
+int chguard_psk_modes_ok(int has_psk, int has_modes);
 
 /* RFC 8446 4.2.11: "The pre_shared_key extension MUST be the last extension
  * in the ClientHello". exts is the raw TLV sequence; psk is the located
@@ -31,11 +31,16 @@ int chguard_psk_modes_ok(int has_psk, int modes_dhe_ke);
  * the tail of exts; 0 if something follows it. */
 int chguard_psk_last(wired_span exts, wired_span psk);
 
-/* RFC 8446 9.2 / 4.2.3 / 4.2.7: a ClientHello offering certificate-based
- * authentication MUST carry both signature_algorithms and supported_groups
- * (each is required for the server to pick a CertificateVerify scheme and a
- * key exchange group). Returns 1 if both were found, 0 otherwise. */
-int chguard_require_algs(int found_sig_algs, int found_groups);
+/* RFC 8446 9.2 / 4.2.3 / 4.2.7: a ClientHello without pre_shared_key MUST
+ * carry both signature_algorithms and supported_groups. With a
+ * pre_shared_key offer neither is required at ClientHello time: the
+ * key_share/supported_groups pairing has its own gate (9.2's mutual
+ * requirement, sdrv_ch_require_ks_with_groups), a missing usable share ends
+ * in the HRR/handshake_failure path (RFC 8446 4.1.1), and
+ * signature_algorithms becomes mandatory only if the handshake ends up
+ * certificate-authenticated (checked after PSK acceptance is decided,
+ * sdrv_ch_require.c). Returns 1 if the requirement is met, 0 otherwise. */
+int chguard_require_algs(int has_psk, int found_sig_algs, int found_groups);
 
 /* RFC 8446 4.2: "There are also cases where a client can offer an extension
  * ... An endpoint MUST NOT send an extension in any handshake message where

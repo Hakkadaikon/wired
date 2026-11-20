@@ -8,7 +8,7 @@ static int sdrv_ch_require_algs(sdrv* s, const u8* ch_msg, usz ch_len);
 static int sdrv_ch_require_psk_modes(sdrv* s, const u8* ch_msg, usz ch_len);
 static wired_span sdrv_ch_psk_ext_or_empty(const u8* ch_msg, usz ch_len);
 static int sdrv_ch_require_psk_last(sdrv* s, const u8* ch_msg, usz ch_len);
-static int sdrv_ch_offers_p256_scheme(const u8* ch_msg, usz ch_len);
+static int sdrv_ch_cert_sig_alert(const u8* ch_msg, usz ch_len);
 static int sdrv_ch_require_scheme_offered(
     sdrv* s, const u8* ch_msg, usz ch_len);
 static int sdrv_ch_after_required(sdrv* s, const u8* ch_msg, usz ch_len);
@@ -96,33 +96,40 @@ static int sdrv_ch_require_version(sdrv* s, const u8* ch_msg, usz ch_len) {
   return 0;
 }
 
-/* RFC 8446 9.2: a ClientHello establishing a certificate-authenticated
- * connection MUST carry both signature_algorithms and supported_groups.
- * Sets s->last_error (missing_extension, alert 109) and returns 0 if either
- * is absent. */
+/* RFC 8446 9.2: without pre_shared_key, a ClientHello MUST carry both
+ * signature_algorithms and supported_groups; with one, neither is required
+ * here -- the key_share/supported_groups pairing is
+ * sdrv_ch_require_ks_with_groups's own gate, a missing usable share ends in
+ * the HRR/handshake_failure path (sdrv_p256.c, RFC 8446 4.1.1), and
+ * signature_algorithms is judged only after PSK acceptance is decided
+ * (sdrv_ch_require_scheme_offered). Sets s->last_error (missing_extension,
+ * alert 109) and returns 0 on a violation. */
 static int sdrv_ch_require_algs(sdrv* s, const u8* ch_msg, usz ch_len) {
-  wired_span sig_ext, grp_ext;
+  wired_span sig_ext, grp_ext, psk_ext;
   int        has_sig =
       sdrv_find_client_ext(ch_msg, ch_len, EXT_SIGNATURE_ALGORITHMS, &sig_ext);
   int has_grp =
       sdrv_find_client_ext(ch_msg, ch_len, EXT_SUPPORTED_GROUPS, &grp_ext);
-  if (chguard_require_algs(has_sig, has_grp)) {
+  int has_psk = sdrv_find_client_psk_ext(ch_msg, ch_len, &psk_ext);
+  if (chguard_require_algs(has_psk, has_sig, has_grp)) {
     return 1;
   }
   s->last_error = err_crypto(109);
   return 0;
 }
 
-/* RFC 8446 4.2.9/4.2.11: pre_shared_key MUST NOT be offered without a
- * qualifying psk_key_exchange_modes (psk_dhe_ke). Sets s->last_error
- * (missing_extension, alert 109) and returns 0 on a violation. */
+/* RFC 8446 4.2.9: pre_shared_key MUST NOT be offered without a
+ * psk_key_exchange_modes extension -- only the extension's absence aborts.
+ * Whether the listed modes include psk_dhe_ke gates PSK selection alone
+ * (sdrv_early.c's sdrv_psk_selectable): unsupported modes mean a full
+ * handshake, not an alert. Sets s->last_error (missing_extension, alert
+ * 109) and returns 0 on a violation. */
 static int sdrv_ch_require_psk_modes(sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span psk_ext, modes_ext;
   int        has_psk = sdrv_find_client_psk_ext(ch_msg, ch_len, &psk_ext);
-  int        modes_dhe_ke =
-      sdrv_find_client_ext(ch_msg, ch_len, TLSEXT_T_PSK_MODES, &modes_ext) &&
-      tlsext_psk_modes_parse(modes_ext.p, modes_ext.n);
-  if (chguard_psk_modes_ok(has_psk, modes_dhe_ke)) {
+  int        has_modes =
+      sdrv_find_client_ext(ch_msg, ch_len, TLSEXT_T_PSK_MODES, &modes_ext);
+  if (chguard_psk_modes_ok(has_psk, has_modes)) {
     return 1;
   }
   s->last_error = err_crypto(109);
@@ -155,32 +162,47 @@ static int sdrv_ch_require_psk_last(sdrv* s, const u8* ch_msg, usz ch_len) {
   return 0;
 }
 
-/* RFC 8446 4.4.3/4.2.3: when this handshake will authenticate with a
+/* RFC 8446 4.4.3/4.2.3/9.2: when this handshake will authenticate with a
  * certificate (no PSK accepted -- RFC 8446 4.2.11's PSK-only path omits
  * Certificate/CertificateVerify entirely, see emit_hs_flight in
- * sdrv_flight.c), the server's only CertificateVerify scheme
- * (ecdsa_secp256r1_sha256, matching the P-256 certificate sdrv always
- * signs/presents -- emit_certverify) must be one the client actually offered
- * in signature_algorithms. Sets s->last_error (handshake_failure, alert 40)
- * and returns 0 if the client's list excludes it. */
-/* The client's signature_algorithms names SIG_ECDSA_SECP256R1_SHA256 --
- * the sub-check of sdrv_ch_require_scheme_offered split out to keep its own
- * CCN flat. */
-static int sdrv_ch_offers_p256_scheme(const u8* ch_msg, usz ch_len) {
+ * sdrv_flight.c), the client must offer the server's only CertificateVerify
+ * scheme (ecdsa_secp256r1_sha256, matching the P-256 certificate sdrv
+ * always signs/presents -- emit_certverify) in signature_algorithms. Runs
+ * after PSK acceptance is decided: an accepted PSK needs no
+ * signature_algorithms at all. Sets s->last_error and returns 0 on a
+ * violation. */
+/* The alert a certificate-authenticating handshake raises for the client's
+ * signature_algorithms: missing_extension (109, RFC 8446 9.2) when the
+ * extension is absent, handshake_failure (40) when its list excludes
+ * SIG_ECDSA_SECP256R1_SHA256, 0 when it qualifies. */
+static int sdrv_ch_cert_sig_alert(const u8* ch_msg, usz ch_len) {
   wired_span ext;
   if (!sdrv_find_client_ext(ch_msg, ch_len, EXT_SIGNATURE_ALGORITHMS, &ext)) {
-    return 0;
+    return 109;
   }
-  return tls_ext_sig_algs_has(ext.p, ext.n, SIG_ECDSA_SECP256R1_SHA256);
+  return tls_ext_sig_algs_has(ext.p, ext.n, SIG_ECDSA_SECP256R1_SHA256) ? 0
+                                                                        : 40;
 }
 
 static int sdrv_ch_require_scheme_offered(
     sdrv* s, const u8* ch_msg, usz ch_len) {
-  if (s->psk_accepted || sdrv_ch_offers_p256_scheme(ch_msg, ch_len)) {
+  int alert = s->psk_accepted ? 0 : sdrv_ch_cert_sig_alert(ch_msg, ch_len);
+  if (alert == 0) {
     return 1;
   }
-  s->last_error = err_crypto(40);
+  s->last_error = err_crypto((u8)alert);
   return 0;
+}
+
+/* RFC 8446 4.2.9: the ClientHello's psk_key_exchange_modes offers
+ * psk_dhe_ke -- the only mode this server resumes with. Recorded in
+ * s->psk_dhe_ke before sdrv_ch_take_psk, so PSK selection (sdrv_early.c's
+ * sdrv_psk_selectable) and NewSessionTicket issuance (respond_ticket.c)
+ * read one decision. */
+static int sdrv_ch_offers_psk_dhe_ke(const u8* ch_msg, usz ch_len) {
+  wired_span ext;
+  return sdrv_find_client_ext(ch_msg, ch_len, TLSEXT_T_PSK_MODES, &ext) &&
+         tlsext_psk_modes_parse(ext.p, ext.n);
 }
 
 /* Negotiated, key_share taken, and PSK/scheme both settled -- the rest of
@@ -188,6 +210,7 @@ static int sdrv_ch_require_scheme_offered(
 static int sdrv_ch_after_required(sdrv* s, const u8* ch_msg, usz ch_len) {
   sdrv_negotiate_alpn(s, ch_msg, ch_len); /* the 0-RTT gate reads it */
   sdrv_check_sni(s, ch_msg, ch_len);      /* the ticket check reads it */
+  s->psk_dhe_ke = sdrv_ch_offers_psk_dhe_ke(ch_msg, ch_len);
   if (!sdrv_ch_take_psk(s, ch_msg, ch_len)) {
     return 0;
   }

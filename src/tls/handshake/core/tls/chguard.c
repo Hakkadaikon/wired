@@ -66,8 +66,8 @@ int chguard_no_dup_ext(wired_span exts) {
   return 1;
 }
 
-int chguard_psk_modes_ok(int has_psk, int modes_dhe_ke) {
-  return !has_psk || modes_dhe_ke;
+int chguard_psk_modes_ok(int has_psk, int has_modes) {
+  return !has_psk || has_modes;
 }
 
 int chguard_psk_last(wired_span exts, wired_span psk) {
@@ -77,8 +77,8 @@ int chguard_psk_last(wired_span exts, wired_span psk) {
   return psk.p + psk.n == exts.p + exts.n;
 }
 
-int chguard_require_algs(int found_sig_algs, int found_groups) {
-  return found_sig_algs && found_groups;
+int chguard_require_algs(int has_psk, int found_sig_algs, int found_groups) {
+  return has_psk || (found_sig_algs && found_groups);
 }
 
 /* RFC 8446 4.2's registry, restricted to the extension_type code points this

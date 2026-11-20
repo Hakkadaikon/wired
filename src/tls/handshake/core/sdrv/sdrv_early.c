@@ -216,13 +216,23 @@ static int sdrv_psk_try_offer(
  * is enabled and one is present. Returns 1 and fills *psk_ext and *off only
  * when both are found and well-formed; 0 otherwise (disabled, absent, or
  * malformed extension -- all "nothing to try", not an error). */
+/* Resumption is possible at all: a ticket key is loaded AND the client's
+ * psk_key_exchange_modes listed psk_dhe_ke (s->psk_dhe_ke, recorded by
+ * sdrv_ch_after_required before this runs), the only mode this server
+ * supports (RFC 8446 4.2.9: the server MUST NOT select a mode the client
+ * did not list -- so no listed-and-supported mode means no PSK, a full
+ * handshake, never an abort). */
+static int sdrv_psk_selectable(const sdrv* s) {
+  return s->has_ticket_key && s->psk_dhe_ke;
+}
+
 static int sdrv_find_psk_offer(
     const sdrv*       s,
     const u8*         ch_msg,
     usz               ch_len,
     wired_span*       psk_ext,
     tlsext_psk_offer* off) {
-  if (!s->has_ticket_key) {
+  if (!sdrv_psk_selectable(s)) {
     return 0;
   }
   if (!sdrv_find_client_psk_ext(ch_msg, ch_len, psk_ext)) {

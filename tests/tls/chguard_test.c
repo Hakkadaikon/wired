@@ -72,10 +72,36 @@ static void test_chguard_short_header(void) {
   CHECK(chguard_no_dup_ext(wired_span_of(b, 3)) == 0);
 }
 
+/* RFC 8446 9.2 truth table (has_psk, found_sig_algs, found_groups):
+ * without a PSK both extensions are required; with one, neither is here --
+ * sig_algs is judged after the PSK decision, the key_share/groups pairing
+ * by its own gate. */
+static void test_chguard_require_algs_table(void) {
+  CHECK(chguard_require_algs(0, 0, 0) == 0);
+  CHECK(chguard_require_algs(0, 0, 1) == 0);
+  CHECK(chguard_require_algs(0, 1, 0) == 0);
+  CHECK(chguard_require_algs(0, 1, 1) == 1);
+  CHECK(chguard_require_algs(1, 0, 0) == 1);
+  CHECK(chguard_require_algs(1, 0, 1) == 1);
+  CHECK(chguard_require_algs(1, 1, 0) == 1);
+  CHECK(chguard_require_algs(1, 1, 1) == 1);
+}
+
+/* RFC 8446 4.2.9 truth table (has_psk, has_modes): only pre_shared_key
+ * WITHOUT the psk_key_exchange_modes extension violates the gate. */
+static void test_chguard_psk_modes_ok_table(void) {
+  CHECK(chguard_psk_modes_ok(0, 0) == 1);
+  CHECK(chguard_psk_modes_ok(0, 1) == 1);
+  CHECK(chguard_psk_modes_ok(1, 0) == 0);
+  CHECK(chguard_psk_modes_ok(1, 1) == 1);
+}
+
 void test_chguard(void) {
   test_chguard_short_header();
   test_chguard_rejects_duplicate_extension();
   test_chguard_rejects_malformed_tlv();
   test_chguard_rejects_oid_filters_in_ch();
   test_chguard_unknown_ext_ignored();
+  test_chguard_require_algs_table();
+  test_chguard_psk_modes_ok_table();
 }
