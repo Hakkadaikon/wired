@@ -12,7 +12,7 @@
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 225/259、間接 34、未テスト 0。**
+**カバレッジ: テスト済み 226/259、間接 33、未テスト 0。**
 
 ## SS8.1 可変長整数
 
@@ -108,7 +108,7 @@
 ## SS12.1 不正な Track
 
 - [~] MQ22-025 購読者が Malformed Track を検出した場合、実装はそのパブリッシャーからのその Track に対応する購読を取り消さなければならない。
-  - evidence: デコード時の違反(未知の Object Status、累積 Object ID のオーバーフロー。MQ22-114/MQ22-130a を参照)に加えて、リレーは次を検出します。#4(その Group の最新の END_OF_GROUP Object より後の Object)、#5(END_OF_TRACK Object より後の Object)、#1(同じ Group と Subgroup ID の最新の Subgroup ヘッダーと Publisher Priority が異なる Subgroup ストリーム)、#7(キャッシュが Subgroup ストリームから得て保持している Object に対するデータグラム。Track は両方のモードを混ぜてよいので、同じ Object の場合だけを数える)。検出すると、すべての購読を PUBLISH_DONE MALFORMED_TRACK で終え、その Track の fetch ストリームを MALFORMED_TRACK でリセットし、パブリッシャーのリクエストを取り消し、きっかけになった Object はキャッシュしません。未対応のもの: 購読の経路での #6(ペイロードが異なる重複した Object。Object ごとにキャッシュを引く必要がある)と、#2/#3(FIN をまたぐ Subgroup の最終 Object)。
+  - evidence: デコード時の違反(未知の Object Status、累積 Object ID のオーバーフロー。MQ22-114/MQ22-130a を参照)に加えて、リレーは次を検出します。#4(その Group の最新の END_OF_GROUP Object より後の Object)、#5(END_OF_TRACK Object より後の Object)、#1(同じ Group と Subgroup ID の最新の Subgroup ヘッダーと Publisher Priority が異なる Subgroup ストリーム)、#7(キャッシュが Subgroup ストリームから得て保持している Object に対するデータグラム。Track は両方のモードを混ぜてよいので、同じ Object の場合だけを数える)。検出すると、すべての購読を PUBLISH_DONE MALFORMED_TRACK で終え、その Track の fetch ストリームを MALFORMED_TRACK でリセットし、パブリッシャーのリクエストを取り消し、きっかけになった Object はキャッシュしません。#6(ペイロードが異なる重複した Object)は、Track の Largest 以前の Object だけキャッシュを引いて検出します(キャッシュがない、または最初の 1 つがキャッシュされていない場合は検出しません)。#2/#3(FIN した Subgroup の最終 Object)は、FIRST_OBJECT ビット付きで FIN したストリームの最終 Object を記録して検出します(ビットのないストリームはリレーの部分転送かもしれないので、その FIN では確定しません)。
   - test: `tests/app/moqtrun_done_test.c` —
     `test_moqtrun_pubdone_malformed_after_end_of_track`
   - test: `tests/app/moqtrun_done_test.c` —
@@ -119,6 +119,12 @@
     `test_moqtrun_pubdone_malformed_prio_mismatch`
   - test: `tests/app/moqtrun_done_test.c` —
     `test_moqtrun_pubdone_malformed_mode_change`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_sg_object_past_fin_malformed`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_sg_two_fins_differ_malformed`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_sg_dup_object_payload_malformed`
 
 ## SS2.4.3/6.5 予約済みの名前空間 / セッションレベルの Track
 
@@ -574,7 +580,19 @@
 - [x] MQ22-094 実装は、PUBLISH を Type (0x1D) + Length + Request ID + Track Namespace + Track Name + Track Alias + Number of Parameters + Parameters + Track Properties としてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_publish_roundtrip`
 - [~] MQ22-094a PUBLISH は、パブリッシャーの初期の購読のパラメーター(OBJECT_DELIVERY_TIMEOUT、SUBGROUP_DELIVERY_TIMEOUT、EXPIRES、LARGEST_OBJECT、FORWARD、SUBSCRIBER_PRIORITY、LOCATION_FILTER、GROUP_ORDER)を運ばなければならない(draft-19 では、代わりに PUBLISH_OK が購読者のパラメーターを運ぶ点が異なる)。
-  - evidence: `moqctl_publish` のワイヤーのデコーダーは、汎用の `params` フィールドをすでに運んでいます(19/22 でバイト単位で同一)。ギャップはハブの振る舞いだけにあります。`moqtrun_handle_publish` は受信した PUBLISH から LARGEST_OBJECT だけを読み、FORWARD/優先度/フィルター/タイムアウトは適用しません。これは draft-19 の台帳ですでに未解決の同じギャップと一致します(`draft-moq-transport.md` の「未実装」の節と、台帳 4-7 の裁定を参照。裁定は、このハブの常に転送し優先度を持たない振る舞いが、観測できる違反なしに draft-22 の MAY を満たすとしている)。
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_pub_filter_bounds_subs`
+  - test: `tests/app/moqtrun_upd_test.c` —
+    `test_moqtrun_pub_filter_intersects_sub_filter`
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_pub_timeout_expires`
+  - test: `tests/app/moqtrun_upd_test.c` —
+    `test_moqtrun_pub_timeout_update_remin`
+  - test: `tests/app/moqtrun_upd_test.c` —
+    `test_moqtrun_pub_params_reattach_refresh`
+  - test: `tests/app/moqtrun_drain_test.c` —
+    `test_moqtrun_sched_pub_initial_order`
+  - test: `tests/app/moqtrun_drain_test.c` —
+    `test_moqtrun_sched_pub_order_not_initial_d19`
+  - evidence: ハブは受信した PUBLISH から LARGEST_OBJECT と FORWARD(pub_paused)に加えて、OBJECT_DELIVERY_TIMEOUT・LOCATION_FILTER・GROUP_ORDER を初期の購読の状態として Track に残し、下流の SUBSCRIBE と同じ門(タイムアウトの min、フィルターのクランプ、GROUP_ORDER のパブリッシャー既定)に渡します。再 PUBLISH は新しい初期状態で引き直します。SUBSCRIBER_PRIORITY は下流に引き継ぎません(9.20.7: SUBSCRIBE で省略なら 128。9.8 の購読はパブリッシャーとハブの間のもの)。EXPIRES は助言的(送り手が購読を終える)なので状態を持ちません。この扱いは draft-22/23 だけで、それ以前のドラフトの PUBLISH には適用しません。テストは自前のエンコーダーで組んだものによるもので、第三者の実装での確認待ちです。
 - [x] MQ22-095 PUBLISH から始まった購読が成功したら、購読者は PUBLISH_OK(EXPIRES だけを運ぶ REQUEST_OK)をちょうど 1 つ応答しなければならず、その後に REQUEST_UPDATE を続けて購読者が制御するパラメーターを設定してもよい(draft-19 では、それらのパラメーターが PUBLISH_OK そのものに載る点が異なる)。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_publish_replies_request_ok`
@@ -722,13 +740,20 @@
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
 - [x] MQ22-121 SUBGROUP_ID_MODE が 0b11 の場合、実装はプロトコル違反でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_mode3_closes`
-- [~] MQ22-122 実装は、SUBGROUP_HEADER の Type Flags フィールドの PROPERTIES ビット (0x01)、END_OF_GROUP ビット (0x08)、DEFAULT_PRIORITY ビット (0x20)、FIRST_OBJECT ビット (0x40) をデコードしなければならない。
+- [x] MQ22-122 実装は、SUBGROUP_HEADER の Type Flags フィールドの PROPERTIES ビット (0x01)、END_OF_GROUP ビット (0x08)、DEFAULT_PRIORITY ビット (0x20)、FIRST_OBJECT ビット (0x40) をデコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
-  - gap: 本番は END_OF_GROUP と FIRST_OBJECT のビットを判定しません。Type のバイトのままリレーし、Subgroup の途中から開くストリームでは FIRST_OBJECT を下ろします。
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_fin_sets_group_end`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_sg_object_past_fin_malformed`
+  - note: 判定の基準値はドラフト本文が定めるビット定数そのもの(0x01 / 0x08 / 0x20 / 0x40)で、`test_moqdata_type_bits_golden` がその定数に対して固定します。END_OF_GROUP と FIRST_OBJECT は本番の受信経路でも判定します。
 - [x] MQ22-123 DEFAULT_PRIORITY が立っている場合、ヘッダーの Publisher Priority フィールドは省かなければならず、Subgroup は購読の制御メッセージから優先度を引き継がなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
 - [~] MQ22-124 END_OF_GROUP ビットが立ち、ストリームが FIN で終わる場合、実装は同じ Group ID でより大きい Object ID を持つ Object は存在しないと推定しなければならない。
-  - evidence: このビットはデコードしています(MQ22-122)が、「END_OF_GROUP で FIN したら、より大きい Object ID は存在しない」という推定そのものを確かめる専用のテストはありません。これは、リレーが Object を丸ごと転送するやり方に暗に含まれています。
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_fin_sets_group_end`
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_then_larger_object_malformed`
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_negative`
+  - test: `tests/app/moqtrun_fetch_d23_test.c` — `test_moqtrun_fetch_end_of_group_from_header_bit`
+  - evidence: FIN で Group の終端を記録し、それより大きい Object ID は Malformed Track にし、FETCH の End of Group の目印にも使います。リセットでは記録しません。テストは自前のエンコーダーで組んだストリームによるもので、第三者の実装での確認待ちです。
 - [x] MQ22-125 Original Publisher は、新しい Subgroup を開くとき、FIRST_OBJECT ビットを立てて、ストリームの最初の Object がその Subgroup でこれまでに配信された最初の Object であることを示さなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_blob_build_golden`
 - [x] MQ22-249 (SS2.2, SS11.3.1) リレーは、最初の Object から転送する Subgroup では FIRST_OBJECT ビットを保ち、Subgroup の途中から開くストリームではそれを落とさなければならない。
@@ -1204,7 +1229,8 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_publisher_leaves`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_multiple_publishers`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_prefix_overlap`
-  - evidence: `[~]` としているのは、PREFIX_OVERLAP を厳しく解釈しているからです。1 つのセッションの中で、2 つのプレフィックスはどちらかが空であるか最初のフィールドが等しいときに重なるものとしていて、ドラフトが求めるより多くを拒否します。
+  - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_sibling_prefixes_not_overlap`
+  - evidence: PREFIX_OVERLAP は「片方がもう片方のフィールド単位のプレフィックスである(等しい場合と空のプレフィックスを含む)」ときだけ重なりとみなします。「shares a common prefix」の解釈は第三者の実装での確認待ちです。
 
 ## ハブのリレー: GOAWAY と PUBLISH_DONE
 

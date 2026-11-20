@@ -12,7 +12,7 @@
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 213/248、間接 35、未テスト 0。**
+**カバレッジ: テスト済み 214/248、間接 34、未テスト 0。**
 
 ## SS1.4.1 可変長整数
 
@@ -637,13 +637,19 @@
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
 - [x] MOQT-121 (SS11.4.2) SUBGROUP_ID_MODE が 0b11 の場合、実装はセッションをプロトコル違反で閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_mode3_closes`
-- [~] MOQT-122 実装は SUBGROUP_HEADER の Type フィールドの PROPERTIES ビット (0x01)、END_OF_GROUP ビット (0x08)、DEFAULT_PRIORITY ビット (0x20)、FIRST_OBJECT ビット (0x40) をデコードしなければならない。
+- [x] MOQT-122 実装は SUBGROUP_HEADER の Type フィールドの PROPERTIES ビット (0x01)、END_OF_GROUP ビット (0x08)、DEFAULT_PRIORITY ビット (0x20)、FIRST_OBJECT ビット (0x40) をデコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
-  - gap: 本番は END_OF_GROUP と FIRST_OBJECT のビットを判定しない。Type のバイトのままリレーし、Subgroup の途中から開くストリームでは FIRST_OBJECT を下ろす。
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_fin_sets_group_end`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_sg_object_past_fin_malformed`
+  - note: 判定の基準値はドラフト本文が定めるビット定数そのもの(0x01 / 0x08 / 0x20 / 0x40)で、`test_moqdata_type_bits_golden` がその定数に対して固定します。END_OF_GROUP と FIRST_OBJECT は本番の受信経路でも判定します。
 - [x] MOQT-123 DEFAULT_PRIORITY が立っている場合、Publisher Priority フィールドはヘッダーから省かなければならず、Subgroup は購読の制御メッセージから優先度を引き継がなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
 - [~] MOQT-124 (SS11.4.2) END_OF_GROUP ビットが立っていて、ストリームが FIN で終わる場合、実装は同じ Group ID でより大きな Object ID を持つ Object は存在しないと推定しなければならない。
-  - evidence: ビットはデコードしている(MOQT-122)。Malformed Track の検査は、この推定ではなく END_OF_GROUP の状態を使う(`test_moqtrun_pubdone_malformed_after_end_of_group`)。
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_fin_sets_group_end`
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_then_larger_object_malformed`
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_negative`
+  - evidence: FIN で Group の終端を記録し、それより大きい Object ID は Malformed Track にする。リセットでは記録しない。テストは自前のエンコーダーで組んだストリームによるもので、第三者の実装での確認待ち。
 - [x] MOQT-125 (SS2.2, SS11.4.2) ハブは、その Subgroup で最初に配信された Object から始まる Subgroup では FIRST_OBJECT ビットを転送し、Subgroup の途中から開くストリームではそのビットを下ろさなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_late_subscriber_gets_late_opened_stream`
@@ -1029,7 +1035,8 @@
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_publisher_leaves`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_multiple_publishers`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_prefix_overlap`
-  - evidence: `[~]` にしているのは、PREFIX_OVERLAP を厳しく解釈しているためである。1 つのセッション内では、どちらかのプレフィックスが空であるか、最初のフィールドが等しければ 2 つのプレフィックスは重なるとみなすので、ドラフトが求めるより多くを拒否する。
+  - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_sibling_prefixes_not_overlap`
+  - evidence: PREFIX_OVERLAP は「片方がもう片方のフィールド単位のプレフィックスである(等しい場合と空のプレフィックスを含む)」ときだけ重なりとみなす。「shares a common prefix」の解釈は第三者の実装での確認待ち。
 
 ## ハブのリレー: GOAWAY と PUBLISH_DONE
 

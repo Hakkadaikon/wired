@@ -651,14 +651,20 @@
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
 - [x] MQ18-122 (§11.4.2) SUBGROUP_ID_MODE が 0b11 の場合、実装はプロトコル違反でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_mode3_closes`
-- [~] MQ18-123 実装は、SUBGROUP_HEADER の Type フィールドの PROPERTIES ビット(0x01)、END_OF_GROUP ビット(0x08)、DEFAULT_PRIORITY ビット(0x20)、FIRST_OBJECT ビット(0x40)をデコードしなければならない。
+- [x] MQ18-123 実装は、SUBGROUP_HEADER の Type フィールドの PROPERTIES ビット(0x01)、END_OF_GROUP ビット(0x08)、DEFAULT_PRIORITY ビット(0x20)、FIRST_OBJECT ビット(0x40)をデコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
-  - gap: 本番は END_OF_GROUP と FIRST_OBJECT のビットを判定しない。Type のバイトのままリレーし、Subgroup の途中から開くストリームでは FIRST_OBJECT を下ろす。
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_fin_sets_group_end`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_sg_object_past_fin_malformed`
+  - note: 判定の基準値はドラフト本文が定めるビット定数そのもの(0x01 / 0x08 / 0x20 / 0x40)で、`test_moqdata_type_bits_golden` がその定数に対して固定します。END_OF_GROUP と FIRST_OBJECT は本番の受信経路でも判定します。
 - [x] MQ18-124 DEFAULT_PRIORITY が立っている場合、Publisher Priority フィールドはヘッダーから省かなければならず、Subgroup は購読の制御メッセージから優先度を引き継がなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_track_default`
 - [~] MQ18-125 (§11.4.2) END_OF_GROUP ビットが立っていてストリームが FIN で終わった場合、実装は、同じ Group ID でより大きい Object ID を持つ Object は存在しないと推定しなければならない。
-  - evidence: このビットはデコードされ(MQ18-123)、ヘッダーのバイト列に含めてリレーされる。推定を確かめるテストはない。
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_fin_sets_group_end`
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_then_larger_object_malformed`
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_negative`
+  - evidence: FIN で Group の終端を記録し、それより大きい Object ID は Malformed Track にする。リセットでは記録しない。テストは自前のエンコーダーで組んだストリームによるもので、第三者の実装での確認待ち。
 - [x] MQ18-126 (§2.2, §11.4.2) ハブが自分の Track(`wired_moqt_publish_blob` / `_live`)の Original Publisher として新しい Subgroup を開くとき、ハブは FIRST_OBJECT ビットを立てなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_blob_build_golden`
 - [x] MQ18-127 実装は、SUBGROUP_HEADER を、ワイヤー上のフィールド(Type、Track Alias、Group ID、省略可能な Subgroup ID、省略可能な Publisher Priority)とバイト単位で一致するようにエンコード・デコードしなければならない。
@@ -1082,14 +1088,15 @@
 
 ## ハブのリレー: 名前空間の発見
 
-- [x] MQ18-195 PUBLISH_NAMESPACE はパブリッシャーごとに受け入れなければならず(複数のパブリッシャーが 1 つの名前空間を共有してよい)、SUBSCRIBE_NAMESPACE には一致するすべての名前空間について NAMESPACE を送り、その後はパブリッシャーの出入りに応じて NAMESPACE / NAMESPACE_DONE を送らなければならない。
+- [~] MQ18-195 PUBLISH_NAMESPACE はパブリッシャーごとに受け入れなければならず(複数のパブリッシャーが 1 つの名前空間を共有してよい)、SUBSCRIBE_NAMESPACE には一致するすべての名前空間について NAMESPACE を送り、その後はパブリッシャーの出入りに応じて NAMESPACE / NAMESPACE_DONE を送らなければならない。
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_publish_accepted`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_initial_set`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_live_join_and_cancel`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_publisher_leaves`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_multiple_publishers`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_prefix_overlap`
-  - note: 1 つのセッションの中では、2 つの接頭辞は、どちらかが空であるか最初のフィールドが等しいときに重なる。§10.18 の "shares a common prefix" を文字どおりに読んだもので、(chat, room1) と (chat, room2) は重なる。
+  - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_sibling_prefixes_not_overlap`
+  - evidence: PREFIX_OVERLAP は「片方がもう片方のフィールド単位のプレフィックスである(等しい場合と空のプレフィックスを含む)」ときだけ重なりとみなす。「shares a common prefix」の解釈は第三者の実装での確認待ち。
 
 ## ハブのリレー: GOAWAY と PUBLISH_DONE
 
