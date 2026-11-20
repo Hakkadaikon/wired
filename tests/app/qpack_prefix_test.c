@@ -44,8 +44,18 @@ static void test_qpack_prefix_truncated(void) {
   CHECK(qpack_prefix_decode(buf, 0, &out) == 0);
 }
 
+/* RFC 9204 4.5.1: a section that ends right after the Required Insert Count
+ * carries no Delta Base byte -- rejected without reading past the buffer
+ * (the exactly-sized 1-byte array makes ASan flag any over-read). */
+static void test_qpack_prefix_ric_only_rejected(void) {
+  static const u8 one[1] = {0x05};
+  qpack_prefix    out;
+  CHECK(qpack_prefix_decode(one, sizeof one, &out) == 0);
+}
+
 void test_qpack_prefix(void) {
   test_qpack_prefix_empty();
   test_qpack_prefix_roundtrip();
   test_qpack_prefix_truncated();
+  test_qpack_prefix_ric_only_rejected();
 }

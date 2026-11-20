@@ -23,10 +23,13 @@ usz qpack_prefix_encode(u8* buf, usz cap, const qpack_prefix* p) {
   return prefix_join(off, w);
 }
 
+/* RFC 9204 4.5.1: the RIC integer decoded with a Delta Base byte remaining. */
+static int prefix_ric_fits(usz off, usz n) { return off != 0 && off < n; }
+
 usz qpack_prefix_decode(const u8* buf, usz n, qpack_prefix* p) {
   usz off =
       qpack_int_decode(wired_span_of(buf, n), 8, &p->required_insert_count);
-  if (off == 0) {
+  if (!prefix_ric_fits(off, n)) {
     return 0;
   }
   p->sign = (buf[off] & PREFIX_SIGN_BIT) ? 1 : 0;
