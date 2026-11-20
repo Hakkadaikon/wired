@@ -81,7 +81,9 @@ static int str_raw(wired_span oct, wired_obuf* dst) {
 /* Recover the value octets per the H flag (RFC 7541 5.2): H=1 is Huffman,
  * H=0 is raw. Truncated source octets fail either way. Returns 1 ok, 0. */
 static int str_value(wired_span buf, const qstr_head* h, wired_obuf* dst) {
-  if (h->off + h->len > buf.n) {
+  /* Subtraction form: h->off <= buf.n (the integer decoder consumed at most
+   * buf.n bytes), and the sum must not be relied on to stay below 2^64. */
+  if (h->len > buf.n - h->off) {
     return 0;
   }
   wired_span oct = wired_span_of(buf.p + h->off, h->len);

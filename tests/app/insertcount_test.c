@@ -48,9 +48,11 @@ static void test_qpack_ric_roundtrip(void) {
 }
 
 /* RFC 9204 2.1.2 / 2.2.1: with no dynamic table reference the expected
- * minimum RIC is 0; a section carrying RIC 0 is accepted. */
+ * minimum RIC is 0; a section carrying RIC 0 is accepted, whatever the
+ * (ignored) max_abs_ref argument holds. */
 static void test_qpack_ric_min_no_dynamic_ref(void) {
   CHECK(qpack_ric_min_ok(0, 0, 0));
+  CHECK(qpack_ric_min_ok(0, 0, (u64)-1));
 }
 
 /* RFC 9204 2.1.2: with a dynamic reference, the lowest valid RIC is one more
@@ -60,16 +62,27 @@ static void test_qpack_ric_min_below_expected_rejected(void) {
   CHECK(!qpack_ric_min_ok(0, 1, 0)); /* expected 1, got 0 */
 }
 
-/* RFC 9204 2.2.1: a RIC exactly equal to the expected minimum is accepted. */
+/* RFC 9204 2.2.1: a RIC exactly equal to the expected minimum is accepted,
+ * up to the largest pair that does not wrap (max_abs_ref 2^64-2, RIC
+ * 2^64-1). */
 static void test_qpack_ric_min_exact_accepted(void) {
   CHECK(qpack_ric_min_ok(4, 1, 3));
   CHECK(qpack_ric_min_ok(1, 1, 0));
+  CHECK(qpack_ric_min_ok((u64)-1, 1, (u64)-2));
 }
 
 /* RFC 9204 2.2.1: a RIC larger than expected is not the MUST-reject case
  * covered here (the spec only permits, does not require, rejecting it). */
 static void test_qpack_ric_min_above_expected_accepted(void) {
   CHECK(qpack_ric_min_ok(9, 1, 3));
+}
+
+/* RFC 9204 2.1.2: a largest referenced absolute index of 2^64-1 has no valid
+ * RIC at all -- the expected minimum must not wrap to 0 and accept every
+ * section. */
+static void test_qpack_ric_min_max_abs_rejected(void) {
+  CHECK(!qpack_ric_min_ok((u64)-1, 1, (u64)-1));
+  CHECK(!qpack_ric_min_ok(0, 1, (u64)-1));
 }
 
 /* RFC 9204 4.4.3: an Increment of zero is always invalid, regardless of the
@@ -92,6 +105,13 @@ static void test_qpack_incr_overshoot_rejected(void) {
 /* An increment landing exactly on total_inserts is the accepted boundary. */
 static void test_qpack_incr_exact_boundary_accepted(void) {
   CHECK(qpack_incr_valid(0, 3, 3));
+}
+
+/* RFC 9204 4.4.3: an Increment whose sum with the Known Received Count wraps
+ * past 2^64-1 must not alias back under total_inserts. */
+static void test_qpack_incr_wrap_rejected(void) {
+  CHECK(!qpack_incr_valid((u64)-1, 2, 5));
+  CHECK(!qpack_incr_valid((u64)1 << 63, (u64)1 << 63, 5));
 }
 
 /* RFC 9204 4.4.1: a Section Acknowledgment is valid exactly while the
@@ -120,10 +140,12 @@ void test_insertcount(void) {
   test_qpack_ric_min_below_expected_rejected();
   test_qpack_ric_min_exact_accepted();
   test_qpack_ric_min_above_expected_accepted();
+  test_qpack_ric_min_max_abs_rejected();
   test_qpack_incr_zero_rejected();
   test_qpack_incr_golden();
   test_qpack_incr_overshoot_rejected();
   test_qpack_incr_exact_boundary_accepted();
+  test_qpack_incr_wrap_rejected();
   test_qpack_section_ack_pending_accepted();
   test_qpack_section_ack_none_pending_rejected();
 }

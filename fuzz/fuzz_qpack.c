@@ -7,9 +7,16 @@
  * table entry, so a table with at least one inserted entry is required to
  * reach that path. Seed the table with one fixed entry, then fuzz the field
  * line bytes: both the static-table (T=1) and dynamic-table (T=0) branches,
- * plus truncation/non-indexed rejection, are reachable from data alone. */
+ * plus truncation/non-indexed rejection, are reachable from data alone.
+ *
+ * An input of 10 bytes or more spends its trailing 8 bytes (little-endian)
+ * on the section's Base, so index arithmetic against a large Base -- the
+ * RFC 9204 3.2.5/3.2.6 overflow/underflow rejections -- is reachable too.
+ * The threshold sits above the pre-existing corpus inputs (at most 9
+ * bytes), so their meaning is unchanged. */
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "app/qpack/qpack/dynget.c"
 #include "app/qpack/qpack/dyntable.c"
@@ -22,8 +29,13 @@
 #include "app/qpack/qpackdyn/field_decode.c"
 
 int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  const u8* buf = (const u8*)data;
-  usz       n   = (usz)size;
+  const u8* buf  = (const u8*)data;
+  usz       n    = (usz)size;
+  u64       base = 1;
+  if (n >= 10) {
+    n -= 8;
+    memcpy(&base, buf + n, 8);
+  }
 
   qpack_dyn table;
   qpack_dyn_init(&table, 4096);
@@ -34,7 +46,7 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   };
   qpack_dyn_insert(&table, &seed);
 
-  qdyn_src src = {&table, /* base */ 1, wired_span_of(buf, n), /* ric */ 1};
+  qdyn_src src = {&table, base, wired_span_of(buf, n), /* ric */ 1};
 
   qpack_field out;
   usz         consumed;

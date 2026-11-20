@@ -2,6 +2,7 @@
 
 #include "app/qpack/qpack/dynfind.h"
 #include "app/qpack/qpack/dyntable.h"
+#include "app/qpack/qpack/fieldline.h"
 #include "app/qpack/qpack/relindex.h"
 #include "app/qpack/qpackdyn/cstr.h"
 #include "app/qpack/qpackdyn/field_encode.h"
@@ -167,6 +168,27 @@ static void test_postbase_name_miss(void) {
   }
 }
 
+/* RFC 9204 3.2.6 / 4.5.3: a post-Base index that wraps base + postbase past
+ * 2^64-1 must fail, not alias a live low entry that would pass the RIC and
+ * liveness checks. */
+static void test_postbase_wrap_rejected(void) {
+  qpack_dyn   t;
+  u8          fs[16];
+  usz         n, consumed = 0;
+  u64         half = (u64)1 << 63;
+  qpack_field f    = fd_field("x-a", "1");
+  qpack_field d;
+  wired_span  name;
+  qpack_dyn_init(&t, 256);
+  CHECK(qpack_dyn_insert(&t, &f));
+  /* base + postbase == 2^64 wraps to abs 0, a live entry under ric 1. */
+  n = qpack_indexed_postbase_encode(wired_mspan_of(fs, sizeof fs), half);
+  CHECK(n != 0);
+  qdyn_src src = {&t, half, wired_span_of(fs, n), 1};
+  CHECK(qdyn_decode_field(&src, &d, &consumed) == 0);
+  CHECK(qdyn_resolve_postbase_name(&src, half, &name) == 0);
+}
+
 /* RFC 9204 2.2.3: a reference to an entry with an absolute index at or past
  * the section's Required Insert Count is an error even when the entry is
  * live -- post-Base (4.5.3), relative (4.5.2) and name references alike. */
@@ -194,6 +216,7 @@ static void test_ref_beyond_ric_rejected(void) {
 }
 
 void test_qpackdyn_field_decode(void) {
+  test_postbase_wrap_rejected();
   test_ref_beyond_ric_rejected();
   test_dynamic_roundtrip();
   test_static_reference();

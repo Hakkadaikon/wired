@@ -1597,6 +1597,27 @@ static void test_reqdrive_bad_ref_is_qpack_failure(void) {
   CHECK(r.qpack_failed == 0);
 }
 
+/* RFC 9204 3.2.6 / 4.5.1.2: a prefix of RIC 1 and Delta Base 2^63-1 (Base
+ * 2^63) followed by a post-Base index of 2^63 sums to 2^64 -- the wrapped
+ * reference is the QPACK_DECOMPRESSION_FAILED connection error, not a
+ * resolution of the live entry at absolute index 0. Capacity 2016 gives
+ * MaxEntries 63, so RIC 1 encodes to 02. */
+static void test_reqdrive_postbase_wrap_is_qpack_failure(void) {
+  static u8       scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static const u8 fs[] = {0x02, 0x7f, 0x80, 0xff, 0xff, 0xff, 0xff,
+                          0xff, 0xff, 0xff, 0x7f, 0x1f, 0xf1, 0xff,
+                          0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f};
+  qpack_field     f    = {
+      wired_span_of((const u8*)"x", 1), wired_span_of((const u8*)"y", 1)};
+  qpack_dyn            t;
+  wired_h3reqdrive_req r;
+  qpack_dyn_init(&t, 2016);
+  CHECK(qpack_dyn_insert(&t, &f));
+  CHECK(!rd_hdr_decode(fs, sizeof fs, scratch, &t, &r));
+  CHECK(r.qpack_failed == 1);
+  CHECK(r.reject_code == QPACK_DECOMPRESSION_FAILED);
+}
+
 /* RFC 9204 2.2.3 / 3.1: a literal line's name reference is resolved before
  * its value, so an invalid one is still the connection error when the value
  * behind it is bad too (here truncated) -- the name-reference form (a
@@ -1801,6 +1822,7 @@ void test_h3reqdrive(void) {
   test_reqdrive_b2_section_ric();
   test_reqdrive_ric_past_inserts_fails();
   test_reqdrive_bad_ref_is_qpack_failure();
+  test_reqdrive_postbase_wrap_is_qpack_failure();
   test_reqdrive_bad_name_ref_before_bad_value();
   test_reqdrive_local_capacity_not_qpack_failure();
   test_reqdrive_two_lines_overflow_431();

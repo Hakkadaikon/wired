@@ -21,6 +21,7 @@ int qpack_dyn_get(const qpack_dyn* t, u64 abs_index, qpack_field* out) {
 }
 
 int qpack_dyn_get_enc_rel(const qpack_dyn* t, u64 rel, qpack_field* out) {
-  u64 base = t->dropped + t->count;
-  return qpack_dyn_get(t, qpack_rel_to_abs(base, rel), out);
+  u64 abs;
+  return qpack_rel_to_abs(t->dropped + t->count, rel, &abs) &&
+         qpack_dyn_get(t, abs, out);
 }

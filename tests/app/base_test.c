@@ -16,10 +16,19 @@ static void test_qpack_base_negative(void) {
   CHECK(qpack_base(6, 1, 5) == 0);
 }
 
-/* RFC 9204 4.5.1.2: Sign 0 is always valid, regardless of RIC/DeltaBase. */
-static void test_qpack_base_valid_sign0_always_ok(void) {
+/* RFC 9204 4.5.1.2: Sign 0 is valid whenever RIC + DeltaBase does not wrap,
+ * up to and including a Base of exactly 2^64-1. */
+static void test_qpack_base_valid_sign0_no_overflow_ok(void) {
   CHECK(qpack_base_valid(0, 0, 0));
   CHECK(qpack_base_valid(1, 0, 5));
+  CHECK(qpack_base_valid((u64)-1 - 5, 0, 5));
+}
+
+/* RFC 9204 4.5.1.2: Sign 0 with RIC + DeltaBase past 2^64-1 wraps -- the
+ * prefix is invalid. */
+static void test_qpack_base_valid_sign0_overflow_rejected(void) {
+  CHECK(!qpack_base_valid((u64)1 << 63, 0, (u64)1 << 63));
+  CHECK(!qpack_base_valid(1, 0, (u64)-1));
 }
 
 /* RFC 9204 4.5.1.2: Sign 1 with RIC greater than DeltaBase is valid (Base
@@ -40,7 +49,8 @@ static void test_qpack_base_valid_sign1_rejected(void) {
 void test_base(void) {
   test_qpack_base_positive();
   test_qpack_base_negative();
-  test_qpack_base_valid_sign0_always_ok();
+  test_qpack_base_valid_sign0_no_overflow_ok();
+  test_qpack_base_valid_sign0_overflow_rejected();
   test_qpack_base_valid_sign1_ok();
   test_qpack_base_valid_sign1_rejected();
 }

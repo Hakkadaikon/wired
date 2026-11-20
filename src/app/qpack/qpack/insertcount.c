@@ -1,5 +1,7 @@
 #include "app/qpack/qpack/insertcount.h"
 
+#include "common/bytes/util/num.h"
+
 /* RFC 9204 4.5.1.1 */
 u64 qpack_ric_encode(u64 ric, u64 max_entries) {
   if (ric == 0) {
@@ -55,16 +57,23 @@ int qpack_ric_decode(u64 encoded, const qpack_ric_ctx* c, u64* ric) {
 
 /* RFC 9204 2.1.2 / 2.2.1: a RIC below the lowest value that could decode the
  * section MUST be rejected; a larger one is merely permitted to be rejected,
- * not required, so equal-or-above is accepted here. */
+ * not required, so equal-or-above is accepted here. A max_abs_ref of 2^64-1
+ * has no valid RIC at all (the minimum would wrap to 0). */
 int qpack_ric_min_ok(u64 ric, int has_dynamic_ref, u64 max_abs_ref) {
-  u64 expected = has_dynamic_ref ? max_abs_ref + 1 : 0;
+  u64 expected = 0;
+  if (has_dynamic_ref && !u64_add_ok(max_abs_ref, 1, &expected)) {
+    return 0;
+  }
   return ric >= expected;
 }
 
 /* RFC 9204 4.4.3: a zero Increment, or one that would move the Known
- * Received Count past what the encoder has actually sent, is invalid. */
+ * Received Count past what the encoder has actually sent, is invalid --
+ * including a sum that wraps past 2^64-1 back under total_inserts. */
 int qpack_incr_valid(u64 known_received, u64 increment, u64 total_inserts) {
-  return increment != 0 && known_received + increment <= total_inserts;
+  u64 next;
+  return increment != 0 && u64_add_ok(known_received, increment, &next) &&
+         next <= total_inserts;
 }
 
 /* RFC 9204 4.4.1 */

@@ -109,9 +109,10 @@ static int name_octets(wired_span oct, int huff, wired_obuf* nm) {
   return huff ? qpack_huffman_decode(oct, nm) : name_raw(oct, nm);
 }
 
-/* The name length header parsed and its octets in range. */
+/* The name length header parsed and its octets in range. Subtraction form:
+ * off <= n once off != 0 (the integer decoder consumed at most n bytes). */
 static int litname_bounds(usz off, u64 len, usz n) {
-  return off != 0 && off + len <= n;
+  return off != 0 && len <= n - off;
 }
 
 /* Decode the 4.5.6 name into nm. Returns bytes used from buf, or 0 on

@@ -18,6 +18,15 @@ static inline int u64_add_ok(u64 a, u64 b, u64* out) {
   return 1;
 }
 
+/* *out = a - b; returns 0 (and leaves *out alone) if b > a. */
+static inline int u64_sub_ok(u64 a, u64 b, u64* out) {
+  if (b > a) {
+    return 0;
+  }
+  *out = a - b;
+  return 1;
+}
+
 /* 1 if the packet number stored as 1 + pn (0 = none) lies in [lo, hi]. */
 static inline int u64_pn1_in(u64 pn1, u64 lo, u64 hi) {
   return pn1 > lo && pn1 - 1 <= hi;

@@ -1,5 +1,7 @@
 #include "app/qpack/qpack/base.h"
 
+#include "common/bytes/util/num.h"
+
 /* RFC 9204 4.5.1.2 */
 u64 qpack_base(u64 ric, int sign, u64 delta_base) {
   if (sign == 0) {
@@ -10,8 +12,9 @@ u64 qpack_base(u64 ric, int sign, u64 delta_base) {
 
 /* RFC 9204 4.5.1.2 */
 int qpack_base_valid(u64 ric, int sign, u64 delta_base) {
+  u64 base;
   if (sign == 0) {
-    return 1;
+    return u64_add_ok(ric, delta_base, &base);
   }
   return ric > delta_base;
 }
