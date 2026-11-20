@@ -172,10 +172,17 @@ static void test_roundtrip_status_range(void) {
                              0x09, 0x03, '1',  '0',  '0'};
   static const u8 hi_ok[] = {0x01, 0x08, 0x00, 0x00, 0x5f,
                              0x09, 0x03, '5',  '9',  '9'};
+  u8              sf[64];
+  h3conn_resp     out = {0};
+  usz             len;
   CHECK(!rt_recv_h3(low, sizeof low));
   CHECK(!rt_recv_h3(high, sizeof high));
-  CHECK(rt_recv_h3(lo_ok, sizeof lo_ok));
-  CHECK(rt_recv_h3(hi_ok, sizeof hi_ok));
+  len = rt_stream_wrap(lo_ok, sizeof lo_ok, sf);
+  CHECK(h3conn_recv_response(wired_span_of(sf, len), &out));
+  CHECK(out.status == 100);
+  len = rt_stream_wrap(hi_ok, sizeof hi_ok, sf);
+  CHECK(h3conn_recv_response(wired_span_of(sf, len), &out));
+  CHECK(out.status == 599);
 }
 
 /* RFC 7541 5.2 / App. B: a Huffman-coded literal value decodes the same.
