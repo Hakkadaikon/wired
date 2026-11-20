@@ -19680,6 +19680,12 @@ static void test_srvrun_note_retry_odcid(void) {
   CHECK(c->retry_odcid_len == 8 && c->retry_odcid[7] == 8);
 }
 
+/* The suite-wide Date pin (test_srvrun sets it around the whole run):
+ * Sun, 06 Nov 1994 08:49:37 GMT. Every pin site uses this one constant --
+ * a test that pins its own value must restore THIS pin, never 0, or every
+ * later Date comparison races the live clock. */
+#define SRVRUN_TEST_DATE_PIN 784111777ULL
+
 /* RFC 9110 6.6.1 / 5.3: an application-supplied Date is kept as the only
  * one -- the SDK adds none of its own. */
 static void test_srvrun_hdrs_app_date_kept(void) {
@@ -19688,9 +19694,9 @@ static void test_srvrun_hdrs_app_date_kept(void) {
   srvrun_hdrs_add(
       &h, wired_span_of(srvrun_hdr_date_n, sizeof srvrun_hdr_date_n),
       wired_span_of(v, sizeof v - 1));
-  srvrun_test_pin_date(784111777);
+  srvrun_test_pin_date(SRVRUN_TEST_DATE_PIN);
   srvrun_hdrs_date(&h);
-  srvrun_test_pin_date(0);
+  srvrun_test_pin_date(SRVRUN_TEST_DATE_PIN); /* restore the suite pin */
   CHECK(h.n == 1 && h.f[0].value.p == v);
 }
 
@@ -27537,7 +27543,7 @@ static void test_srvrun_http_date_live_clock(void) {
   g_sr_hx = (sr_hx_case){0, 0, 0, 0, "ok", 0, 0};
   sr_hx_run(&d);
   t1 = wired_clock_epoch_secs();
-  srvrun_test_pin_date(784111777ULL);
+  srvrun_test_pin_date(SRVRUN_TEST_DATE_PIN);
   CHECK(d.n == 3 && d.l[2].value_len == CLOCK_IMF_FIXDATE_LEN);
   for (u64 t = t0; t <= t1; t++) {
     u8 want[CLOCK_IMF_FIXDATE_LEN];
@@ -29858,7 +29864,7 @@ static void test_srvrun_pn_exhausted_reaped(void) {
 }
 
 void test_srvrun(void) {
-  srvrun_test_pin_date(784111777ULL); /* Sun, 06 Nov 1994 08:49:37 GMT */
+  srvrun_test_pin_date(SRVRUN_TEST_DATE_PIN);
   test_srvrun_http_streaming_refill();
   test_srvrun_http_refill_waits_for_quarter_room();
   test_srvrun_http_redirect_with_location();
