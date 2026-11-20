@@ -120,6 +120,15 @@ typedef struct {
   u64 sg_group;
   /** Subgroup ID of the latest Subgroup stream header. */
   u64 sg_id;
+  /** Group ID of the latest Subgroup whose final Object is known: a
+   * FIRST_OBJECT stream of it ended with FIN (draft-22 12.1 #2/#3).
+   * shortcut: one Subgroup kept, like sg_*; keep one per relay if
+   * publishers interleave Subgroups. */
+  u64 sgf_group;
+  /** Subgroup ID of that Subgroup. */
+  u64 sgf_id;
+  /** Its final Object ID (the last Object received before the FIN). */
+  u64 sgf_final;
   /** 1 while a PUBLISH_DONE is held. */
   u8 pubdone_pending;
   /** The Object with Status END_OF_TRACK, valid while end_flags bit 0. */
@@ -133,6 +142,8 @@ typedef struct {
   u8 sg_prio;
   /** 1 once sg_group, sg_id and sg_prio are set. */
   u8 sg_set;
+  /** 1 once sgf_group, sgf_id and sgf_final are set. */
+  u8 sgf_set;
   /** 1 once an Object made the track Malformed (draft-22 12.1); the
    * track then ends MALFORMED_TRACK. */
   u8 malformed;

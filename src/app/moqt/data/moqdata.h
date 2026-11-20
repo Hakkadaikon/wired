@@ -76,6 +76,12 @@ u64 moqdata_type_sgid_mode(u64 type);
 /** 1 iff type has DEFAULT_PRIORITY (bit 0x20): no Publisher Priority
  * field in the header. */
 int moqdata_type_default_priority(u64 type);
+/** 1 iff type has END_OF_GROUP (bit 0x08): a FIN on the stream means no
+ * larger Object ID exists in its Group (not on a reset). */
+int moqdata_type_end_of_group(u64 type);
+/** 1 iff type has FIRST_OBJECT (bit 0x40): the stream's first Object is
+ * the first ever published in its Subgroup. */
+int moqdata_type_first_object(u64 type);
 
 /** Decoded SUBGROUP_HEADER (11.4.2). subgroup_id_pending is set when mode
  * is 0b01 (Subgroup ID == first Object ID, resolved once that Object is

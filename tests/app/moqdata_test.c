@@ -115,6 +115,11 @@ static void test_moqdata_type_bits_golden(void) {
   CHECK(moqdata_type_props(0x7b));
   CHECK(moqdata_type_sgid_mode(0x7b) == 1);
   CHECK(moqdata_type_default_priority(0x7b));
+  /* END_OF_GROUP (0x08) and FIRST_OBJECT (0x40), 11.4.2 */
+  CHECK(!moqdata_type_end_of_group(0x10) && !moqdata_type_first_object(0x10));
+  CHECK(moqdata_type_end_of_group(0x59) && moqdata_type_first_object(0x59));
+  CHECK(moqdata_type_end_of_group(0x38) && !moqdata_type_first_object(0x38));
+  CHECK(!moqdata_type_end_of_group(0x70) && moqdata_type_first_object(0x70));
 }
 
 /* TEST: header of the basic golden stream (type 0x70, default priority,

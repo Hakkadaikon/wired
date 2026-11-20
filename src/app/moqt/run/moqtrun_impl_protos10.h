@@ -3,6 +3,25 @@
 
 #include "app/moqt/run/moqtrun_impl_protos9.h"
 
+void moqtrun_relay_fin_note(
+    wired_moqtrun_track* t, const wired_moqtrun_relay* r, int fin);
+u64  moqtrun_relay_hdr_type(const wired_moqtrun_relay* r);
+void moqtrun_track_note_end_on(
+    wired_moqtrun_track* t, moqctl_loc l, u64 status);
+int moqtrun_sgprio_keys(
+    const wired_moqtrun_track* t, wired_span wire, u64* sg, u8* prio);
+int moqtrun_obj_flags_malformed(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* t,
+    moqctl_loc           l,
+    const moqdata_obj*   o);
+int  moqtrun_fin_clean(int fin, usz off, usz n);
+void moqtrun_fresh_fin_note(
+    wired_moqtrun_track*  t,
+    wired_span            data,
+    const moqdata_subhdr* hdr,
+    const moqdata_objseq* seq,
+    int                   fin);
 void moqtrun_upd_drop_now(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 void moqtrun_upd_settle(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t);

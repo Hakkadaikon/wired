@@ -1,7 +1,5 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static void moqtrun_track_note_end_on(
-    wired_moqtrun_track* t, moqctl_loc l, u64 status);
 static void moqtrun_track_note_end(
     wired_moqtrun_track* t, moqctl_loc l, u64 status);
 static void moqtrun_track_obj(
@@ -17,8 +15,6 @@ static wired_moqtrun_track* moqtrun_fresh_count_only(wired_moqtrun_track* t);
 static int moqtrun_sgprio_same_sg(const wired_moqtrun_track* t, u64 g, u64 sg);
 static int moqtrun_sgprio_differs(
     const wired_moqtrun_track* t, u64 g, u64 sg, u8 prio);
-static int moqtrun_sgprio_keys(
-    const wired_moqtrun_track* t, wired_span wire, u64* sg, u8* prio);
 static wired_moqtrun_track* moqtrun_sgprio_gate(
     wired_moqtrun_track* t, wired_span wire, u64 g);
 
@@ -37,7 +33,7 @@ static int moqtrun_sgprio_differs(
   return t->sg_set && moqtrun_sgprio_same_sg(t, g, sg) && t->sg_prio != prio;
 }
 
-static int moqtrun_sgprio_keys(
+int moqtrun_sgprio_keys(
     const wired_moqtrun_track* t, wired_span wire, u64* sg, u8* prio) {
   return t && moqtrun_stream_keys(wire, t->default_pub_prio, sg, prio);
 }
@@ -67,7 +63,7 @@ static wired_moqtrun_track* moqtrun_sgprio_gate(
   return t;
 }
 
-static void moqtrun_track_note_end_on(
+void moqtrun_track_note_end_on(
     wired_moqtrun_track* t, moqctl_loc l, u64 status) {
   if (status == MOQDATA_STATUS_END_OF_GROUP) {
     t->group_end = l;
@@ -97,7 +93,7 @@ static void moqtrun_track_obj(
     u64                  group,
     const moqdata_obj*   o) {
   moqctl_loc l = moqctl_loc_of(group, o->object_id);
-  if (moqtrun_obj_malformed(t, l) || moqtrun_obj_mand(t, o->props)) {
+  if (moqtrun_obj_flags_malformed(hub, t, l, o)) {
     t->malformed = 1;
     return;
   }
@@ -227,6 +223,8 @@ wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
    * (draft-23 11.3: TRUNCATED_OBJECT). */
   moqtrun_rx_flag(
       hub, moqtrun_fin_torn(fin, off, data.n), MOQTRUN_CC_TRUNCATED);
+  moqtrun_fresh_fin_note(
+      t, data, &hdr, &seq, moqtrun_fin_clean(fin, off, data.n));
   if (moqtrun_fresh_nothing_due(whole, fin)) {
     return moqtrun_fresh_count_only(t);
   }

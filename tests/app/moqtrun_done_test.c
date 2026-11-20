@@ -424,6 +424,217 @@ static void test_moqtrun_pubdone_prio_default(void) {
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
 }
 
+/* ========== SUBGROUP_HEADER Type bits (d18/d19 11.4.2, d22/d23 11.3.1) */
+
+/* Group g as objects 0..n-1 on one SUBGROUP stream sid whose Type
+ * carries the END_OF_GROUP bit (0x08), delivered with or without FIN. */
+static void mtdn_eog_stream(u64 sid, u64 g, usz n, int fin) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz off = mtst_stream(g, n, 1, buf);
+  buf[0] |= 0x08;
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), fin);
+}
+
+/* A's track slot 0. */
+static const wired_moqtrun_track* mtdn_track_a(void) {
+  return &moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0];
+}
+
+/* One Object (ID obj, 1-byte Payload pl) of Group g on stream sid of
+ * Type type, with or without FIN. */
+static void mtdn_sg_obj(u64 sid, u64 type, u64 g, u64 obj, u8 pl, int fin) {
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  wired_mspan    out = wired_mspan_of(buf, sizeof buf);
+  usz            off = 0;
+  moqdata_subhdr h   = {0};
+  h.type             = type;
+  h.track_alias      = 1;
+  h.group_id         = g;
+  moqdata_subhdr_put(out, &off, &h);
+  moqdata_obj_put(out, &off, obj, wired_span_of(&pl, 1));
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), fin);
+}
+
+/* 11.4.2: a FIN on a stream whose Type has the END_OF_GROUP bit means no
+ * larger Object ID exists in the Group: the hub records the Group's end
+ * at the last Object received -- on a one-shot stream, and at the FIN of
+ * a kept-open one. */
+static void test_moqtrun_eog_bit_fin_sets_group_end(void) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz off = 0;
+  u8  b   = 7;
+  mtdn_setup();
+  mtdn_eog_stream(2002, 1, 2, 1);
+  const wired_moqtrun_track* t = mtdn_track_a();
+  CHECK((t->end_flags & 2) && t->group_end.group == 1);
+  CHECK(t->group_end.object == 1);
+  mtdn_eog_stream(2006, 2, 2, 0);
+  moqdata_obj_put(
+      wired_mspan_of(buf, sizeof buf), &off, 0, wired_span_of(&b, 1));
+  mt_feed(&mtst_hub, SESS_A, 2006, wired_span_of(buf, off), 1);
+  CHECK(t->group_end.group == 2 && t->group_end.object == 2);
+}
+
+/* ... and a later Object of that Group with a larger ID is a Malformed
+ * Track (d22 12.1 #4): PUBLISH_DONE MALFORMED_TRACK, the track gone. */
+static void test_moqtrun_eog_bit_then_larger_object_malformed(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_eog_stream(2002, 1, 2, 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  mtdn_status_group(2006, 1, 3, MOQDATA_STATUS_NORMAL);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+  CHECK(mtdn_published() == 0);
+}
+
+/* Without the bit, or when the stream is reset instead of FINed
+ * (11.4.2: "does not apply when the data stream is reset"), no Group
+ * end is recorded and later larger IDs pass. */
+static void test_moqtrun_eog_bit_negative(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_group(2002, 1);
+  CHECK((mtdn_track_a()->end_flags & 2) == 0);
+  mtdn_eog_stream(2006, 1, 1, 0);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, 2006, 0, 0);
+  CHECK((mtdn_track_a()->end_flags & 2) == 0);
+  mtdn_status_group(2010, 1, 3, MOQDATA_STATUS_NORMAL);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+}
+
+/* d22 12.1 #2 (d18/19 2.4.2 #2): a FIRST_OBJECT (0x40) stream carries
+ * its Subgroup from the start, so its FIN fixes the Subgroup's final
+ * Object; a later Object of that Subgroup with a larger ID is a
+ * Malformed Track even while its own stream stays open. */
+static void test_moqtrun_sg_object_past_fin_malformed(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_sg_obj(2002, 0x70, 1, 1, 9, 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  mtdn_sg_obj(2006, 0x30, 1, 2, 9, 0);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+}
+
+/* d22 12.1 #3: a Subgroup received over two FIN-terminated FIRST_OBJECT
+ * streams with the same final Object is sound; different final Objects
+ * make a Malformed Track. */
+static void test_moqtrun_sg_two_fins_differ_malformed(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_sg_obj(2002, 0x70, 1, 1, 9, 1);
+  mtdn_sg_obj(2006, 0x70, 1, 1, 9, 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  mtdn_sg_obj(2010, 0x70, 1, 0, 9, 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+}
+
+/* A mode-0b01 stream whose head tore inside its first Object saves no
+ * header (hdr_len 0, its Subgroup ID unknown -- moqtrun_relay_save_hdr):
+ * its Objects and FIN must not be read against Subgroup 0's recorded
+ * final (12.1 #2 names the Subgroup). */
+static void test_moqtrun_sg_torn_head_unknown_subgroup_passes(void) {
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  wired_mspan    out   = wired_mspan_of(buf, sizeof buf);
+  usz            off   = 0;
+  u64            count = 0;
+  u8             pl    = 9;
+  moqdata_subhdr h     = {0};
+  mtdn_setup();
+  mtdn_sg_obj(2002, 0x70, 1, 4, 9, 1); /* Subgroup 0, final 4, FIN */
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  h.type        = 0x32; /* mode 0b01: Subgroup ID = first Object ID */
+  h.track_alias = 1;
+  h.group_id    = 1;
+  moqdata_subhdr_put(out, &off, &h);
+  usz hdr_end = off;
+  moqdata_obj_put(out, &off, 5, wired_span_of(&pl, 1)); /* Object 5 */
+  moqdata_obj_put(out, &off, 0, wired_span_of(&pl, 1)); /* Object 6 */
+  mt_feed(&mtst_hub, SESS_A, 2006, wired_span_of(buf, hdr_end + 1), 0);
+  mt_feed(
+      &mtst_hub, SESS_A, 2006,
+      wired_span_of(buf + hdr_end + 1, off - hdr_end - 1), 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+}
+
+/* An oversized torn tail poisons the relay inside the very delivery that
+ * carries the FIN (the dropped Object never arrived whole, 11.4.2's
+ * "last Object received" did not): no Group end is recorded from it. */
+static void test_moqtrun_eog_bit_poisoned_tail_no_group_end(void) {
+  static u8 chunk[4096];
+  u8        buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mtdn_setup();
+  usz off = mtst_stream(2, 1, 1, buf);
+  buf[0] |= 0x08;    /* END_OF_GROUP */
+  buf[off++] = 0;    /* next Object: ID Delta 0 */
+  buf[off++] = 0x80; /* Payload Length 20000 as a 4-byte varint */
+  buf[off++] = 0x00;
+  buf[off++] = 0x4E;
+  buf[off++] = 0x20;
+  mt_feed(&mtst_hub, SESS_A, 2002, wired_span_of(buf, off), 0);
+  for (int i = 0; i < 3; i++) {
+    mt_feed(&mtst_hub, SESS_A, 2002, wired_span_of(chunk, sizeof chunk), 0);
+  }
+  mt_feed(&mtst_hub, SESS_A, 2002, wired_span_of(chunk, sizeof chunk), 1);
+  CHECK((mtdn_track_a()->end_flags & 2) == 0);
+}
+
+/* 12.1 #2 applies only against a final a FIRST_OBJECT stream fixed: a
+ * FIN without the bit records nothing, and a FIRST_OBJECT stream that is
+ * reset instead of FINed records nothing either. */
+static void test_moqtrun_sg_no_first_object_fin_passes(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_sg_obj(2002, 0x30, 1, 1, 9, 1); /* no FIRST_OBJECT, FIN */
+  mtdn_sg_obj(2006, 0x30, 1, 2, 9, 1); /* larger Object: sound */
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  mtdn_sg_obj(2010, 0x70, 1, 3, 9, 0); /* FIRST_OBJECT, reset */
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, 2010, 0, 0);
+  mtdn_sg_obj(2014, 0x30, 1, 4, 9, 1); /* past the reset one: sound */
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+}
+
+/* 12.1 #2 on the kept-open path: the Subgroup final comes from the FIN
+ * of a FIRST_OBJECT stream relayed over several deliveries. */
+static void test_moqtrun_sg_kept_open_fin_records_final(void) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz off   = 0;
+  u64 count = 0;
+  u8  pl    = 9;
+  mtdn_setup();
+  mtdn_sg_obj(2002, 0x70, 1, 0, 9, 0); /* FIRST_OBJECT, kept open */
+  moqdata_obj_put(
+      wired_mspan_of(buf, sizeof buf), &off, 0, wired_span_of(&pl, 1));
+  mt_feed(&mtst_hub, SESS_A, 2002, wired_span_of(buf, off), 1); /* final 1 */
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  mtdn_sg_obj(2006, 0x30, 1, 2, 9, 0); /* 2 > 1: 12.1 #2 */
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+}
+
+/* A new PUBLISH restarts the track: the old incarnation's Subgroup final
+ * does not outlive it (moqtrun_track_claim). */
+static void test_moqtrun_sg_final_cleared_on_republish(void) {
+  u64        count = 0;
+  moqctl_ftn f     = mtst_ftn("chat", "room1", "alice");
+  mtdn_setup();
+  mtdn_sg_obj(2002, 0x70, 1, 1, 9, 1); /* final 1 */
+  mtst_publish(SESS_A, MTRQ_ID(5), &f, 1);
+  mtdn_sg_obj(2006, 0x30, 1, 5, 9, 1); /* 5 > 1, but a new incarnation */
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+}
+
+/* d22 12.1 #6: the same Object received again with a different Payload
+ * is a Malformed Track; the same Payload again is not. */
+static void test_moqtrun_sg_dup_object_payload_malformed(void) {
+  u64 count = 0;
+  mtdn_setup();
+  wired_moqt_cache_attach(&mtst_hub, mf_arena, sizeof mf_arena);
+  mtdn_sg_obj(2002, 0x30, 1, 0, 9, 1);
+  mtdn_sg_obj(2006, 0x30, 1, 0, 9, 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  mtdn_sg_obj(2010, 0x30, 1, 0, 8, 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+}
+
 /* A's OBJECT_DATAGRAM for Object obj of Group g (no tick: the track ends
  * within the call when it does). */
 static void mtdn_dg(u64 g, u64 obj) {
@@ -546,6 +757,17 @@ static void mtall_pubdone(void) {
   test_moqtrun_pubdone_prio_reopen();
   test_moqtrun_pubdone_prio_default();
   test_moqtrun_pubdone_malformed_mode_change();
+  test_moqtrun_eog_bit_fin_sets_group_end();
+  test_moqtrun_eog_bit_then_larger_object_malformed();
+  test_moqtrun_eog_bit_negative();
+  test_moqtrun_sg_object_past_fin_malformed();
+  test_moqtrun_sg_two_fins_differ_malformed();
+  test_moqtrun_sg_torn_head_unknown_subgroup_passes();
+  test_moqtrun_eog_bit_poisoned_tail_no_group_end();
+  test_moqtrun_sg_no_first_object_fin_passes();
+  test_moqtrun_sg_kept_open_fin_records_final();
+  test_moqtrun_sg_final_cleared_on_republish();
+  test_moqtrun_sg_dup_object_payload_malformed();
   test_moqtrun_pubdone_session_close_pending();
   test_moqtrun_pubdone_reset_pending();
   test_moqtrun_pubdone_fin_after();

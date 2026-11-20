@@ -39,6 +39,7 @@ void moqtrun_track_claim(
   t->has_largest      = 0; /* a new PUBLISH restarts the Largest */
   t->end_flags        = 0;
   t->sg_set           = 0;
+  t->sgf_set          = 0;
   t->malformed        = 0;
   t->props_len        = 0;
   moqtrun_track_drop_rings(hub, t);

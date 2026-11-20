@@ -187,6 +187,30 @@ static void test_moqtrun_fetch_d23_end_marks(void) {
   CHECK(mf_read() && mf_n == 2);
 }
 
+/* draft-22/23 11.3.1: the END_OF_GROUP Type bit plus FIN fixes the
+ * Group's end without any End of Group status Object, so a draft-23
+ * FETCH response marks End of Group after the Group's last Object
+ * (3.2.2); the draft-22 layout carries no marker. */
+static void test_moqtrun_fetch_end_of_group_from_header_bit(void) {
+  u8             buf[64];
+  usz            off = 0;
+  u8             p0 = 0, p1 = 1;
+  moqdata_subhdr h = {0};
+  h.type           = 0x38; /* 0x30 | END_OF_GROUP */
+  h.track_alias    = MF_ALIAS;
+  h.group_id       = 0;
+  mf_init(sizeof mf_arena);
+  moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &off, &h);
+  moqdata_obj_put(
+      wired_mspan_of(buf, sizeof buf), &off, 0, wired_span_of(&p0, 1));
+  moqdata_obj_put(
+      wired_mspan_of(buf, sizeof buf), &off, 0, wired_span_of(&p1, 1));
+  mf_pub_sid += 4;
+  mt_feed(&mtst_hub, SESS_A, mf_pub_sid, wired_span_of(buf, off), 1);
+  mf_fetch_v(g_moqtrun_test_ver, 0);
+  CHECK(mfd23_two_then(MOQFETCH_END_OF_GROUP));
+}
+
 /* A's track is Malformed: flagged, or already ended by the sweep. */
 static int mfd23_a_malformed(void) {
   const wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
@@ -272,6 +296,7 @@ static void mtall_fetch_d23(void) {
   test_moqtrun_fetch_d23_ok();
   test_moqtrun_fetch_d23_relative();
   test_moqtrun_fetch_d23_end_marks();
+  test_moqtrun_fetch_end_of_group_from_header_bit();
   test_moqtrun_fetch_d23_late_unknown();
   test_moqtrun_fetch_d23_late_drops_group();
   test_moqtrun_fetch_d23_dne_expires();

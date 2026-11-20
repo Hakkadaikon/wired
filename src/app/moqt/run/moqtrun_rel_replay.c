@@ -88,10 +88,7 @@ void moqtrun_rel_cut_end(
 
 /* The Object decode state right after relay's saved SUBGROUP_HEADER. */
 moqdata_objseq moqtrun_relay_hdr_seq(const wired_moqtrun_relay* relay) {
-  usz off  = 0;
-  u64 type = 0;
-  moqvi_take(wired_span_of(relay->hdr, relay->hdr_len), &off, &type);
-  return moqdata_objseq_of(type);
+  return moqdata_objseq_of(moqtrun_relay_hdr_type(relay));
 }
 
 /* Opens sub slot i's stream for a replay starting at body[off]: the

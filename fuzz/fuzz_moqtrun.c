@@ -178,6 +178,7 @@
 #include "app/moqt/run/moqtrun_sched.c"
 #include "app/moqt/run/moqtrun_set.c"
 #include "app/moqt/run/moqtrun_setup.c"
+#include "app/moqt/run/moqtrun_sgfin.c"
 #include "app/moqt/run/moqtrun_sgt.c"
 #include "app/moqt/run/moqtrun_ssts.c"
 #include "app/moqt/run/moqtrun_startobj.c"
@@ -245,6 +246,7 @@
 #include "app/moqt/tstat/moqtstat.c"
 #include "app/moqt/ver/moqver.c"
 #include "app/moqt/vi/moqvi.c"
+#include "common/bytes/text/text.c"
 
 #define FZ_PEERS 3
 #define FZ_MAX_OPS 256
