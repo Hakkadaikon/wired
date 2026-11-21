@@ -215,30 +215,36 @@ ngtcp2 と msquic のクライアントで、ローカルのランナーを使�
 
 どちらも `logs_b7_ngtcp2_L1_1` で確かめた。
 
-次の表は、50 回のハンドシェイクを終えた実行の数である。修正前は b50b59ce0 で、修正後はこれに 2 つの修正を加えた版である。
+次の表は、50 回のハンドシェイクを終えた実行の数である。修正前は b50b59ce0 で、修正後はこれに 2 つの修正を加えた版である。`740985586` の列は 2026-11-22 の実行である。
 
-| テストケース | クライアント | 修正前 | 修正後 |
-|---|---|---|---|
-| `handshakeloss` | ngtcp2 | 1/4 | 4/5 |
-| `handshakecorruption` | ngtcp2 | 0/3 | 4/5 |
-| `handshakeloss` | msquic | 2/3 | 3/5 |
-| `handshakecorruption` | msquic | 3/3 | 4/5 |
+| テストケース | クライアント | 修正前 | 修正後 | `740985586` |
+|---|---|---|---|---|
+| `handshakeloss` | ngtcp2 | 1/4 | 4/5 | 4/5 |
+| `handshakecorruption` | ngtcp2 | 0/3 | 4/5 | 5/5 |
+| `handshakeloss` | msquic | 2/3 | 3/5 | 2/3 |
+| `handshakecorruption` | msquic | 3/3 | 4/5 | 2/3 |
 
-この表から結論を出せるのは ngtcp2 だけである。msquic は試行が少ない。また QUIC Bit を 0 にしないので、1 つ目の原因の影響を受けない。ngtcp2 の各実行で、HANDSHAKE_DONE の届かない接続を数えた。修正前は 4〜12 個だった。修正後は全実行で 3 個で、どれも下の残りの原因による。
+この表から結論を出せるのは ngtcp2 だけである。msquic は試行が少ない。また QUIC Bit を 0 にしないので、1 つ目の原因の影響を受けない。ngtcp2 の各実行で、HANDSHAKE_DONE の届かない接続を数えた。修正前は 4〜12 個、修正後は 3 個だった。`740985586` では 10 回で 1 個だった。
 
-ログはこのマシンの quic-interop-runner の下にだけある。名前は `logs_b7_ngtcp2_L1_1` と `logs_b7_{before,after}_<クライアント>_<テストケース>_<回>` である。
+ログはこのマシンの quic-interop-runner の下にだけある。名前は `logs_b7_ngtcp2_L1_1`、`logs_b7_{before,after}_<クライアント>_<テストケース>_<回>`、`logs_b9_<クライアント>_<テストケース>_<回>` である。
 
-修正後に残る不合格の原因は次のとおりである。
+`740985586` で残る不合格の原因は次のとおりである。
 
 | 原因 | ログ |
 |---|---|
-| Finished が失われる間に 10 秒の期限で回収する(`409a19bc6` で進んだ接続を期限から外した。ランナーでは未確認) | `logs_b7_after_msquic_handshakeloss_2`、`logs_b7_after_msquic_handshakecorruption_2`、`logs_b7_after_ngtcp2_handshakeloss_5` |
-| PTO が Initial と Handshake で 1 つ(RFC 9002 6.2.1)。`6e173f59a` でスペースごとにした。修正後も 3 回中 1 回は、10 秒の期限で回収した後の Initial が別の接続になる | `logs_b7_after_ngtcp2_handshakecorruption_2`、`logs_b8_pto_ngtcp2_handshakecorruption_{1,2,3}` |
-| ServerHello が届く前に msquic が自身の期限を過ぎる | `logs_b7_after_msquic_handshakeloss_3` |
+| Finished を載せたデータグラムが失われ、届いた再送は 10 秒の期限の後だった | `logs_b9_ngtcp2_handshakeloss_4`、`logs_b9_msquic_handshakeloss_2`(2 接続) |
+| Finished の再送も破損し、その間に 10 秒の期限で回収した | `logs_b9_msquic_handshakecorruption_1` |
+
+4 つの接続とも、クライアントの Handshake パケットはサーバーに 1 つも届いていない。証拠は次のとおりである。
+
+- 3 つの接続で、サーバーは Initial と 1-RTT の PING だけをプローブに送った。
+- クライアントは Initial の鍵を捨てており、Initial を読まない。
+- 1-RTT の PING に、クライアントは 1-RTT の ACK だけを返した。
+- サーバーは増幅攻撃対策の上限(RFC 9000 8.1)に達し、1.7〜5.5 秒後に送信を止めた。
+- クライアントの Finished の再送は 3.3〜12.8 秒後だった。
+- 期限の後に届いた再送に、サーバーはステートレスリセットを返した。
 
 10 秒の期限は、Handshake パケットを開けていない接続にだけ掛かる。開けた後はアイドルタイムアウトで回収する(RFC 9000 10.1)。保持の上限は[既知の制限: QUIC 3.4](../security/limitations/quic.md#34-ハンドシェイク中の接続がスロットを持つ時間)にある。
-
-`logs_b7_after_ngtcp2_handshakecorruption_2` では、ServerHello を載せた Initial が 4 回続けて失われた。回収の後に届いた Initial は別の接続になった。ランナーはハンドシェイクを 51 回と数えた。
 
 mvfst は、クライアントのイメージを取得できず、2026-11-17 の実行に含まれていない。
 
