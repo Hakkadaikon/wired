@@ -70,14 +70,21 @@ static void srvrun_reconfirm(const srvrun_step_ctx* ctx, srvrun_conn* c) {
       ctx->cfg, c, wired_span_of(ob.p, ob.len), "confirmation resent\n");
 }
 
+/* RFC 9002 6.2: the replay is paced like a probe -- at most once per PTO
+ * period (reconfirm_at_ms), so header-only datagrams cannot draw a stream
+ * of replays toward the validated path. */
+static int srvrun_reconfirm_due(
+    const srvrun_step_ctx* ctx, const srvrun_conn* c, wired_mspan dg) {
+  return wired_server_is_confirmed(&c->s) && srvrun_leads_handshake(dg) &&
+         ctx->now_ms >= c->l.ackst.reconfirm_at_ms;
+}
+
 void srvrun_reconfirm_on_hs_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg) {
-  if (!wired_server_is_confirmed(&c->s)) {
+  if (!srvrun_reconfirm_due(ctx, c, dg)) {
     return;
   }
-  if (!srvrun_leads_handshake(dg)) {
-    return;
-  }
+  c->l.ackst.reconfirm_at_ms = ctx->now_ms + srvrun_pto_deadline_ms(c, 0);
   srvrun_reconfirm(ctx, c);
 }
 
@@ -93,9 +100,36 @@ void srvrun_reconfirm_on_hs_probe(
  * confirmed the handshake (or tore the slot down) needs no replay --
  * srvrun_boot_hs_armed re-checks the POST-step state, and with every
  * Handshake packet acknowledged there is nothing to replay (a PING in its
- * place would answer each client ACK with a packet it must ACK again). */
-int srvrun_hs_probe_pending(const srvrun_conn* c, int booting, wired_mspan dg) {
-  return booting && srvrun_boot_hs_armed(c) && srvrun_leads_handshake(dg);
+ * place would answer each client ACK with a packet it must ACK again).
+ * The probe's own Handshake packet must have been processed this step
+ * (hs_processed, RFC 9000 12.3): a genuine probe always opens, while a
+ * header alone needs no key -- once the address is validated no 3x limit
+ * bounds the replay, so an unopened header would be an amplifier. The
+ * boot probe budget (SRVRUN_BOOT_PTO_MAX) bounds the replays too. */
+static int srvrun_hs_probe_genuine(
+    const srvrun_conn* c, int booting, int hs_processed) {
+  return booting && hs_processed && c->boot_pto_count < SRVRUN_BOOT_PTO_MAX;
+}
+
+/* RFC 9002 6.2.4: a probe answer is itself a probe -- at most
+ * SRVRUN_BOOT_PROBE_DGRAMS datagrams (srvrun_boot_hs_pto_probe), and no
+ * sooner than SRVRUN_BOOT_RESEND_CAP_MS after the last Handshake send, so a
+ * burst of client probes draws one answer per window. */
+static int srvrun_hs_probe_ready(
+    const srvrun_conn* c, wired_mspan dg, u64 now_ms) {
+  return srvrun_boot_hs_armed(c) && srvrun_leads_handshake(dg) &&
+         now_ms >=
+             c->boot_sent_ms[SRVRUN_BOOT_SP_HS] + SRVRUN_BOOT_RESEND_CAP_MS;
+}
+
+int srvrun_hs_probe_pending(
+    const srvrun_conn* c,
+    int                booting,
+    wired_mspan        dg,
+    int                hs_processed,
+    u64                now_ms) {
+  return srvrun_hs_probe_genuine(c, booting, hs_processed) &&
+         srvrun_hs_probe_ready(c, dg, now_ms);
 }
 
 /* RFC 9002 6.2.4 while c awaits its peer's Finished with proof the peer

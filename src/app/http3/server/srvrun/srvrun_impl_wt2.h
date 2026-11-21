@@ -47,6 +47,8 @@ typedef struct {
   int hs_seen;
   u64 hs_pn;
   u32 hs_acked; /**< wired_srvloop.hs_acked before the step */
+  u32 hs_adm;   /**< wired_srvloop.rx_admitted[LEVEL_HANDSHAKE] */
+  u32 app_adm;  /**< wired_srvloop.rx_admitted[LEVEL_ONERTT] */
 } srvrun_rxmark;
 
 /* srvrun_on_initial: the datagram was absorbed but the ClientHello is not
@@ -270,7 +272,6 @@ usz  srvrun_resp_stop(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r, u64 code);
 void srvrun_note_ghost(const srvrun_step_ctx* ctx, srvrun_conn* c);
 int  srvrun_resend_boot_flight(const srvrun_step_ctx* ctx, srvrun_conn* c);
-int  srvrun_boot_probe_or_replay(const srvrun_step_ctx* ctx, srvrun_conn* c);
 wired_span srvrun_dcid(wired_mspan dg, u8 short_hdr_len);
 
 int  srvrun_conn_is_raw(const srvrun_conn* c);
@@ -287,7 +288,9 @@ void srvrun_qlog_stream_sent(
 srvrun_rxmark srvrun_rx_mark(const wired_srvloop* l);
 void          srvrun_boot_on_rx(srvrun_conn* c, const srvrun_rxmark* m);
 int           srvrun_rx_app_adv(const srvrun_rxmark* m, const wired_srvloop* l);
-void          srvrun_note_recv(
+int  srvrun_rx_processed(const srvrun_rxmark* m, const wired_srvloop* l);
+int  srvrun_rx_hs_processed(const srvrun_rxmark* m, const wired_srvloop* l);
+void srvrun_note_recv(
     const srvrun_step_ctx* ctx,
     const srvrun_rxmark*   m,
     const srvrun_conn*     c,

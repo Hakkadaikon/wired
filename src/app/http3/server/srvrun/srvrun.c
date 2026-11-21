@@ -103,7 +103,27 @@ void srvrun_qlog_stream_sent(
 
 srvrun_rxmark srvrun_rx_mark(const wired_srvloop* l) {
   return (srvrun_rxmark){
-      l->app_rx_seen, l->app_rx_pn, l->hs_rx_seen, l->hs_rx_pn, l->hs_acked};
+      l->app_rx_seen,
+      l->app_rx_pn,
+      l->hs_rx_seen,
+      l->hs_rx_pn,
+      l->hs_acked,
+      l->rx_admitted[LEVEL_HANDSHAKE],
+      l->rx_admitted[LEVEL_ONERTT]};
+}
+
+/* RFC 9000 10.1 / 12.3: 1 if a Handshake packet was admitted since m (opened
+ * and not a duplicate). */
+int srvrun_rx_hs_processed(const srvrun_rxmark* m, const wired_srvloop* l) {
+  return l->rx_admitted[LEVEL_HANDSHAKE] != m->hs_adm;
+}
+
+/* RFC 9000 10.1 / 12.3: 1 if a Handshake or 1-RTT packet was admitted since
+ * m -- "received and processed successfully"; a duplicate or an
+ * undecryptable packet is not. */
+int srvrun_rx_processed(const srvrun_rxmark* m, const wired_srvloop* l) {
+  return srvrun_rx_hs_processed(m, l) ||
+         l->rx_admitted[LEVEL_ONERTT] != m->app_adm;
 }
 
 int srvrun_rx_app_adv(const srvrun_rxmark* m, const wired_srvloop* l) {

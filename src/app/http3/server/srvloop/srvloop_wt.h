@@ -587,6 +587,10 @@ typedef struct {
   /** RFC 9002 A.7: bit i set once the peer acknowledged our Handshake
    * packet number i (i < 32: the boot flight's own numbers, srvboot). */
   u32 hs_acked;
+  /** RFC 9000 10.1 / 12.3: packets admitted per level (opened, not a
+   * duplicate, not refused), indexed by LEVEL_*; a change across a step is
+   * what "received and processed successfully" means to the caller. */
+  u32 rx_admitted[3];
   /** RFC 9000 12.3/13.2.1/13.2.2/19.3: every packet number space's received-pn
    * window (pnspaces_recv, independent per space -- Initial is out of
    * this loop's scope, srvboot's own layer) plus whether/when each space

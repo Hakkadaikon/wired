@@ -74,6 +74,10 @@ typedef struct {
    * sets it: srvrun owns clearing it on receipt (srvrun_serve_slot), so a
    * driver without srvrun must clear it itself. */
   u64 idle_tx_ms;
+  /** RFC 9000 19.20 / RFC 9002 6.2: earliest now_ms a Handshake probe may
+   * draw the cached confirmation (confirm_frames) again, paced like a probe
+   * (srvrun_reconfirm_on_hs_probe); 0 lets the first one go at once. */
+  u64 reconfirm_at_ms;
   /** RFC 9002 7.5: PTO probe packets still allowed past the congestion
    * window and pacing; each ack-eliciting send uses one. 0 outside a PTO. */
   u8 probe_n;

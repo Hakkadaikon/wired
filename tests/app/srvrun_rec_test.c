@@ -651,15 +651,21 @@ static void test_srvrun_boot_pto_resets_on_initial_discard(void) {
 
 /* RFC 9002 6.2.1: "The PTO backoff factor is reset when an acknowledgment
  * is received" -- a step that newly acknowledged a Handshake packet resets
- * the boot backoff; one that acknowledged nothing new does not. */
+ * the boot backoff; one that acknowledged nothing new does not, and
+ * neither does an ACK of a number never sent (RFC 9002 A.7: only a sent
+ * packet is newly acknowledged). */
 static void test_srvrun_boot_pto_resets_on_hs_ack(void) {
   srvrun_conn   c;
   srvrun_rxmark m;
   sr_make_boot_conn(&c, 0);
-  c.l.hs_rx_seen   = 1;
-  c.l.hs_acked     = 1;
-  c.boot_pto_count = 3;
-  m                = srvrun_rx_mark(&c.l);
+  c.boot_dgram_sent = 2; /* pn 0 and 1 sent */
+  c.l.hs_rx_seen    = 1;
+  c.l.hs_acked      = 1;
+  c.boot_pto_count  = 3;
+  m                 = srvrun_rx_mark(&c.l);
+  srvrun_boot_on_rx(&c, &m);
+  CHECK(c.boot_pto_count == 3);
+  c.l.hs_acked |= 1u << 5; /* never sent */
   srvrun_boot_on_rx(&c, &m);
   CHECK(c.boot_pto_count == 3);
   c.l.hs_acked |= 2;
@@ -883,6 +889,82 @@ static void test_srvrun_boot_pto_skips_acked_handshake(void) {
   srvrun_boot_pto_slot(&f.ctx, 0);
   CHECK(f.c->boot_tx_bytes - tx == srvrec_hs_bytes(f.c, 1, 2));
   CHECK(f.c->boot_pto_count == (f.c->boot_dgram_count > 1));
+}
+
+/* RFC 9000 8.1 / 12.3: once a client Handshake packet validated the
+ * address no 3x limit bounds a replay, so a datagram that only LOOKS like a
+ * Handshake probe (long header, nothing opens) replays nothing; with the
+ * boot PTO not yet due nothing at all goes out. */
+static void test_srvrun_boot_unopened_hs_header_no_replay(void) {
+  srvrec_bootfix f;
+  u8             junk[64];
+  usz            n;
+  u64            tx;
+  srvrec_boot(&f, 3 * 1220, 0, 0);
+  f.c->l.hs_rx_seen  = 1;
+  f.c->boot_rx_bytes = 100000;
+  CHECK(srvrun_boot_hs_armed(f.c) == 1);
+  n  = sr_append_handshake_pkt(junk, 0, f.c->scid, f.id.scid_len);
+  tx = f.c->boot_tx_bytes;
+  for (int i = 0; i < 5; i++) {
+    srvrun_serve(&f.ctx, wired_mspan_of(junk, n));
+  }
+  CHECK(f.c->boot_tx_bytes == tx);
+  CHECK(f.c->up == 1);
+}
+
+/* RFC 9002 6.2.1: a replay triggered by a processed client Handshake probe
+ * counts toward SRVRUN_BOOT_PTO_MAX like a PTO probe; with the budget
+ * spent a probe replays nothing, and the next boot PTO ends the
+ * Handshake-proven boot -- a client that keeps probing without ever
+ * acknowledging cannot hold the slot or keep the flight coming. */
+static void test_srvrun_boot_probe_budget_ends_exempt_boot(void) {
+  srvrec_bootfix f;
+  u8             hs[PMTU_MAX];
+  usz            n;
+  u64            tx;
+  srvrec_boot(&f, 3 * 1220, 0, 0);
+  f.c->boot_rx_bytes = 100000;
+  n                  = sr_client_hs_ping(f.c, 0, hs);
+  srvrun_serve(&f.ctx, wired_mspan_of(hs, n));
+  CHECK(f.c->l.hs_rx_seen == 1);
+  f.c->boot_pto_count = SRVRUN_BOOT_PTO_MAX - 1;
+  f.ctx.now_ms        = SRVRUN_BOOT_RESEND_CAP_MS;
+  tx                  = f.c->boot_tx_bytes;
+  n                   = sr_client_hs_ping(f.c, 1, hs);
+  srvrun_serve(&f.ctx, wired_mspan_of(hs, n));
+  CHECK(f.c->boot_tx_bytes - tx >= f.c->boot_dgram_len[0]); /* replayed */
+  CHECK(f.c->boot_pto_count == SRVRUN_BOOT_PTO_MAX);
+  f.ctx.now_ms = 2 * SRVRUN_BOOT_RESEND_CAP_MS;
+  tx           = f.c->boot_tx_bytes;
+  n            = sr_client_hs_ping(f.c, 2, hs);
+  srvrun_serve(&f.ctx, wired_mspan_of(hs, n));
+  CHECK(f.c->boot_tx_bytes - tx < f.c->boot_dgram_len[0]); /* ACK at most */
+  CHECK(f.c->up == 1);
+  f.ctx.now_ms = 3 * SRVRUN_BOOT_RESEND_CAP_MS;
+  srvrun_boot_pto_slot(&f.ctx, 0);
+  CHECK(srvrun_slot_busy(f.c) == 0);
+}
+
+/* RFC 9002 6.2.4: the answer to a client probe is a probe -- at most
+ * SRVRUN_BOOT_PROBE_DGRAMS datagrams of the flight, and one answer per
+ * SRVRUN_BOOT_RESEND_CAP_MS window however many opened probes arrive. */
+static void test_srvrun_boot_probe_burst_one_answer(void) {
+  srvrec_bootfix f;
+  u8             hs[PMTU_MAX];
+  usz            n, sends;
+  srvrec_boot(&f, 3 * 1220, 0, 0);
+  f.c->boot_rx_bytes = 100000;
+  f.ctx.now_ms       = SRVRUN_BOOT_RESEND_CAP_MS;
+  srvrun_test_reset_send_count();
+  for (u64 pn = 0; pn < 6; pn++) {
+    n = sr_client_hs_ping(f.c, pn, hs);
+    srvrun_serve(&f.ctx, wired_mspan_of(hs, n));
+  }
+  sends = srvrun_test_send_count();
+  CHECK(sends >= 1); /* the first probe was answered */
+  CHECK(sends <= SRVRUN_BOOT_PROBE_DGRAMS);
+  CHECK(f.c->boot_pto_count == 1);
 }
 
 /* RFC 9000 8.1: a probe never exceeds the anti-amplification budget. With
@@ -1390,6 +1472,9 @@ void test_srvrun_rec(void) {
   test_srvrun_boot_pto_initial_probe_no_handshake();
   test_srvrun_boot_pto_handshake_only_after_initial_acked();
   test_srvrun_boot_pto_skips_acked_handshake();
+  test_srvrun_boot_unopened_hs_header_no_replay();
+  test_srvrun_boot_probe_budget_ends_exempt_boot();
+  test_srvrun_boot_probe_burst_one_answer();
   test_srvrun_boot_pto_within_antiamp();
   test_srvrun_boot_pto_prefers_held_tail();
   test_srvrun_boot_pto_skips_partially_acked();

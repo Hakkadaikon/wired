@@ -349,7 +349,9 @@ typedef struct {
 typedef struct {
   wired_server  s;
   wired_srvloop l;
-  u64           last_ms; /**< monotonic ms of the last routed datagram */
+  /** RFC 9000 10.1: monotonic ms of the last datagram that restarted the
+   * idle timer (srvrun_serve_slot). */
+  u64 last_ms;
   /** RFC 9000 10.2: when the closing state (closing) ends -- three times
    * the PTO after the close went out. */
   u64 closing_until_ms;
@@ -1004,10 +1006,13 @@ _Static_assert(
  * single connections idled 30-50s). 300ms tracks what a correctly
  * measured ~30-60ms RTT PTO would probe at; a fully blocked replay
  * consumes no probe budget, so on slow or quiet paths the antiamp gate --
- * not this cap -- sets the real pace. The replay is antiamp-bounded
- * (<= 3x client bytes) and boot-only, so the capped cadence cannot
- * amplify; congestion backoff for real data still applies post-confirm
- * via srvrun_pto_slot's uncapped deadline. */
+ * not this cap -- sets the real pace. The replay is boot-only and bounded:
+ * antiamp (<= 3x client bytes) until a client Handshake packet validates
+ * the address (RFC 9000 8.1), then SRVRUN_BOOT_PTO_MAX rounds without an
+ * acknowledgment, each triggered by this timer or a processed client
+ * Handshake packet (srvrun_hs_probe_pending), never by an unopened one;
+ * congestion backoff for real data still applies post-confirm via
+ * srvrun_pto_slot's uncapped deadline. */
 #define SRVRUN_BOOT_RESEND_CAP_MS 300
 
 /* Boot-stage probe budget: sized so the capped cadence still outlives a

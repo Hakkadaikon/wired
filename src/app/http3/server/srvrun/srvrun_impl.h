@@ -69,9 +69,14 @@ void srvrun_path_step(
     const srvrun_rxmark*   mark);
 void srvrun_reconfirm_on_hs_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg);
-int  srvrun_hs_probe_pending(const srvrun_conn* c, int booting, wired_mspan dg);
+int srvrun_hs_probe_pending(
+    const srvrun_conn* c,
+    int                booting,
+    wired_mspan        dg,
+    int                hs_processed,
+    u64                now_ms);
 int  srvrun_send_boot_probe(const srvrun_step_ctx* ctx, srvrun_conn* c);
-int  srvrun_boot_probe_or_replay(const srvrun_step_ctx* ctx, srvrun_conn* c);
+int  srvrun_boot_hs_pto_probe(const srvrun_step_ctx* ctx, srvrun_conn* c);
 void srvrun_flush_held_on_confirm(
     const srvrun_step_ctx* ctx, int slot, int booting);
 void srvrun_serve_slot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg);

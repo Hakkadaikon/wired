@@ -16,6 +16,15 @@ static void srvloop_init_pn_skip(wired_srvloop* l) {
   }
 }
 
+/* RFC 9000 10.1 / 12.3: no packet admitted yet at any level; RFC 9002
+ * 6.2: the confirmation replay not yet paced. */
+static void srvloop_init_admitted(wired_srvloop* l) {
+  for (usz i = 0; i < 3; i++) {
+    l->rx_admitted[i] = 0;
+  }
+  l->ackst.reconfirm_at_ms = 0;
+}
+
 /* Packet-number spaces and handshake progress. */
 void srvloop_init_pn(wired_srvloop* l) {
   l->tx_pn           = 0;
@@ -30,6 +39,7 @@ void srvloop_init_pn(wired_srvloop* l) {
     l->ackst.ackd_pn1[i] = 0;
   }
   srvloop_init_pn_skip(l);
+  srvloop_init_admitted(l);
   l->ackst.rx_ce    = 0;
   l->app_rx_seen    = 0;
   l->np_hi          = 0;

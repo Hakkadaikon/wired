@@ -2,24 +2,33 @@
 #include "app/http3/server/srvsteer/srvsteer.h"
 
 static void srvrun_resend_flight_on_hs_probe(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, int booting, wired_mspan dg);
-static int srvrun_xdp_core_routing(const srvrun_cfg* cfg);
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    int                    booting,
+    wired_mspan            dg,
+    const srvrun_rxmark*   mark);
+static int  srvrun_xdp_core_routing(const srvrun_cfg* cfg);
+static void srvrun_serve_slot_rx(
+    const srvrun_step_ctx* ctx,
+    int                    slot,
+    wired_mspan            dg,
+    const srvrun_rxmark*   mark);
 
-/* One due boot retransmission round: the fresh keepalive once the peer
- * provably finished, the cached flight otherwise -- and if the keepalive
- * could not go out (no 1-RTT key yet, budget), the plain replay, so this
- * path is never worse than the replay alone. */
-int srvrun_boot_probe_or_replay(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (c->peer_at_onertt && srvrun_send_boot_probe(ctx, c)) {
-    return 1;
-  }
-  return srvrun_resend_boot_flight(ctx, c);
-}
-
+/* RFC 9002 6.2.1: a probe-triggered resend counts like a PTO probe -- only
+ * an acknowledgment resets the count (srvrun_boot_on_rx), not the resend's
+ * own reset -- so a client that keeps probing without ever acknowledging
+ * still meets SRVRUN_BOOT_PTO_MAX (srvrun_boot_pto_slot). */
 static void srvrun_resend_flight_on_hs_probe(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, int booting, wired_mspan dg) {
-  if (srvrun_hs_probe_pending(c, booting, dg)) {
-    srvrun_boot_probe_or_replay(ctx, c);
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    int                    booting,
+    wired_mspan            dg,
+    const srvrun_rxmark*   mark) {
+  int hs    = srvrun_rx_hs_processed(mark, &c->l);
+  int fired = c->boot_pto_count + 1;
+  if (srvrun_hs_probe_pending(c, booting, dg, hs, ctx->now_ms) &&
+      srvrun_boot_hs_pto_probe(ctx, c)) {
+    c->boot_pto_count = fired;
   }
 }
 
@@ -35,11 +44,40 @@ void srvrun_flush_held_on_confirm(
   }
 }
 
+/* RFC 9000 10.1: the idle timer restarts only on a packet "received and
+ * processed successfully" -- once Handshake keys are in use, a datagram that
+ * opened nothing (garbage to the CID) does not count. A boot still in the
+ * Initial space is bounded by SRVRUN_BOOT_DEADLINE_MS instead, so every
+ * datagram counts there. */
+static int srvrun_idle_restarts(const srvrun_conn* c, const srvrun_rxmark* m) {
+  return !c->l.hs_rx_seen || srvrun_rx_processed(m, &c->l);
+}
+
 void srvrun_serve_slot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
+  srvrun_conn*  c       = &ctx->st->conns[slot];
+  srvrun_rxmark mark    = srvrun_rx_mark(&c->l);
+  u64           tx_ms   = c->l.ackst.idle_tx_ms;
+  c->l.ackst.idle_tx_ms = 0; /* the step's first ack-eliciting send restarts
+                              * it (srvloop_send_onertt_rec) */
+  srvrun_serve_slot_rx(ctx, slot, dg, &mark);
+  if (srvrun_idle_restarts(c, &mark)) {
+    c->last_ms = ctx->now_ms;
+    return;
+  }
+  /* nothing processed: a send since the last processed packet keeps its
+   * mark; with none, a send in this step was the first (RFC 9000 10.1) */
+  if (tx_ms) {
+    c->l.ackst.idle_tx_ms = tx_ms;
+  }
+}
+
+static void srvrun_serve_slot_rx(
+    const srvrun_step_ctx* ctx,
+    int                    slot,
+    wired_mspan            dg,
+    const srvrun_rxmark*   mark) {
   srvrun_conn* c       = &ctx->st->conns[slot];
   int          booting = srvrun_awaiting_confirm(c);
-  c->last_ms = ctx->now_ms;  /* RFC 9000 10.1: activity resets idle age */
-  c->l.ackst.idle_tx_ms = 0; /* the next ack-eliciting send restarts it */
   /* RFC 9000 8.1: every physically received byte counts toward this path's
    * antiamp budget, whether or not dg turns out to parse. */
   c->boot_rx_bytes += dg.n;
@@ -61,7 +99,7 @@ void srvrun_serve_slot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
     srvrun_reconfirm_on_hs_probe(ctx, c, dg);
     srvrun_step_and_reap(ctx, slot, dg);
   }
-  srvrun_resend_flight_on_hs_probe(ctx, c, booting, dg);
+  srvrun_resend_flight_on_hs_probe(ctx, c, booting, dg, mark);
   srvrun_flush_held_on_confirm(ctx, slot, booting);
   srvrun_boot_release_pending(ctx, c);
 }

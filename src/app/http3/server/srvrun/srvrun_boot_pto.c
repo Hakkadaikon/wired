@@ -20,9 +20,12 @@ static int srvrun_boot_ini_armed(const srvrun_conn* c) {
  * sent bits also drops an ACK of a number never sent.
  * shortcut: such an ACK is ignored, not closed with PROTOCOL_VIOLATION
  * (RFC 9000 13.1 SHOULD); add the close if a peer is ever seen doing it. */
+static u32 srvrun_boot_hs_sent(const srvrun_conn* c) {
+  return (1u << c->boot_dgram_sent) - 1; /* <= WIRED_SRVBOOT_FLIGHT_MAX */
+}
+
 static int srvrun_boot_hs_unacked(const srvrun_conn* c) {
-  u32 sent = (1u << c->boot_dgram_sent) - 1; /* <= WIRED_SRVBOOT_FLIGHT_MAX */
-  return (sent & ~c->l.hs_acked) != 0;
+  return (srvrun_boot_hs_sent(c) & ~c->l.hs_acked) != 0;
 }
 
 /* RFC 9002 A.8: the Handshake space has ack-eliciting data in flight -- or
@@ -86,10 +89,11 @@ static int srvrun_boot_hs_resend_probe(
 }
 
 /* RFC 9002 6.2.4 for the Handshake space: the keepalive for a finished
- * peer, else Handshake data (srvrun_boot_hs_resend_probe), else -- the
- * budget fits none -- a Handshake PING. */
-static int srvrun_boot_hs_pto_probe(
-    const srvrun_step_ctx* ctx, srvrun_conn* c) {
+ * peer, else Handshake data (srvrun_boot_hs_resend_probe, at most
+ * SRVRUN_BOOT_PROBE_DGRAMS datagrams), else -- the budget fits none -- a
+ * Handshake PING. Also the answer to a client's own Handshake probe
+ * (srvrun_claim.c). */
+int srvrun_boot_hs_pto_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   return srvrun_boot_keepalive(ctx, c) || srvrun_boot_hs_resend_probe(ctx, c) ||
          srvrun_boot_hs_probe(ctx, c);
 }
@@ -154,13 +158,16 @@ void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
 }
 
 /* RFC 9002 6.2.1: "The PTO backoff factor is reset when an acknowledgment
- * is received" -- a Handshake one this step; RFC 9002 6.2.2 / A.11: or the
+ * is received" -- one this step that newly acknowledges a Handshake packet
+ * actually sent (RFC 9002 A.7; an ACK of a number never sent, which
+ * hs_acked also records, resets nothing); RFC 9002 6.2.2 / A.11: or the
  * Initial keys went this step (RFC 9001 4.9.1: the first Handshake packet
  * was processed, hs_rx_seen rose), after which only the Handshake space
  * arms the timer. */
 static int srvrun_boot_backoff_reset(
     const srvrun_conn* c, const srvrun_rxmark* m) {
-  return (!m->hs_seen && c->l.hs_rx_seen) || c->l.hs_acked != m->hs_acked;
+  return (!m->hs_seen && c->l.hs_rx_seen) ||
+         (c->l.hs_acked & ~m->hs_acked & srvrun_boot_hs_sent(c)) != 0;
 }
 
 void srvrun_boot_on_rx(srvrun_conn* c, const srvrun_rxmark* m) {

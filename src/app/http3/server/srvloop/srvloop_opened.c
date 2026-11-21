@@ -202,6 +202,7 @@ void srvloop_step_opened(
   if (!step_admit(l, conn->s, &o, ro->payload)) {
     return;
   }
+  l->rx_admitted[o.level]++;
   step_note_ecn(l, o.level);
   step_note_np(l, &o, ro->payload);
   step_note_close(l, &o, ro->payload);

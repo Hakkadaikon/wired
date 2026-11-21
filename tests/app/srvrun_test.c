@@ -3063,6 +3063,30 @@ static usz sr_append_handshake_pkt(u8* dg, usz off, const u8* dcid, u8 n) {
   return off;
 }
 
+/* Client role: a Handshake packet (RFC 9000 17.2.4) carrying a PING and
+ * PADDING at client packet number pn, sealed toward c's SCID under the
+ * client Handshake keys -- a probe the server opens (RFC 9002 6.2.4). */
+static usz sr_client_hs_ping(const srvrun_conn* c, u64 pn, u8* out) {
+  u8                  pl[24] = {0x01}; /* PING, then PADDING */
+  const initial_keys* k;
+  aes128              hp;
+  CHECK(keysched_get(&c->s.sched, KS_CLIENT_HS, &k) == 1);
+  aes128_init(&hp, k->hp);
+  {
+    protect_keys pk = {k, &hp, 0};
+    tx_desc      t  = {
+        0xe0,
+        wired_span_of(c->s.sdrv.iscid, c->s.sdrv.iscid_len),
+        wired_span_of(g_cli_scid, 6),
+        0,
+        wired_span_of((const u8*)0, 0),
+        pn,
+        wired_span_of(pl, sizeof pl),
+        0};
+    return tx_packet(&pk, &t, wired_mspan_of(out, PMTU_MAX));
+  }
+}
+
 /* SECOND FLIGHT COALESCING (RFC 9000 12.2): a client's second datagram
  * coalesces an Initial (ACKing the server flight) with a Handshake packet
  * carrying its Finished -- curl/ngtcp2 and Chrome both send this shape.
@@ -3107,19 +3131,20 @@ static void test_srvrun_coalesced_handshake_not_boot_retransmit(void) {
 }
 
 /* HS PROBE REPLAYS THE FLIGHT: a datagram LEADING with a Handshake packet
- * on an up-but-unconfirmed connection is the client probing for a lost
- * piece of the server flight -- the cached flight replays at once instead
- * of waiting out the boot PTO backoff (five straight EE+Finished losses
+ * the server opens, on an up-but-unconfirmed connection is the client probing
+ * for a lost piece of the server flight -- the cached flight replays at once
+ * instead of waiting out the boot PTO backoff (five straight EE+Finished losses
  * once pushed the next backoff replay past a neqo client's idle timeout
  * while its once-per-second probes went unanswered). */
 static void test_srvrun_hs_probe_replays_boot_flight(void) {
   wired_srvboot_id id;
-  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], hs[64];
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], hs[PMTU_MAX];
   conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   usz n, send_count_after_boot;
+  u64 tx;
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg cfg = {
@@ -3135,11 +3160,15 @@ static void test_srvrun_hs_probe_replays_boot_flight(void) {
     CHECK(send_count_after_boot > 0);
     /* ample antiamp budget: the probe must be what gates the replay */
     st.conns[0].boot_rx_bytes += 4000;
-    n = sr_append_handshake_pkt(hs, 0, st.conns[0].scid, id.scid_len);
+    tx         = st.conns[0].boot_tx_bytes;
+    ctx.now_ms = SRVRUN_BOOT_RESEND_CAP_MS; /* past the probe window */
+    n          = sr_client_hs_ping(&st.conns[0], 0, hs);
     srvrun_serve(&ctx, wired_mspan_of(hs, n));
   }
   /* the cached flight replayed for the Handshake-leading probe */
   CHECK(srvrun_test_send_count() > send_count_after_boot);
+  CHECK(st.conns[0].boot_tx_bytes - tx >= st.conns[0].boot_dgram_len[0]);
+  CHECK(st.conns[0].boot_pto_count == 1); /* counted like a PTO probe */
   CHECK(st.conns[0].up == 1);
 }
 
@@ -3152,7 +3181,7 @@ static void test_srvrun_hs_probe_replays_boot_flight(void) {
  * elicit a minimal fresh 1-RTT keepalive instead of the flight. */
 static void test_srvrun_finished_wait_probes_small(void) {
   wired_srvboot_id id;
-  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], hs[64];
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], hs[PMTU_MAX];
   u8               sh[64] = {0x40, 0};
   conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
@@ -3177,8 +3206,9 @@ static void test_srvrun_finished_wait_probes_small(void) {
     CHECK(srvrun_boot_hold_early(&st.conns[0], wired_mspan_of(sh, 40)) == 1);
     CHECK(st.conns[0].peer_at_onertt == 1);
     st.conns[0].boot_rx_bytes += 4000;
-    tx_before = st.conns[0].boot_tx_bytes;
-    n         = sr_append_handshake_pkt(hs, 0, st.conns[0].scid, id.scid_len);
+    tx_before  = st.conns[0].boot_tx_bytes;
+    ctx.now_ms = SRVRUN_BOOT_RESEND_CAP_MS; /* past the probe window */
+    n          = sr_client_hs_ping(&st.conns[0], 0, hs);
     srvrun_serve(&ctx, wired_mspan_of(hs, n));
   }
   /* something fresh went out for the probe... */
@@ -3671,8 +3701,9 @@ static void test_srvrun_idle_sweep_releases_bigbuf_row(void) {
   }
 }
 
-/* ACTIVITY REFRESH (RFC 9000 10.1): every datagram routed to a slot stamps
- * its last-activity time, so a served connection never counts as idle. */
+/* ACTIVITY REFRESH (RFC 9000 10.1): a datagram routed to a boot that has not
+ * opened a client Handshake packet stamps its last-activity time (that boot
+ * is bounded by SRVRUN_BOOT_DEADLINE_MS instead). */
 static void test_srvrun_serve_slot_touches_last_ms(void) {
   conntable    table[WIRED_CONNTABLE_CAP];
   srvrun_state st    = {table, g_srvrun_state.conns};
@@ -3716,6 +3747,79 @@ static void sr_ecn_serve(srvrun_conn* c, const u8* dg, usz n) {
   conntable_init(table, WIRED_CONNTABLE_CAP);
   bytes_memcpy(buf, dg, n);
   srvrun_serve_slot(&ctx, 0, wired_mspan_of(buf, n));
+}
+
+/* sr_ecn_serve at now_ms, ECN not-ECT. */
+static void sr_idle_serve(srvrun_conn* c, const u8* dg, usz n, u64 now_ms) {
+  u8              buf[512];
+  conntable       table[WIRED_CONNTABLE_CAP];
+  sockaddr        peer = c->peer;
+  srvrun_state    st   = {table, c};
+  srvrun_cfg      cfg  = {.fd = -1, .env = &g_srvrun_env, 0};
+  srvrun_step_ctx ctx  = {&cfg, &peer, &st, now_ms, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  bytes_memcpy(buf, dg, n);
+  srvrun_serve_slot(&ctx, 0, wired_mspan_of(buf, n));
+}
+
+/* RFC 9000 10.1 / 12.3: only a packet "received and processed
+ * successfully" restarts a confirmed connection's idle timer -- not an
+ * undecryptable datagram, and not a replay of an older packet (a
+ * duplicate is discarded); a datagram coalescing an undecryptable packet
+ * with a valid one does. */
+static void test_srvrun_idle_restarts_on_processed_only(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8            p1[256], co[512];
+  usz           n1, n2;
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  wired_mspan   dg;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.last_ms            = 100;
+  c.l.ackst.idle_tx_ms = 150;
+  sr_idle_serve(&c, sh, sizeof sh, 200); /* undecryptable */
+  CHECK(c.last_ms == 100);
+  CHECK(c.l.ackst.idle_tx_ms == 150);
+  dg = sr_ping_dg(&f);
+  bytes_memcpy(p1, dg.p, dg.n);
+  n1 = dg.n;
+  sr_idle_serve(&c, p1, n1, 300);
+  CHECK(c.last_ms == 300);
+  n2 = sr_append_handshake_pkt(co, 0, c.s.sdrv.iscid, c.s.sdrv.iscid_len);
+  dg = sr_ping_dg(&f);
+  bytes_memcpy(co + n2, dg.p, dg.n);
+  sr_idle_serve(&c, co, n2 + dg.n, 400); /* undecryptable + valid */
+  CHECK(c.last_ms == 400);
+  sr_idle_serve(&c, p1, n1, 500); /* replay of the older packet */
+  CHECK(c.last_ms == 400);
+}
+
+/* RFC 9000 10.1: "restarts its timer when sending an ack-eliciting packet
+ * if no other ack-eliciting packets have been sent since last receiving
+ * and processing a packet" -- a response slice sent in a step whose
+ * datagram opened nothing is that first send, and keeps its mark. */
+static void test_srvrun_idle_first_send_mark_survives_garbage(void) {
+  static u8     body[2 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn*  c = sr_test_conns();
+  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  c->cc.cwnd               = 5000000;
+  c->srtt_ms               = 30;
+  c->resp[0].in_use        = 1;
+  c->resp[0].stream_id     = 0;
+  c->resp[0].stream_credit = sizeof body;
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  c->last_ms            = 100;
+  c->l.ackst.idle_tx_ms = 0;
+  srvrun_test_reset_send_count();
+  sr_idle_serve(c, sh, sizeof sh, 700); /* undecryptable */
+  CHECK(srvrun_test_send_count() > 0);
+  CHECK(c->last_ms == 100);
+  CHECK(c->l.ackst.idle_tx_ms == 700);
+  *c = (srvrun_conn){0};
 }
 
 static void test_srvrun_serve_slot_ecn_counts_processed_only(void) {
@@ -18006,9 +18110,42 @@ static void test_srvrun_serve_slot_reconfirms_on_greased_probe(void) {
   CHECK(srvrun_test_send_count() == 0); /* v2 0-RTT: no replay */
   srvrun_serve_slot(&ctx, 2, wired_mspan_of(hs, sizeof hs));
   CHECK(srvrun_test_send_count() > 0); /* greased Handshake: replayed */
-  sent = srvrun_test_send_count();
+  sent       = srvrun_test_send_count();
+  ctx.now_ms = st.conns[2].l.ackst.reconfirm_at_ms; /* one PTO later */
   srvrun_serve_slot(&ctx, 2, wired_mspan_of(v2hs, sizeof v2hs));
   CHECK(srvrun_test_send_count() > sent); /* v2 Handshake: replayed */
+}
+
+/* RFC 9002 6.2: the confirmation replay is paced like a probe -- a second
+ * Handshake-leading datagram within one PTO period draws nothing, and the
+ * next one after it draws one replay again. */
+static void test_srvrun_reconfirm_once_per_pto(void) {
+  struct lp_fix   f;
+  conntable       table[WIRED_CONNTABLE_CAP];
+  srvrun_state    st   = {table, sr_test_conns()};
+  sockaddr        peer = {0};
+  u8              obuf[1024];
+  wired_obuf      ob     = {obuf, sizeof obuf, 0};
+  u8              hs[40] = {0xe0, 0, 0, 0, 1}; /* v1 Handshake long header */
+  srvrun_cfg      cfg    = {.fd = -1, .env = &g_srvrun_env, 0};
+  srvrun_step_ctx ctx    = {&cfg, &peer, &st, 5, 0};
+  usz             sent;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[2], &f, &ob);
+  srvrun_test_reset_send_count();
+  srvrun_serve_slot(&ctx, 2, wired_mspan_of(hs, sizeof hs));
+  sent = srvrun_test_send_count();
+  CHECK(sent > 0);
+  CHECK(st.conns[2].l.ackst.reconfirm_at_ms > 5);
+  for (int i = 0; i < 5; i++) {
+    ctx.now_ms = 6 + (u64)i;
+    srvrun_serve_slot(&ctx, 2, wired_mspan_of(hs, sizeof hs));
+  }
+  CHECK(srvrun_test_send_count() == sent);
+  ctx.now_ms = st.conns[2].l.ackst.reconfirm_at_ms;
+  srvrun_serve_slot(&ctx, 2, wired_mspan_of(hs, sizeof hs));
+  CHECK(srvrun_test_send_count() > sent);
+  st.conns[2] = (srvrun_conn){0};
 }
 
 /* RFC 9002 7.5's "MUST NOT be blocked by the congestion controller" covers
@@ -25535,6 +25672,37 @@ static void test_srvrun_slow_trickle_preauth_evicted(void) {
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
 }
 
+/* RFC 9000 10.1: only a packet "received and processed successfully"
+ * restarts the idle timer -- a Handshake packet to a Handshake-proven
+ * boot's CID that fails to open leaves both idle marks as they were. */
+static void test_srvrun_garbage_keeps_boot_idle_timer(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], junk[64];
+  usz              jn;
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  srvrun_conn*     c    = &st.conns[0];
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  u64 last;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrun_cfg      cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env, 0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 1000, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  CHECK(c->up == 1);
+  c->l.hs_rx_seen       = 1;
+  c->l.ackst.idle_tx_ms = 1500;
+  last                  = c->last_ms;
+  jn         = sr_append_handshake_pkt(junk, 0, c->scid, id.scid_len);
+  ctx.now_ms = 20000;
+  srvrun_serve(&ctx, wired_mspan_of(junk, jn));
+  CHECK(c->up == 1);
+  CHECK(c->last_ms == last);
+  CHECK(c->l.ackst.idle_tx_ms == 1500);
+  *c = (srvrun_conn){0};
+}
+
 /* V-0061: a slot reassigned to a new client starts from an all-zero
  * srvrun_conn (srvrun_open_slot's wipe) -- nothing a prior connection left
  * in its request reassembly buffers, response slots, or WT session state
@@ -30300,6 +30468,7 @@ void test_srvrun(void) {
   test_srvrun_reconfirm_idempotent_bytes();
   test_srvrun_serve_slot_reconfirms_on_handshake_probe();
   test_srvrun_serve_slot_reconfirms_on_greased_probe();
+  test_srvrun_reconfirm_once_per_pto();
   test_srvrun_pto_probe_bypasses_pacing_too();
   test_srvrun_slot_release_grants_one_more_stream();
   test_srvrun_stream_limit_never_decreases();
@@ -30396,6 +30565,8 @@ void test_srvrun(void) {
   test_srvrun_idle_sweep_releases_bigbuf_row();
   test_srvrun_serve_slot_touches_last_ms();
   test_srvrun_serve_slot_ecn_counts_processed_only();
+  test_srvrun_idle_restarts_on_processed_only();
+  test_srvrun_idle_first_send_mark_survives_garbage();
   test_srvrun_peer_changed_compares_full_v6();
   test_srvrun_rebind_updates_peer_port();
   test_srvrun_rebind_updates_peer_addr();
@@ -30866,6 +31037,7 @@ void test_srvrun(void) {
   test_srvrun_default_config_gates_response_volume_pre_validation();
   test_srvrun_0rtt_accept_requires_or_limits_unvalidated_address();
   test_srvrun_slow_trickle_preauth_evicted();
+  test_srvrun_garbage_keeps_boot_idle_timer();
   test_srvrun_slot_reuse_clears_prior_connection_buffer();
   test_srvrun_boot_replay_ample_budget_no_probe();
   test_srvrun_wt_gen_next_skips_zero();
