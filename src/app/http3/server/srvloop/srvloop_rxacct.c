@@ -83,6 +83,7 @@ static int rxacct_claim(wired_srvloop* l, u64 id) {
     l->rxacct[i].in_use    = 1;
     l->rxacct[i].stream_id = id;
     finalsize_init(&l->rxacct[i].fs);
+    l->rxacct[i].gaps = (srvloop_rxgap){0};
   }
   return i;
 }

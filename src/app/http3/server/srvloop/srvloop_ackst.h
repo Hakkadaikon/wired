@@ -84,6 +84,10 @@ typedef struct {
   /** RFC 9002 A.8/A.9 pto_count of the 1-RTT space: probes fired since the
    * last newly acknowledged packet; scales the PTO backoff. */
   int pto_count;
+  /** RFC 9000 21.9: stream bytes received for the first time -- past a
+   * stream's highest offset or filling a gap below it (srvloop_rxgap.h);
+   * a duplicate adds nothing. */
+  u64 rx_fresh;
 } srvloop_ackst;
 
 #endif

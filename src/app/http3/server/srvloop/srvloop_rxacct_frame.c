@@ -18,12 +18,14 @@ static u64 rxacct_frame(wired_srvloop* l, const framewalk_item* fr);
 static u64 rxacct_conn_error(const wired_srvloop* l);
 
 /* RFC 9000 4.5: [off, off+len) received; the stream's growth counts toward
- * the connection's bytes. */
+ * the connection's bytes, and every byte not received before toward
+ * ackst.rx_fresh (RFC 9000 21.9). */
 static u64 rxacct_grow(
     wired_srvloop* l, wired_srvloop_rxacct* e, u64 off, u64 len) {
   u64 before = e->fs.highest;
   int ok     = finalsize_data(&e->fs, off, len);
   l->rx_conn_bytes += e->fs.highest - before;
+  l->ackst.rx_fresh += srvloop_rxgap_fresh(&e->gaps, before, off, off + len);
   return ok ? 0 : ERR_FINAL_SIZE_ERROR;
 }
 
@@ -55,6 +57,7 @@ static u64 rxacct_stream(wired_srvloop* l, const framewalk_item* fr) {
 static u64 rxacct_reset(wired_srvloop* l, const framewalk_item* fr) {
   reset_stream_frame    rs;
   wired_srvloop_rxacct* e;
+  u64                   err;
   reset_stream_decode(fr->start, fr->remaining, &rs);
   e = srvloop_rxacct_entry(l, rs.stream_id);
   if (!e) {
@@ -63,7 +66,15 @@ static u64 rxacct_reset(wired_srvloop* l, const framewalk_item* fr) {
   if (!finalsize_set(&e->fs, rs.final_size)) {
     return ERR_FINAL_SIZE_ERROR;
   }
-  return rxacct_grow(l, e, rs.final_size, 0);
+  err = rxacct_grow(l, e, rs.final_size, 0);
+  /* RFC 9000 21.9: data later sent on a reset stream is discarded, so its
+   * holes are no longer bytes the application can receive.
+   * shortcut: after the server sends STOP_SENDING and until the peer's
+   * RESET_STREAM, fills still count as progress, up to the stream's
+   * remaining credit; drop the holes there too once rxacct can tell a
+   * stream whose data is discarded. */
+  e->gaps = (srvloop_rxgap){0};
+  return err;
 }
 
 /* The frame kinds that carry stream bytes or a final size. */

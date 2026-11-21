@@ -23,6 +23,7 @@ static void srvloop_init_admitted(wired_srvloop* l) {
     l->rx_admitted[i] = 0;
   }
   l->ackst.reconfirm_at_ms = 0;
+  l->ackst.rx_fresh        = 0; /* RFC 9000 21.9 progress mark */
 }
 
 /* Packet-number spaces and handshake progress. */

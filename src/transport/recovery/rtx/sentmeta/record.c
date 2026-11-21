@@ -48,6 +48,7 @@ static void sentmeta_store(sentmeta_pkt* p, const sentmeta_out* pkt) {
   p->in_flight     = pkt->in_flight != 0;
   p->sent_bytes    = pkt->sent_bytes;
   p->used          = 1;
+  p->app           = pkt->app != 0;
 }
 
 int sentmeta_on_sent(sentmeta* m, const sentmeta_out* pkt) {

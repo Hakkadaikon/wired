@@ -49,6 +49,8 @@ typedef struct {
   u32 hs_acked; /**< wired_srvloop.hs_acked before the step */
   u32 hs_adm;   /**< wired_srvloop.rx_admitted[LEVEL_HANDSHAKE] */
   u32 app_adm;  /**< wired_srvloop.rx_admitted[LEVEL_ONERTT] */
+  u64 rx_fresh; /**< wired_srvloop.ackst.rx_fresh (RFC 9000 21.9) */
+  usz rx_dg;    /**< wired_srvloop.rx_datagram_n (RFC 9000 21.9) */
 } srvrun_rxmark;
 
 /* srvrun_on_initial: the datagram was absorbed but the ClientHello is not

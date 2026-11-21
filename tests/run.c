@@ -630,6 +630,7 @@
 #include "app/http3/server/srvrun/srvrun_qenc.c"
 #include "app/http3/server/srvrun/srvrun_qlog.c"
 #include "app/http3/server/srvrun/srvrun_raw.c"
+#include "app/http3/server/srvrun/srvrun_load.c"
 #include "app/http3/server/srvrun/srvrun_reannounce.c"
 #include "app/http3/server/srvrun/srvrun_reap.c"
 #include "app/http3/server/srvrun/srvrun_recover.c"

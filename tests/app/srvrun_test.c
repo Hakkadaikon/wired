@@ -146,7 +146,7 @@ static void sr_make_confirmed_conn(
  * sent at sent_ms -- what srvrun_send_stream_slice leaves there (its bytes
  * counted by the send session, not the record). */
 static void sr_rec_sent(srvrun_conn* c, u64 pn, u64 sent_ms) {
-  sentmeta_out o = {pn, sent_ms, 1, 0, SRVRUN_CHUNK};
+  sentmeta_out o = {pn, sent_ms, 1, 0, SRVRUN_CHUNK, 1};
   CHECK(sentmeta_on_sent(&c->l.ackst.sent, &o) == 1);
 }
 
@@ -25653,7 +25653,7 @@ static void test_srvrun_reset_flood_window_resets_count(void) {
   ctx.now_ms = SRVRUN_RESET_WINDOW_MS;
   sr_reset_burst_step(&f, &c, &ctx, 4, 1);
   CHECK(c.l.peer_reset_count == 1);
-  CHECK(c.reset_window_start_ms == SRVRUN_RESET_WINDOW_MS);
+  CHECK(c.load.window_start_ms == SRVRUN_RESET_WINDOW_MS);
   CHECK(c.closing == 0);
 }
 
@@ -26753,6 +26753,423 @@ static void test_srvrun_on_body_skips_connect(void) {
   sr_sl_send_headers(c, 0, "CONNECT", 0);
   CHECK(c->wt_active == 1);
   CHECK(g_sr_body.calls == 0);
+}
+
+/* ===== RFC 9000 21.9: 1-RTT packets that make no progress. Every test
+ * seals real client packets and runs the full step pair (sr_sl_step); a
+ * flood closes at SRVRUN_MAX_NOPROG_PER_WINDOW + 1 with the RFC 9114 8.1
+ * application error H3_EXCESSIVE_LOAD. */
+
+static void sr_np_repeat(srvrun_conn* c, const u8* pl, usz n, usz times) {
+  for (usz i = 0; i < times; i++) {
+    sr_sl_step(c, pl, n);
+  }
+}
+
+/* 1 iff c closed with the application error H3_EXCESSIVE_LOAD. */
+static int sr_np_excessive(const srvrun_conn* c) {
+  int is_app = 0;
+  return sr_close_code(c, &is_app) == H3_EXCESSIVE_LOAD && is_app;
+}
+
+/* The limit's worth of copies of pl keeps c open; one more closes it. */
+static void sr_np_flood(srvrun_conn* c, const u8* pl, usz n) {
+  sr_np_repeat(c, pl, n, SRVRUN_MAX_NOPROG_PER_WINDOW);
+  CHECK(c->closing == 0);
+  sr_np_repeat(c, pl, n, 1);
+  CHECK(sr_np_excessive(c));
+}
+
+/* One STREAM frame of stream 0 carrying d[off, off+len) into pl. */
+static usz sr_np_stream(u8* pl, usz cap, const u8* d, usz off, usz len) {
+  wired_obuf   sob = obuf_of(pl, cap);
+  stream_frame sf  = {0, off, len, d + off, 0};
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  return sob.len;
+}
+
+static void test_srvrun_noprog_ping_flood_closes(void) {
+  static const u8 ping[1] = {0x01};
+  sr_np_flood(sr_sl_fixture(), ping, sizeof ping);
+}
+
+/* A 1-byte STREAM frame delivers its byte once; every copy after that
+ * delivers nothing new. */
+static void test_srvrun_noprog_duplicate_byte_closes(void) {
+  static const u8 b[1] = {0x01};
+  u8              pl[16];
+  srvrun_conn*    c = sr_sl_fixture();
+  usz             n = sr_np_stream(pl, sizeof pl, b, 0, 1);
+  sr_sl_step(c, pl, n);
+  sr_np_flood(c, pl, n);
+}
+
+/* A delivered request prefix, then the same middle range over and over. */
+static void test_srvrun_noprog_repeated_range_closes(void) {
+  static u8    req[2 * SR_REQ_BUF_CAP];
+  u8           pl[256];
+  srvrun_conn* c = sr_sl_fixture();
+  CHECK(sr_big_req(req, sizeof req, 1, 200) > 200);
+  sr_sl_step(c, pl, sr_np_stream(pl, sizeof pl, req, 0, 200));
+  sr_np_flood(c, pl, sr_np_stream(pl, sizeof pl, req, 50, 100));
+}
+
+/* One ACK frame acknowledging [lo, hi]. */
+static usz sr_np_ack(u8* pl, usz cap, u64 lo, u64 hi) {
+  ack_frame a = {0};
+  a.n_ranges  = 1;
+  a.ranges[0] = (ack_range){hi, lo};
+  return ack_encode(pl, cap, &a);
+}
+
+/* An ACK of everything the server sent from lo on, NEW_CONNECTION_ID
+ * retiring every earlier peer ID, and RETIRE_CONNECTION_ID of the spare ID:
+ * each packet makes the server switch IDs, retire the old one and issue a
+ * fresh spare, and the ACK frees what the last round kept -- so only the
+ * no-progress budget ends the loop. The purposely skipped numbers are
+ * cleared (RFC 9000 21.4) so the blanket ACK names none of them. */
+static usz sr_np_churn(srvrun_conn* c, u64 lo, u64 seq, u8* pl, usz cap) {
+  ncid_frame f = {seq, seq, 8, {0}, {0}};
+  usz        n = sr_np_ack(pl, cap, lo, c->l.tx_pn - 1);
+  bytes_memset(c->l.pn_skipped1, 0, sizeof c->l.pn_skipped1);
+  f.cid[0]   = (u8)seq;
+  f.cid[1]   = (u8)(seq >> 8);
+  f.token[0] = (u8)seq;
+  f.token[1] = (u8)(seq >> 8);
+  n += ncid_encode(pl + n, cap - n, &f);
+  return n + retire_cid_encode(pl + n, cap - n, c->mig.spare);
+}
+
+static void test_srvrun_noprog_cid_churn_closes(void) {
+  srvrun_conn*     c = sr_sl_fixture();
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], pl[128];
+  u64              lo = c->l.tx_pn - 1;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  g_sl_cfg.id        = &id; /* the reissued NCID's token derives from id */
+  g_sl_st.table      = g_srvrun_env.table;
+  g_sl_ctx.peer      = &c->peer; /* srvrun_path_step takes the CID frames */
+  c->mig.spare       = 1;
+  c->mig.next        = 2;
+  c->l.spare_cid_len = 8;
+  CHECK(c->l.tx_pn > 0);
+  for (u64 seq = 1; seq <= SRVRUN_MAX_NOPROG_PER_WINDOW; seq++) {
+    sr_sl_step(c, pl, sr_np_churn(c, lo, seq, pl, sizeof pl));
+  }
+  CHECK(c->closing == 0);
+  CHECK(c->mig.spare > SRVRUN_MAX_NOPROG_PER_WINDOW); /* reissued each time */
+  sr_sl_step(
+      c, pl,
+      sr_np_churn(c, lo, SRVRUN_MAX_NOPROG_PER_WINDOW + 1, pl, sizeof pl));
+  CHECK(sr_np_excessive(c));
+  g_sl_st.table = 0;
+  g_sl_cfg.id   = 0;
+  g_sl_ctx.peer = 0;
+}
+
+/* The server sends one 1-RTT packet carrying application data (a STREAM
+ * frame on its first uni stream) through the real seal-and-record path;
+ * returns its packet number. */
+static u64 sr_np_send_data(srvrun_conn* c) {
+  static const u8       d[8] = {'d', 'a', 't', 'a', 'd', 'a', 't', 'a'};
+  u8                    pl[64], out[256];
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
+  wired_obuf            ob  = obuf_of(out, sizeof out);
+  stream_frame          sf  = {3, c->l.tx_pn * 8, sizeof d, d, 0};
+  u64                   pn  = c->l.tx_pn;
+  wired_srvloop_send_in sin;
+  CHECK(appdata_stream_frame(&sf, &plb) == 1);
+  sin = (wired_srvloop_send_in){
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(pl, plb.len),
+      0,
+      0,
+      0,
+      0};
+  CHECK(srvloop_send_onertt_rec(&c->l, &c->s, &sin, &ob) == 1);
+  return pn;
+}
+
+/* The first ACK of a data packet is progress, the same ACK again
+ * acknowledges nothing new. */
+static void test_srvrun_noprog_stale_ack_closes(void) {
+  u8           pl[64];
+  srvrun_conn* c  = sr_sl_fixture();
+  u64          pn = sr_np_send_data(c);
+  usz          n  = sr_np_ack(pl, sizeof pl, pn, pn);
+  sr_sl_step(c, pl, n);
+  CHECK(c->largest_acked == pn);
+  sr_np_flood(c, pl, n);
+}
+
+/* PING plus an ACK of everything the server sent so far, as an ordinary
+ * stack sends it: the server's ACK-only answers keep moving the largest
+ * acknowledged, but none of them carried application data. */
+static void test_srvrun_noprog_ping_ack_flood_closes(void) {
+  u8           pl[64];
+  srvrun_conn* c  = sr_sl_fixture();
+  u64          lo = c->l.tx_pn - 1;
+  for (usz i = 0; i < SRVRUN_MAX_NOPROG_PER_WINDOW; i++) {
+    pl[0] = 0x01; /* PING */
+    sr_sl_step(c, pl, 1 + sr_np_ack(pl + 1, sizeof pl - 1, lo, c->l.tx_pn - 1));
+  }
+  CHECK(c->closing == 0);
+  CHECK(c->largest_acked > lo); /* the ACKs did acknowledge new packets */
+  pl[0] = 0x01;
+  sr_sl_step(c, pl, 1 + sr_np_ack(pl + 1, sizeof pl - 1, lo, c->l.tx_pn - 1));
+  CHECK(sr_np_excessive(c));
+}
+
+/* RETIRE_CONNECTION_ID of the spare ID in one packet, an ACK of the
+ * NEW_CONNECTION_ID it drew in the next: the halves never share a packet. */
+static void test_srvrun_noprog_retire_ack_split_closes(void) {
+  srvrun_conn*     c = sr_sl_fixture();
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], pl[64];
+  u64              lo = c->l.tx_pn - 1;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  g_sl_cfg.id        = &id;
+  g_sl_st.table      = g_srvrun_env.table;
+  g_sl_ctx.peer      = &c->peer;
+  c->mig.spare       = 1;
+  c->mig.next        = 2;
+  c->l.spare_cid_len = 8;
+  for (usz i = 0; i <= SRVRUN_MAX_NOPROG_PER_WINDOW; i++) {
+    CHECK(c->closing == 0);
+    if (i % 2) {
+      sr_sl_step(c, pl, sr_np_ack(pl, sizeof pl, lo, c->l.tx_pn - 1));
+    } else {
+      sr_sl_step(c, pl, retire_cid_encode(pl, sizeof pl, c->mig.spare));
+    }
+  }
+  CHECK(c->mig.spare > SRVRUN_MAX_NOPROG_PER_WINDOW / 2); /* reissued */
+  CHECK(sr_np_excessive(c));
+  g_sl_st.table = 0;
+  g_sl_cfg.id   = 0;
+  g_sl_ctx.peer = 0;
+}
+
+/* stream 0 frames [from, to) of req, 16 bytes each. */
+static void sr_np_upload(
+    srvrun_conn* c, const u8* req, usz n, usz from, usz to) {
+  u8 pl[64];
+  for (usz f = from; f < to; f++) {
+    usz off = f * 16;
+    sr_sl_step(
+        c, pl, sr_np_stream(pl, sizeof pl, req, off, u64_min(16, n - off)));
+  }
+}
+
+/* A body sent as more 16-byte frames than the limit: each one new bytes. */
+static void test_srvrun_noprog_bulk_upload_stays_open(void) {
+  static u8    req[2 * SR_REQ_BUF_CAP];
+  srvrun_conn* c = sr_sl_fixture();
+  usz          n =
+      sr_big_req(req, sizeof req, 1, (SRVRUN_MAX_NOPROG_PER_WINDOW + 1) * 16);
+  usz frames = (n + 15) / 16;
+  sr_np_upload(c, req, n, 0, frames);
+  CHECK(frames > SRVRUN_MAX_NOPROG_PER_WINDOW);
+  CHECK(c->closing == 0);
+}
+
+/* A burst of more frames than the limit is lost in the middle of an
+ * upload; the frames after it arrive first, then the retransmissions fill
+ * the gap -- all of them bytes the server had not received. */
+static void test_srvrun_noprog_upload_lost_burst_stays_open(void) {
+  static u8    req[2 * SR_REQ_BUF_CAP];
+  srvrun_conn* c      = sr_sl_fixture();
+  usz          n      = sr_big_req(req, sizeof req, 1, 9900);
+  usz          frames = (n + 15) / 16;
+  usz          lost   = SRVRUN_MAX_NOPROG_PER_WINDOW + 20;
+  CHECK(frames > 50 + lost);
+  sr_np_upload(c, req, n, 0, 50);
+  sr_np_upload(c, req, n, 50 + lost, frames);
+  sr_np_upload(c, req, n, 50, 50 + lost);
+  CHECK(c->closing == 0);
+}
+
+/* A peer downloading ACKs every data packet the server sends: each ACK is
+ * ACK-only and each acknowledges new application data. */
+static void test_srvrun_noprog_bulk_download_acks_stay_open(void) {
+  u8           pl[64];
+  srvrun_conn* c = sr_sl_fixture();
+  for (usz i = 0; i <= SRVRUN_MAX_NOPROG_PER_WINDOW; i++) {
+    u64 pn = sr_np_send_data(c);
+    sr_sl_step(c, pl, sr_np_ack(pl, sizeof pl, pn, pn));
+  }
+  CHECK(c->closing == 0);
+  CHECK(c->largest_acked == c->l.tx_pn - 1);
+}
+
+/* Fill the sent record (SENTMETA_CAP) with packets that are never
+ * acknowledged and never lost, so every later send goes unrecorded. */
+static void sr_np_fill_sent(srvrun_conn* c) {
+  for (u64 i = 0; c->l.ackst.sent.count < SENTMETA_CAP; i++) {
+    sentmeta_out o = {(1ull << 40) + i, 0, 0, 0, 0, 0};
+    CHECK(sentmeta_on_sent(&c->l.ackst.sent, &o) == 1);
+  }
+}
+
+/* A download with more packets in flight than the sent record holds: the
+ * response's slices go out through resp[0]'s send session (the real pump)
+ * with no sent-record slot, and each ACK, one data packet per step,
+ * newly acknowledges one of them. */
+static void test_srvrun_noprog_download_past_sent_record_stays_open(void) {
+  static u8    body[(SRVRUN_MAX_NOPROG_PER_WINDOW + 60) * SRVRUN_CHUNK];
+  u8           pl[64];
+  srvrun_conn* c    = sr_sl_fixture();
+  u64          next = c->l.tx_pn;
+  usz          acks = 0;
+  sr_np_fill_sent(c);
+  c->resp[0].in_use    = 1;
+  c->resp[0].stream_id = 0;
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  srvrun_sess_on_step(&g_sl_ctx, 0); /* the first window goes out */
+  for (; next < c->l.tx_pn && acks <= SRVRUN_MAX_NOPROG_PER_WINDOW; acks++) {
+    CHECK(c->l.ackst.sent.count == SENTMETA_CAP); /* nothing recorded */
+    sr_sl_step(c, pl, sr_np_ack(pl, sizeof pl, next, next));
+    next++;
+  }
+  CHECK(acks > SRVRUN_MAX_NOPROG_PER_WINDOW);
+  CHECK(c->closing == 0);
+}
+
+/* The same download with every third ACK a duplicate of the one before (a
+ * reordered or repeated ACK that moves nothing): the new ones net it out. */
+static void test_srvrun_noprog_download_dup_acks_stay_open(void) {
+  u8           pl[64];
+  usz          n = 0;
+  srvrun_conn* c = sr_sl_fixture();
+  for (usz i = 0; i < 3 * SRVRUN_MAX_NOPROG_PER_WINDOW; i++) {
+    u64 pn = sr_np_send_data(c);
+    if (i % 3 != 2) {
+      n = sr_np_ack(pl, sizeof pl, pn, pn);
+    }
+    sr_sl_step(c, pl, n);
+  }
+  CHECK(c->closing == 0);
+}
+
+/* A keepalive PING a second, for more seconds than the limit. */
+static void test_srvrun_noprog_keepalive_pings_stay_open(void) {
+  static const u8 ping[1] = {0x01};
+  srvrun_conn*    c       = sr_sl_fixture();
+  for (usz i = 0; i <= SRVRUN_MAX_NOPROG_PER_WINDOW; i++) {
+    g_sl_ctx.now_ms = i * 1000;
+    sr_sl_step(c, ping, sizeof ping);
+  }
+  CHECK(c->closing == 0);
+}
+
+/* Ten PINGs a second for a minute: 600 in all, ten per window. */
+static void test_srvrun_noprog_fast_keepalive_stays_open(void) {
+  static const u8 ping[1] = {0x01};
+  srvrun_conn*    c       = sr_sl_fixture();
+  for (usz i = 0; i < 600; i++) {
+    g_sl_ctx.now_ms = i * 100;
+    sr_sl_step(c, ping, sizeof ping);
+  }
+  CHECK(c->closing == 0);
+}
+
+/* The limit's worth of PINGs in one window and again in the next: the new
+ * window starts the count over. */
+static void test_srvrun_noprog_window_roll_resets_count(void) {
+  static const u8 ping[1] = {0x01};
+  srvrun_conn*    c       = sr_sl_fixture();
+  sr_np_repeat(c, ping, sizeof ping, SRVRUN_MAX_NOPROG_PER_WINDOW);
+  g_sl_ctx.now_ms = SRVRUN_RESET_WINDOW_MS;
+  sr_np_repeat(c, ping, sizeof ping, SRVRUN_MAX_NOPROG_PER_WINDOW);
+  CHECK(c->closing == 0);
+  CHECK(c->load.noprog == SRVRUN_MAX_NOPROG_PER_WINDOW);
+}
+
+/* A connection not yet confirmed is not counted: its own boot bounds
+ * apply. */
+static void test_srvrun_noprog_unconfirmed_not_counted(void) {
+  static const u8 ping[1] = {0x01};
+  srvrun_conn*    c       = sr_sl_fixture();
+  c->s.phase              = WIRED_SERVER_HS_FLIGHT_SENT;
+  sr_np_repeat(c, ping, sizeof ping, SRVRUN_MAX_NOPROG_PER_WINDOW + 1);
+  CHECK(c->load.noprog == 0);
+  CHECK(c->closing == 0);
+}
+
+/* One round: 100 PINGs arriving past a skipped packet number draw
+ * ACK-only packets (RFC 9000 13.2.1); one data packet goes out;
+ * the peer then acknowledges the earlier ACK-only packets one at a time,
+ * leaving the data packet unacknowledged. 100 per round keeps the sent
+ * record (SENTMETA_CAP) from filling, so the data packet is in it. */
+static void sr_np_ack_only_round(srvrun_conn* c) {
+  static const u8 ping[1] = {0x01};
+  u8              pl[64];
+  u64             lo = c->l.tx_pn;
+  u64             d;
+  for (usz i = 0; i < 100 && !c->closing; i++) {
+    g_sl_pn++; /* the packet before this one never arrives */
+    sr_sl_step(c, ping, sizeof ping);
+  }
+  d = sr_np_send_data(c);
+  for (u64 pn = lo; pn < d && !c->closing; pn++) {
+    sr_sl_step(c, pl, sr_np_ack(pl, sizeof pl, pn, pn));
+  }
+}
+
+static void test_srvrun_noprog_ack_of_ack_only_closes(void) {
+  srvrun_conn* c  = sr_sl_fixture();
+  u64          lo = c->l.tx_pn;
+  sr_np_ack_only_round(c);
+  CHECK(c->l.tx_pn - lo > 10); /* the PINGs drew ACK-only packets */
+  for (usz r = 0; r < 5 && !c->closing; r++) {
+    sr_np_ack_only_round(c);
+  }
+  CHECK(sr_np_excessive(c));
+}
+
+/* After RESET_STREAM, bytes sent into the reset range are discarded: one
+ * byte at a time, alternating with PINGs, none of it is progress. */
+static void test_srvrun_noprog_reset_range_fill_closes(void) {
+  static const u8    ping[1] = {0x01};
+  static u8          junk[1024];
+  u8                 pl[64];
+  srvrun_conn*       c  = sr_sl_fixture();
+  reset_stream_frame rs = {0, 0x10c, sizeof junk};
+  usz                i  = 0;
+  sr_sl_step(c, pl, sr_np_stream(pl, sizeof pl, junk, 0, 1));
+  sr_sl_step(c, pl, reset_stream_encode(pl, sizeof pl, &rs));
+  CHECK(c->closing == 0);
+  for (; i < SRVRUN_MAX_NOPROG_PER_WINDOW && !c->closing; i++) {
+    sr_sl_step(c, pl, sr_np_stream(pl, sizeof pl, junk, 1 + i, 1));
+    sr_sl_step(c, ping, sizeof ping);
+  }
+  CHECK(i <= SRVRUN_MAX_NOPROG_PER_WINDOW / 2 + 1);
+  CHECK(sr_np_excessive(c));
+}
+
+/* A DATAGRAM with no payload (raw QUIC: no quarter stream id to carry)
+ * delivers nothing. */
+static void test_srvrun_noprog_empty_datagram_closes(void) {
+  static const u8 dg[2]           = {0x31, 0x00}; /* DATAGRAM, Length 0 */
+  srvrun_conn*    c               = sr_sl_fixture();
+  c->s.sdrv.alpn                  = SALPN_RAW;
+  c->l.we_advertised_max_datagram = 1200;
+  sr_np_flood(c, dg, sizeof dg);
+}
+
+/* A productive packet credits one back: the limit's worth of PINGs, one
+ * new stream byte, then one more PING stays open; the next one closes. */
+static void test_srvrun_noprog_progress_credits_back(void) {
+  static const u8 ping[1] = {0x01}, b[1] = {0x01};
+  u8              pl[16];
+  srvrun_conn*    c = sr_sl_fixture();
+  sr_np_repeat(c, ping, sizeof ping, SRVRUN_MAX_NOPROG_PER_WINDOW);
+  sr_sl_step(c, pl, sr_np_stream(pl, sizeof pl, b, 0, 1));
+  sr_np_repeat(c, ping, sizeof ping, 1);
+  CHECK(c->closing == 0);
+  sr_np_repeat(c, ping, sizeof ping, 1);
+  CHECK(sr_np_excessive(c));
 }
 
 /* RFC 9114 7.2.4: SETTINGS on a request stream is a connection error of
@@ -31267,6 +31684,26 @@ void test_srvrun(void) {
   test_srvrun_req_frame_error_closes();
   test_srvrun_on_body_empty_body_gets_fin();
   test_srvrun_on_body_skips_connect();
+  test_srvrun_noprog_ping_flood_closes();
+  test_srvrun_noprog_duplicate_byte_closes();
+  test_srvrun_noprog_repeated_range_closes();
+  test_srvrun_noprog_cid_churn_closes();
+  test_srvrun_noprog_stale_ack_closes();
+  test_srvrun_noprog_ping_ack_flood_closes();
+  test_srvrun_noprog_retire_ack_split_closes();
+  test_srvrun_noprog_bulk_upload_stays_open();
+  test_srvrun_noprog_upload_lost_burst_stays_open();
+  test_srvrun_noprog_bulk_download_acks_stay_open();
+  test_srvrun_noprog_download_dup_acks_stay_open();
+  test_srvrun_noprog_download_past_sent_record_stays_open();
+  test_srvrun_noprog_keepalive_pings_stay_open();
+  test_srvrun_noprog_fast_keepalive_stays_open();
+  test_srvrun_noprog_window_roll_resets_count();
+  test_srvrun_noprog_unconfirmed_not_counted();
+  test_srvrun_noprog_ack_of_ack_only_closes();
+  test_srvrun_noprog_reset_range_fill_closes();
+  test_srvrun_noprog_empty_datagram_closes();
+  test_srvrun_noprog_progress_credits_back();
   test_srvrun_on_body_past_initial_max_data();
   test_srvrun_wt_close_after_long_capsule_run();
   test_srvrun_wt_close_message_too_long_resets_and_closes();

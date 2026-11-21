@@ -109,7 +109,9 @@ srvrun_rxmark srvrun_rx_mark(const wired_srvloop* l) {
       l->hs_rx_pn,
       l->hs_acked,
       l->rx_admitted[LEVEL_HANDSHAKE],
-      l->rx_admitted[LEVEL_ONERTT]};
+      l->rx_admitted[LEVEL_ONERTT],
+      l->ackst.rx_fresh,
+      l->rx_datagram_n};
 }
 
 /* RFC 9000 10.1 / 12.3: 1 if a Handshake packet was admitted since m (opened

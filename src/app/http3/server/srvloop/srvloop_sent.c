@@ -12,6 +12,7 @@ typedef struct {
   int eliciting;    /**< RFC 9002 2: an ack-eliciting frame */
   int padded;       /**< a PADDING frame */
   u64 ack_largest1; /**< 1 + an ACK frame's Largest Acknowledged, 0 none */
+  int app;          /**< a STREAM or DATAGRAM frame (RFC 9000 21.9) */
 } srvloop_sent_kind;
 
 /* 1 + the Largest Acknowledged of the ACK frame at fr (0 if malformed). */
@@ -27,6 +28,7 @@ static void srvloop_sent_frame(srvloop_sent_kind* k, const framewalk_item* fr) {
   frame_kind kind = frame_classify(fr->type);
   k->eliciting |= frame_ack_eliciting(kind);
   k->padded |= kind == FK_PADDING;
+  k->app |= (kind == FK_STREAM) | (kind == FK_DATAGRAM);
   if (kind == FK_ACK) {
     k->ack_largest1 = srvloop_sent_ack_largest1(fr);
   }
@@ -66,7 +68,7 @@ static int srvloop_sent_grew(const wired_srvloop_send_in* in, usz sealed) {
 
 static srvloop_sent_kind srvloop_sent_classify(
     const wired_srvloop_send_in* in, usz sealed) {
-  srvloop_sent_kind k = {0, 0, 0};
+  srvloop_sent_kind k = {0, 0, 0, 0};
   framewalk         it;
   framewalk_item    fr;
   framewalk_init(&it, in->payload.p, in->payload.n);
@@ -189,9 +191,10 @@ int srvloop_send_onertt_rec(
   }
   k = srvloop_sent_classify(in, out->len);
   sentmeta_on_sent(
-      &l->ackst.sent, &(sentmeta_out){
-                          in->pn, l->now_ms, k.eliciting,
-                          pkt_in_flight(k.eliciting, k.padded), out->len});
+      &l->ackst.sent,
+      &(sentmeta_out){
+          in->pn, l->now_ms, k.eliciting, pkt_in_flight(k.eliciting, k.padded),
+          out->len, k.app});
   srvloop_ackd_note(l, in->pn, k.ack_largest1);
   srvloop_sent_elicit(l, k.eliciting);
   srvloop_pn_skip_maybe(l);

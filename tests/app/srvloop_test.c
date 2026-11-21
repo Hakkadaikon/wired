@@ -8542,7 +8542,99 @@ static void test_srvloop_body_head_len_answered_slot(void) {
   CHECK(srvloop_route_body_head_len(&slot) == 0);
 }
 
+/* ===== RFC 9000 2.2 / 21.9: srvloop_rxgap, the holes below a stream's
+ * highest offset. Each case starts from highest 100 after [0, 100). */
+
+/* Number of live (non-empty) holes in g. */
+static usz sl_rxgap_holes(const srvloop_rxgap* g) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_SRVLOOP_RXGAPS; i++) {
+    n += g->lo[i] != g->hi[i];
+  }
+  return n;
+}
+
+/* A jump past the highest leaves one hole; a frame in its middle is fresh
+ * and splits it in two; a duplicate of either half is not fresh. */
+static void test_srvloop_rxgap_split_middle(void) {
+  srvloop_rxgap g = {0};
+  CHECK(srvloop_rxgap_fresh(&g, 100, 200, 210) == 10);
+  CHECK(sl_rxgap_holes(&g) == 1);
+  CHECK(srvloop_rxgap_fresh(&g, 210, 140, 150) == 10);
+  CHECK(sl_rxgap_holes(&g) == 2);
+  CHECK(srvloop_rxgap_fresh(&g, 210, 140, 150) == 0);
+  CHECK(srvloop_rxgap_fresh(&g, 210, 0, 100) == 0);
+  CHECK(srvloop_rxgap_fresh(&g, 210, 100, 140) == 40);
+  CHECK(srvloop_rxgap_fresh(&g, 210, 150, 200) == 50);
+  CHECK(sl_rxgap_holes(&g) == 0);
+}
+
+/* One frame spanning several holes and the received bytes between them
+ * counts only the holes' bytes. */
+static void test_srvloop_rxgap_span_several(void) {
+  srvloop_rxgap g = {0};
+  CHECK(srvloop_rxgap_fresh(&g, 100, 110, 120) == 10); /* hole [100,110) */
+  CHECK(srvloop_rxgap_fresh(&g, 120, 130, 140) == 10); /* hole [120,130) */
+  CHECK(srvloop_rxgap_fresh(&g, 140, 150, 160) == 10); /* hole [140,150) */
+  CHECK(srvloop_rxgap_fresh(&g, 160, 95, 165) == 35);  /* 30 + 5 past */
+  CHECK(sl_rxgap_holes(&g) == 0);
+}
+
+/* Partial overlaps cut a hole from its left or right edge. */
+static void test_srvloop_rxgap_partial_overlap(void) {
+  srvloop_rxgap g = {0};
+  CHECK(srvloop_rxgap_fresh(&g, 100, 200, 201) == 1);  /* hole [100,200) */
+  CHECK(srvloop_rxgap_fresh(&g, 201, 90, 120) == 20);  /* left edge */
+  CHECK(srvloop_rxgap_fresh(&g, 201, 180, 205) == 24); /* right edge + 4 */
+  CHECK(g.lo[0] == 120 && g.hi[0] == 180);
+}
+
+/* Ranges touching a hole's edges, but not overlapping, take nothing. */
+static void test_srvloop_rxgap_adjacent(void) {
+  srvloop_rxgap g = {0};
+  CHECK(srvloop_rxgap_fresh(&g, 100, 150, 160) == 10); /* hole [100,150) */
+  CHECK(srvloop_rxgap_fresh(&g, 160, 90, 100) == 0);
+  CHECK(srvloop_rxgap_fresh(&g, 160, 150, 160) == 0);
+  CHECK(g.lo[0] == 100 && g.hi[0] == 150);
+  CHECK(srvloop_rxgap_fresh(&g, 160, 160, 170) == 10); /* no new hole */
+  CHECK(sl_rxgap_holes(&g) == 1);
+}
+
+/* The table holds WIRED_SRVLOOP_RXGAPS holes; a 9th is not recorded, so
+ * its later fill counts as nothing new (the shortcut in srvloop_rxgap.h). */
+static void test_srvloop_rxgap_ninth_dropped(void) {
+  srvloop_rxgap g  = {0};
+  u64           hi = 100;
+  for (usz i = 0; i <= WIRED_SRVLOOP_RXGAPS; i++) {
+    CHECK(srvloop_rxgap_fresh(&g, hi, hi + 10, hi + 20) == 10);
+    hi += 20;
+  }
+  CHECK(sl_rxgap_holes(&g) == WIRED_SRVLOOP_RXGAPS);
+  CHECK(srvloop_rxgap_fresh(&g, hi, hi - 20, hi - 10) == 0); /* 9th hole */
+  CHECK(srvloop_rxgap_fresh(&g, hi, 100, 110) == 10);        /* 1st hole */
+}
+
+/* Splitting a hole while the table is full keeps the left part and drops
+ * the right one: its later fill counts as nothing new. */
+static void test_srvloop_rxgap_full_split_drops_right(void) {
+  srvloop_rxgap g  = {0};
+  u64           hi = 100;
+  for (usz i = 0; i < WIRED_SRVLOOP_RXGAPS; i++) {
+    CHECK(srvloop_rxgap_fresh(&g, hi, hi + 10, hi + 20) == 10);
+    hi += 20;
+  }
+  CHECK(srvloop_rxgap_fresh(&g, hi, 104, 106) == 2); /* split [100,110) */
+  CHECK(srvloop_rxgap_fresh(&g, hi, 100, 104) == 4); /* left part kept */
+  CHECK(srvloop_rxgap_fresh(&g, hi, 106, 110) == 0); /* right part dropped */
+}
+
 void test_srvloop(void) {
+  test_srvloop_rxgap_split_middle();
+  test_srvloop_rxgap_span_several();
+  test_srvloop_rxgap_partial_overlap();
+  test_srvloop_rxgap_adjacent();
+  test_srvloop_rxgap_ninth_dropped();
+  test_srvloop_rxgap_full_split_drops_right();
   test_srvloop_max_stream_data_table_full();
   test_srvloop_hq09_non_get_no_request();
   test_srvloop_body_head_len_answered_slot();

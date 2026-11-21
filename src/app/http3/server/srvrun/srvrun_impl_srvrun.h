@@ -3,6 +3,7 @@
 
 #include "app/http3/server/srvrun/srvrun_impl_cid.h"
 #include "app/http3/server/srvrun/srvrun_impl_dgent.h"
+#include "app/http3/server/srvrun/srvrun_impl_load.h"
 #include "app/http3/server/srvrun/srvrun_impl_own.h"
 #include "app/http3/server/srvrun/srvrun_impl_protos1.h"
 #include "app/http3/server/srvrun/srvrun_impl_rst.h"
@@ -692,10 +693,9 @@ typedef struct {
    */
   u64 pace_tokens;
   u64 pace_refill_ms; /**< monotonic ms of the last token refill */
-  /** RFC 9114 10.5 rapid-reset window: monotonic ms the current
-   * SRVRUN_RESET_WINDOW_MS window began; l.peer_reset_count is cleared when
-   * a step starts a new one (srvrun_roll_reset_window). */
-  u64 reset_window_start_ms;
+  /** RFC 9114 10.5 / RFC 9000 21.9: the window l.peer_reset_count and the
+   * no-progress count share (srvrun_impl_load.h). */
+  srvrun_load load;
   /** draft-ietf-webtrans-http3-15 SS3.1: one bit per l.streams[] slot whose
    * Extended CONNECT arrived before the client's SETTINGS -- held without
    * a response, then processed once when the SETTINGS arrive

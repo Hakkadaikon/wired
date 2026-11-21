@@ -5,6 +5,9 @@
 
 #include "app/http3/server/srvrun/srvrun_impl_protos3.h"
 
+void srvrun_noprog_note(srvrun_conn* c, const srvrun_rxmark* m);
+int  srvrun_close_on_load(const srvrun_cfg* cfg, srvrun_conn* c);
+
 int srvrun_send_stream_slice(
     const srvrun_step_ctx*   ctx,
     srvrun_conn*             c,

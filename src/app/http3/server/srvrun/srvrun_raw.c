@@ -5,9 +5,6 @@ static int srvrun_close_on_h3(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_qpack(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_step_violation_rest(
     const srvrun_cfg* cfg, srvrun_conn* c);
-static u32 srvrun_reset_limit(const srvrun_cfg* cfg);
-static int srvrun_reset_flooded(const srvrun_cfg* cfg, const srvrun_conn* c);
-static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_hs_error(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_hs_or_datagram(
     const srvrun_cfg* cfg, srvrun_conn* c);
@@ -53,45 +50,6 @@ static int srvrun_close_on_step_violation_rest(
     return 1;
   }
   return srvrun_close_on_limits(cfg, c);
-}
-
-/* RFC 9114 10.5 rapid reset: start a new fixed window (clearing the
- * srvloop reset counter) once SRVRUN_RESET_WINDOW_MS has elapsed since the
- * current one began. Runs before the step's gathering so this step's own
- * resets land in the window they belong to. */
-void srvrun_roll_reset_window(srvrun_conn* c, u64 now_ms) {
-  if (now_ms - c->reset_window_start_ms < SRVRUN_RESET_WINDOW_MS) {
-    return;
-  }
-  c->reset_window_start_ms = now_ms;
-  c->l.peer_reset_count    = 0;
-  c->wt_sess_window_count  = 0; /* same window, SS5.2 session churn */
-}
-
-static u32 srvrun_reset_limit(const srvrun_cfg* cfg) {
-  u32 v = cfg->env->max_resets_per_window;
-  return v ? v : SRVRUN_MAX_RESETS_PER_WINDOW;
-}
-
-/* RFC 9114 10.5 (V-0438): 1 if this window's RESET_STREAM/STOP_SENDING
- * count passed the limit and the connection was closed over it with the
- * RFC 9114 8.1 H3_EXCESSIVE_LOAD application CONNECTION_CLOSE (the frame
- * sent stays in c->close_pl for a test to decode). */
-/* 1 iff this window's resets passed the limit, or this step carried more
- * than WIRED_SRVLOOP_RESET_Q (two per tracked stream, its doc). */
-static int srvrun_reset_flooded(const srvrun_cfg* cfg, const srvrun_conn* c) {
-  return c->l.peer_reset_count > srvrun_reset_limit(cfg) ||
-         c->l.peer_reset_n > WIRED_SRVLOOP_RESET_Q;
-}
-
-static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c) {
-  static const u8 reason[] = "stream reset rate exceeded";
-  if (!srvrun_reset_flooded(cfg, c)) {
-    return 0;
-  }
-  srvrun_send_app_close(
-      cfg, c, H3_EXCESSIVE_LOAD, wired_span_of(reason, sizeof reason - 1));
-  return 1;
 }
 
 /* Reason phrases for latched handshake error codes: RFC 9000 7.5
@@ -148,7 +106,7 @@ int srvrun_close_on_step_violation(const srvrun_cfg* cfg, srvrun_conn* c) {
   if (srvrun_close_on_hs_or_datagram(cfg, c)) {
     return 1;
   }
-  if (srvrun_close_on_reset_flood(cfg, c)) {
+  if (srvrun_close_on_load(cfg, c)) {
     return 1;
   }
   return srvrun_close_on_step_violation_rest(cfg, c);

@@ -88,6 +88,7 @@ static void srvrun_live_after(
     const srvrun_rxmark*   mark) {
   /* RFC 9000 9.3: decided after decrypt and dedup, before any send of this
    * step, so the step's ACK and data already go to the new path. */
+  srvrun_noprog_note(c, mark); /* RFC 9000 21.9, before the CID frames go */
   srvrun_path_step(ctx, c, dg, mark);
   srvrun_boot_on_rx(c, mark);
   srvrun_raw_start(ctx->cfg, c);

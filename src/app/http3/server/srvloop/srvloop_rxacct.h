@@ -3,6 +3,7 @@
 
 /* Included by srvloop_wt.h after the stream-table caps it sizes from. */
 
+#include "app/http3/server/srvloop/srvloop_rxgap.h"
 #include "transport/stream/flow/flow/finalsize.h"
 
 /** RFC 9000 4.1/4.5: receive accounting entries -- one per stream the peer
@@ -14,9 +15,10 @@
 /** One stream's receive accounting: the highest offset the peer sent on it
  * and its final size once a FIN or RESET_STREAM fixed it (finalsize). */
 typedef struct {
-  int       in_use;    /**< 0 marks a free entry */
-  u64       stream_id; /**< the stream this entry accounts */
-  finalsize fs;        /**< highest offset seen, final size once known */
+  int           in_use;    /**< 0 marks a free entry */
+  u64           stream_id; /**< the stream this entry accounts */
+  finalsize     fs;        /**< highest offset seen, final size once known */
+  srvloop_rxgap gaps;      /**< holes below fs.highest (RFC 9000 21.9) */
 } wired_srvloop_rxacct;
 
 #endif

@@ -17,6 +17,7 @@ typedef struct {
   int ack_eliciting; /**< 1 if it carried an ack-eliciting frame */
   int in_flight;     /**< 1 if its bytes count in total_in_flight */
   int used;          /**< 1 while the slot holds a packet */
+  int app;           /**< 1 if it carried application data (STREAM/DATAGRAM) */
 } sentmeta_pkt;
 
 /** The sent-packet ring and its running bytes-in-flight total. */
@@ -38,6 +39,7 @@ typedef struct {
   int ack_eliciting; /**< 1 if it carries an ack-eliciting frame */
   int in_flight;     /**< 1 if its bytes count in total_in_flight */
   usz sent_bytes;    /**< packet size */
+  int app;           /**< 1 if it carries application data (STREAM/DATAGRAM) */
 } sentmeta_out;
 
 /* RFC 9002 A.1 OnPacketSent: record one sent packet. Adds sent_bytes to
