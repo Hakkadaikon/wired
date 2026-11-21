@@ -1015,8 +1015,8 @@ _Static_assert(
 #define SRVRUN_BOOT_PTO_MAX 120
 
 /* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
- * ponytail: 16 x XSKSETUP_FRAME_SIZE storage per env; raise if a profile ever shows
- * the loop syscall-bound at higher fan-in. Hoisted here (from its former
+ * ponytail: 16 x XSKSETUP_FRAME_SIZE storage per env; raise if a profile ever
+ * shows the loop syscall-bound at higher fan-in. Hoisted here (from its former
  * point of use, next to g_srvrun_rxstorage) so wired_srvrun_env below can
  * size its rxstorage member. */
 #define SRVRUN_RX_BATCH 16
