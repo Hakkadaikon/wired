@@ -151,13 +151,16 @@ typedef struct {
  * thousands. */
 #define SRVRUN_MAX_WT_SESSIONS_PER_WINDOW 10
 
-/* RFC 9000 21.6 (Slowloris): a boot must confirm within this many ms of
- * claiming its slot, whatever its last fragment's age -- the idle sweep
- * alone lets a peer hold a pre-handshake slot forever by trickling one
- * Initial fragment (or Initial retransmit) just inside WIRED_SRVRUN_IDLE_MS
- * (30 s). 10 s clears even a 2 s-RTT path through a HelloRetryRequest round
- * trip plus a two-round antiamp-gated flight, and stays under the idle
- * timeout so the sweep's existing cadence reaps it. */
+/* RFC 9000 21.6 (Slowloris): a boot must confirm, or open a client
+ * Handshake packet, within this many ms of claiming its slot, whatever its
+ * last fragment's age -- the idle sweep alone lets a peer hold a
+ * pre-handshake slot forever by trickling one Initial fragment (or Initial
+ * retransmit) just inside WIRED_SRVRUN_IDLE_MS (30 s). 10 s clears even a
+ * 2 s-RTT path through a HelloRetryRequest round trip plus a two-round
+ * antiamp-gated flight, and stays under the idle timeout so the sweep's
+ * existing cadence reaps it. A boot that opened a client Handshake packet
+ * has proven its keys and address (RFC 9000 8.1) and is left to the idle
+ * timeout, so a lost client Finished can still be retransmitted. */
 #define SRVRUN_BOOT_DEADLINE_MS 10000
 #define SRVRUN_RESET_WINDOW_MS 1000
 
@@ -532,8 +535,9 @@ typedef struct {
    * first set. */
   u64 boot_sent_ms[2];
   /** RFC 9000 21.6: monotonic ms this slot was claimed (srvrun_open_slot);
-   * a boot still unconfirmed SRVRUN_BOOT_DEADLINE_MS later is reaped by the
-   * idle sweep regardless of last_ms (srvrun_boot_overdue). */
+   * a boot still unconfirmed SRVRUN_BOOT_DEADLINE_MS later, with no client
+   * Handshake packet opened, is reaped by the idle sweep regardless of
+   * last_ms (srvrun_boot_overdue). */
   u64 boot_claim_ms;
   /** Server-initiated WebTransport stream sends in flight on this
    * connection (wired_server_wt_open_uni/open_bidi/stream_reply), pumped/

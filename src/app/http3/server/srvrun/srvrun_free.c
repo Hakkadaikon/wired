@@ -192,13 +192,21 @@ static int srvrun_idle_due(const srvrun_conn* c, u64 now_ms) {
          now_ms - srvrun_idle_since(c) >= srvrun_idle_ms(c);
 }
 
-/* RFC 9000 21.6: 1 if c is a boot (claimed, not yet confirmed) older than
- * SRVRUN_BOOT_DEADLINE_MS -- reaped however fresh its last fragment is. */
+/* 1 if the boot deadline does not apply to c: nothing claimed, confirmed,
+ * or a client Handshake packet opened -- the client holds Handshake keys and
+ * its address is validated (RFC 9000 8.1), so the idle timeout governs it
+ * like a confirmed connection (RFC 9000 10.1). */
+static int srvrun_boot_exempt(const srvrun_conn* c) {
+  return !srvrun_slot_busy(c) || wired_server_is_confirmed(&c->s) ||
+         c->l.hs_rx_seen;
+}
+
+/* RFC 9000 21.6: 1 if c is a boot that never opened a client Handshake
+ * packet and is older than SRVRUN_BOOT_DEADLINE_MS -- reaped however fresh
+ * its last fragment is. */
 int srvrun_boot_overdue(const srvrun_conn* c, u64 now_ms) {
-  if (!srvrun_slot_busy(c) || wired_server_is_confirmed(&c->s)) {
-    return 0;
-  }
-  return now_ms - c->boot_claim_ms >= SRVRUN_BOOT_DEADLINE_MS;
+  return !srvrun_boot_exempt(c) &&
+         now_ms - c->boot_claim_ms >= SRVRUN_BOOT_DEADLINE_MS;
 }
 
 /* RFC 9000 10.2: 1 once a closing connection's closing period (three PTOs

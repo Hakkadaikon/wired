@@ -25672,6 +25672,39 @@ static void test_srvrun_slow_trickle_preauth_evicted(void) {
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
 }
 
+/* RFC 9000 21.6 / 10.1: a boot that has opened a client Handshake packet
+ * (hs_rx_seen -- the client holds Handshake keys, its address validated per
+ * RFC 9000 8.1) is not reaped at SRVRUN_BOOT_DEADLINE_MS; the idle timeout
+ * governs it, and frees its slot once it passes. A boot without one is
+ * still reaped at the deadline. */
+static void test_srvrun_hs_proven_boot_reaped_by_idle_not_deadline(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  srvrun_conn*     c    = &st.conns[0];
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  u64 late, idle_end;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrun_cfg      cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env, 0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 1000, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  CHECK(c->up == 1);
+  CHECK(wired_server_is_confirmed(&c->s) == 0);
+  late     = c->boot_claim_ms + SRVRUN_BOOT_DEADLINE_MS;
+  idle_end = u64_max(c->last_ms, c->l.ackst.idle_tx_ms) + srvrun_idle_ms(c);
+  CHECK(idle_end > late);
+  CHECK(srvrun_reap_due(c, late) == 1); /* no Handshake packet opened */
+  c->l.hs_rx_seen = 1;
+  CHECK(srvrun_reap_due(c, late) == 0);
+  CHECK(srvrun_reap_due(c, idle_end - 1) == 0);
+  srvrun_sweep_idle(&cfg, &st, idle_end);
+  CHECK(srvrun_slot_busy(c) == 0);
+  *c = (srvrun_conn){0};
+}
+
 /* RFC 9000 10.1: only a packet "received and processed successfully"
  * restarts the idle timer -- a Handshake packet to a Handshake-proven
  * boot's CID that fails to open leaves both idle marks as they were. */
@@ -31037,6 +31070,7 @@ void test_srvrun(void) {
   test_srvrun_default_config_gates_response_volume_pre_validation();
   test_srvrun_0rtt_accept_requires_or_limits_unvalidated_address();
   test_srvrun_slow_trickle_preauth_evicted();
+  test_srvrun_hs_proven_boot_reaped_by_idle_not_deadline();
   test_srvrun_garbage_keeps_boot_idle_timer();
   test_srvrun_slot_reuse_clears_prior_connection_buffer();
   test_srvrun_boot_replay_ample_budget_no_probe();
