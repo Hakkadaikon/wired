@@ -6,6 +6,7 @@ static int  srvrun_any_wtsend_active(const srvrun_conn* c);
 static int  srvrun_any_send_active(const srvrun_conn* c);
 static int  srvrun_dg_goes_first(const srvrun_step_ctx* ctx, int late);
 static void srvrun_send_pass(const srvrun_step_ctx* ctx, int slot);
+static void srvrun_ku_space(srvrun_conn* c, u64 now_ms);
 
 /* Datagrams go first: the app asked (datagram_first), or a ring entry of
  * this connection has waited out its bound (late, srvrun_dgring_overdue). */
@@ -39,6 +40,7 @@ void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
     return; /* RFC 9000 10.2.1: no response, pump, or ACK */
   }
   srvrun_feed_acks(ctx, ctx->cfg, c);
+  srvrun_ku_space(c, ctx->now_ms); /* before this step's sends */
   srvrun_acct_resync(c);
   cc_bbr_tick(&c->cc, srvrun_bytes_in_flight(c), ctx->now_ms);
   srvrun_apply_conn_credit_update(c);
@@ -133,5 +135,34 @@ void srvrun_ku_discard_stale(srvrun_conn* c, u64 now_ms) {
   floor_ms = 3u * srvrun_pto_deadline_ms(c, 0);
   if (now_ms >= c->ku_rotated_at_ms + floor_ms) {
     srvloop_ku_discard_old(&c->s);
+  }
+}
+
+/* RFC 9001 6.1: "the lowest packet number sent with each key phase and the
+ * highest acknowledged packet number in the 1-RTT space: once the latter is
+ * higher than or equal to the former" -- the first such ACK of this send
+ * generation (ku_send_lo_pn stays all ones until a packet of it is sent). */
+static int srvrun_ku_first_ack(const srvrun_conn* c) {
+  return c->s.ku_acked_gen != c->s.ku_send.generation &&
+         c->largest_acked >= c->s.ku_send_lo_pn;
+}
+
+/* RFC 9001 6.5: three PTOs have passed since that ACK. */
+static int srvrun_ku_waited(const srvrun_conn* c, u64 now_ms) {
+  return c->s.ku_acked_gen == c->s.ku_send.generation &&
+         now_ms >= c->s.ku_acked_at_ms + 3u * srvrun_pto_deadline_ms(c, 0);
+}
+
+/* RFC 9001 6.5: "SHOULD wait three times the PTO before initiating a key
+ * update after receiving an acknowledgment that confirms that the previous
+ * key update was received" -- lifts s.ku_wait, which every send-side
+ * rotation (self- or peer-initiated) sets. */
+static void srvrun_ku_space(srvrun_conn* c, u64 now_ms) {
+  if (srvrun_ku_first_ack(c)) {
+    c->s.ku_acked_gen   = c->s.ku_send.generation;
+    c->s.ku_acked_at_ms = now_ms;
+  }
+  if (srvrun_ku_waited(c, now_ms)) {
+    c->s.ku_wait = 0;
   }
 }

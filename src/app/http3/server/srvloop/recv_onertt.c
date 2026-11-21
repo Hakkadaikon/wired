@@ -118,7 +118,9 @@ void srvloop_ku_rotate_send(wired_server* s) {
   /* the expanded copy of the replaced send key goes now, not at the next
    * send */
   xkeys_sync(&s->kx_send, s->sdrv.cipher_suite, &s->ku_send.cur);
-  s->ku_send_count = 0; /* RFC 9001 6.6: the limit is per key */
+  s->ku_send_count = 0;     /* RFC 9001 6.6: the limit is per key */
+  s->ku_send_lo_pn = ~0ull; /* RFC 9001 6.1: no packet of the phase yet */
+  s->ku_wait       = 1;     /* RFC 9001 6.5: until ACK + 3 PTO */
 }
 
 /* A packet opened under the current keys widens their pn range. */

@@ -4,6 +4,7 @@
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvwire/wire.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/num.h"
 #include "common/diag/error/error.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "tls/ext/grease/bitset.h"
@@ -102,11 +103,13 @@ static int send_onertt_phase(const wired_server* s) {
   return s->ku_seeded ? keyphase_bit(s->ku_send.generation) : 0;
 }
 
-/* RFC 9001 6.1/6.2: a self-initiated update needs real generation-0 keys
- * seeded (the handshake confirmed) and the peer caught up to the previous
- * one (its recv generation equal to the send generation). */
+/* RFC 9001 6.1/6.2/6.5: a self-initiated update needs real generation-0
+ * keys seeded (the handshake confirmed), the peer caught up to the previous
+ * one (its recv generation equal to the send generation), and the run loop's
+ * "SHOULD wait three times the PTO" after the ACK confirming it (ku_wait). */
 static int ku_can_initiate(const wired_server* s) {
-  return s->ku_seeded && s->ku_send.generation == s->ku.generation;
+  return s->ku_seeded && s->ku_send.generation == s->ku.generation &&
+         !s->ku_wait;
 }
 
 /* RFC 9001 6.6: "RECOMMENDED that endpoints immediately close the
@@ -226,5 +229,6 @@ int wired_srvloop_send_onertt(
     return 0;
   }
   s->ku_send_count++; /* RFC 9001 6.6: one more packet under these keys */
+  s->ku_send_lo_pn = u64_min(s->ku_send_lo_pn, in->pn); /* RFC 9001 6.1 */
   return 1;
 }

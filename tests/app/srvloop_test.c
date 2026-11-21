@@ -6278,9 +6278,22 @@ static void test_srvloop_no_second_update_before_peer_follows(void) {
       1);
   CHECK(f.s.ku.generation == 1);
   CHECK(f.s.ku_send.generation == 1); /* follow did not rotate send twice */
-  f.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  /* RFC 9001 6.5: srvrun has not yet seen the ACK + 3 PTOs (ku_wait) */
+  CHECK(f.s.ku_wait == 1);
+  f.s.ku_error      = 0; /* latched by the refused seal above */
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM - SRVLOOP_KU_CLOSE_MARGIN;
   CHECK(lp_seal_ping(&f, 22, pkt, sizeof pkt) > 0);
+  CHECK(f.s.ku_error == ERR_AEAD_LIMIT_REACHED); /* 6.6: cannot wait */
+  f.s.ku_error      = 0;
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  CHECK(lp_seal_ping(&f, 23, pkt, sizeof pkt) == 0);
+  CHECK(f.s.ku_send.generation == 1);
+  f.s.ku_wait       = 0;
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  CHECK(lp_seal_ping(&f, 24, pkt, sizeof pkt) > 0);
   CHECK(f.s.ku_send.generation == 2);
+  CHECK(f.s.ku_wait == 1); /* re-armed by the rotation */
+  CHECK(f.s.ku_send_lo_pn == 24);
 }
 
 /* RFC 9001 6.6: every 1-RTT packet that fails authentication under the

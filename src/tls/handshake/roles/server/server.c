@@ -54,18 +54,22 @@ static void srv_draw_wire_seeds(wired_server* s) {
 /* Key Update counters and handshake-message order state (wired_server_init,
  * split out to keep its own size flat). */
 static void srv_reset_counters(wired_server* s) {
-  s->ku_seeded     = 0;
-  s->ku_send_count = 0;
-  s->ku_auth_fail  = 0;
-  s->ku_error      = 0;
-  s->hs_error      = 0;
-  s->hs_rx_used    = 0;
-  s->ini_rx_end    = 0;
-  s->peer_cert_off = 0;
-  s->peer_cert_len = 0;
-  s->hs_wait       = SRV_WAIT_FIN;
-  s->hs_aborted    = 0;
-  s->cauth_clock   = clock_ymdhms;
+  s->ku_seeded      = 0;
+  s->ku_send_count  = 0;
+  s->ku_send_lo_pn  = 0;
+  s->ku_wait        = 0;
+  s->ku_acked_gen   = 0;
+  s->ku_acked_at_ms = 0;
+  s->ku_auth_fail   = 0;
+  s->ku_error       = 0;
+  s->hs_error       = 0;
+  s->hs_rx_used     = 0;
+  s->ini_rx_end     = 0;
+  s->peer_cert_off  = 0;
+  s->peer_cert_len  = 0;
+  s->hs_wait        = SRV_WAIT_FIN;
+  s->hs_aborted     = 0;
+  s->cauth_clock    = clock_ymdhms;
   server_reset_xkeys(s);
 }
 

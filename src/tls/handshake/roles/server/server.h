@@ -109,6 +109,19 @@ typedef struct {
   /** RFC 9001 6.6: 1-RTT packets sealed under ku_send's current generation;
    * reset on every rotation, drives the confidentiality-limit Key Update. */
   u64 ku_send_count;
+  /** RFC 9001 6.1: lowest packet number sealed under ku_send's current
+   * generation; all ones from a rotation until the first such packet. */
+  u64 ku_send_lo_pn;
+  /** RFC 9001 6.5: 1 from a send-side rotation until the run loop has seen
+   * an ACK of a packet sealed under the new keys and three PTOs after it;
+   * no self-initiated Key Update while set. */
+  int ku_wait;
+  /** RFC 9001 6.5: the send generation whose first ACK the run loop has
+   * seen, and the monotonic ms it saw it at -- the start of the three PTOs
+   * that end ku_wait. */
+  u64 ku_acked_gen;
+  /** See ku_acked_gen. */
+  u64 ku_acked_at_ms;
   /** RFC 9001 6.6: received 1-RTT packets that failed to open under any
    * retained generation, toward the AEAD integrity limit. */
   u64 ku_auth_fail;

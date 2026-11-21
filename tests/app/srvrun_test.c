@@ -15555,6 +15555,62 @@ static void test_srvrun_ku_old_keys_discarded_after_3pto_window(void) {
   }
 }
 
+/* One srvrun_sess_on_step at now_ms with the 1-RTT largest acknowledged
+ * packet number raised to acked. */
+static void sr_ku_ack_tick(srvrun_state* st, u64 acked, u64 now_ms) {
+  srvrun_cfg      cfg = {0};
+  srvrun_step_ctx tick;
+  cfg.fd                     = -1;
+  cfg.handler                = sr_tiny_body_handler;
+  cfg.env                    = &g_srvrun_env;
+  tick                       = (srvrun_step_ctx){&cfg, 0, st, now_ms, 0};
+  st->conns[0].largest_acked = acked;
+  srvrun_sess_on_step(&tick, 0);
+}
+
+/* RFC 9001 6.5: "SHOULD wait three times the PTO before initiating a key
+ * update after receiving an acknowledgment that confirms that the previous
+ * key update was received" -- the wait (ku_wait) starts at the first ACK of
+ * a packet sealed under the new keys (6.1: largest acknowledged >= lowest pn
+ * of the phase), not at the rotation, and ends exactly 3 PTOs later. */
+static void test_srvrun_ku_initiate_waits_3pto_after_ack(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st = {table, g_srvrun_state.conns};
+  srvrun_conn*  c  = &st.conns[0];
+  u8            obuf[1024], pkt[256];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  wired_obuf    pob;
+  u64           pn, pto3;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(c, &f, &ob);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  srvrun_rtt_note(c, 15);
+  pn                 = 20; /* any pn above 0, so pn - 1 is old phase */
+  c->l.tx_pn         = pn + 1;
+  pob                = (wired_obuf){pkt, sizeof pkt, 0};
+  c->s.ku_send_count = AEAD_LIMIT_AESGCM;
+  CHECK(wired_srvloop_send_onertt(
+      &c->s,
+      &(wired_srvloop_send_in){
+          wired_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1,
+          wired_span_of((const u8*)"\x01", 1), 0, 0, 0, 0},
+      &pob));
+  CHECK(c->s.ku_send.generation == 1);
+  CHECK(c->s.ku_wait == 1);
+  CHECK(c->s.ku_send_lo_pn == pn);
+  pto3 = 3u * srvrun_pto_deadline_ms(c, 0);
+  sr_ku_ack_tick(&st, pn - 1, 1000); /* acks only the old phase */
+  sr_ku_ack_tick(&st, pn - 1, 1000 + 10 * pto3);
+  CHECK(c->s.ku_wait == 1);      /* no timer from the rotation */
+  sr_ku_ack_tick(&st, pn, 5000); /* first ACK of the new phase */
+  sr_ku_ack_tick(&st, pn + 1, 5000 + pto3 - 1);
+  CHECK(c->s.ku_wait == 1); /* a later ACK does not restart the timer */
+  CHECK(c->s.ku_acked_at_ms == 5000);
+  sr_ku_ack_tick(&st, pn + 1, 5000 + pto3);
+  CHECK(c->s.ku_wait == 0);
+}
+
 /* End-to-end -- a real MAX_DATA frame, driven through srvrun_on_step
  * (the real receive path, not field injection), raises the connection's
  * send credit; a subsequent srvrun_sess_on_step (the real per-step apply +
@@ -31007,6 +31063,7 @@ void test_srvrun(void) {
   test_srvrun_pto_probes_lost_hq09_response();
   test_srvrun_ku_old_keys_retained_within_3pto_window();
   test_srvrun_ku_old_keys_discarded_after_3pto_window();
+  test_srvrun_ku_initiate_waits_3pto_after_ack();
   test_srvrun_sibling_ack_does_not_lose_other_slot();
   test_srvrun_ack_ranges_batched_before_loss_pass();
   test_srvrun_pre_recovery_loss_keeps_cwnd();
