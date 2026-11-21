@@ -123,6 +123,10 @@ int  srvrun_ghost_match(const srvrun_step_ctx* ctx, wired_span dcid);
 void srvrun_note_ghost(const srvrun_step_ctx* ctx, srvrun_conn* c);
 void srvrun_serve(const srvrun_step_ctx* ctx, wired_mspan dg);
 i64  srvrun_listen(u16 port, const wired_srvrun_opt* opt);
+i64  srvrun_listen_new(u16 port, const wired_srvrun_opt* opt);
+/* Close the run's sockets once its loop returns; a srvsteer-owned fd is
+ * left to srvsteer_close (srvrun_pin.c). */
+void srvrun_close_listen(srvrun_cfg* cfg);
 void srvrun_serve_batch(
     const srvrun_cfg* cfg, srvrun_state* st, const mmsg_buf* bufs, i64 n);
 int  srvrun_slot_waiting(const srvrun_conn* c);

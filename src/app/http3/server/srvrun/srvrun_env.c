@@ -1,7 +1,12 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "app/http3/server/srvsteer/srvsteer.h"
 
 static int srvrun_pref_wanted(
     const srvrun_cfg* cfg, const wired_srvboot_id* id);
+static i64 srvrun_pref_open(
+    const srvrun_cfg*       cfg,
+    const wired_srvboot_id* id,
+    const wired_srvrun_opt* opt);
 
 /* Install the signal handlers wired_server_run needs: SIGTERM always,
  * SIGHUP conditionally (srvrun_install_sighup). Skipped entirely when
@@ -92,12 +97,31 @@ static int srvrun_pref_wanted(
   return id->pref_v4 != 0 && !cfg->xdp;
 }
 
+/* The preferred-address socket: <0 un-advertises, 0 means "none needed".
+ * On this run's own steered socket's port (RFC 9000 5.2) the dual-stack
+ * main socket already receives that port, and a second member there would take
+ * the hash fallback's share of first Initials, pinning those connections' tx_fd
+ * to a socket the CID-steered rest of the connection never arrives on (every
+ * later packet then reads as an old-path straggler, 9.6.2). A client migrating
+ * to the preferred address is then an ordinary migration on the main socket
+ * (9.6.2 / 9.3: same path validation, 8.2). Anything else opens a plain
+ * socket, never the steered fd another run serves. */
+static i64 srvrun_pref_open(
+    const srvrun_cfg*       cfg,
+    const wired_srvboot_id* id,
+    const wired_srvrun_opt* opt) {
+  if (!srvrun_pref_wanted(cfg, id)) {
+    return -1;
+  }
+  if (srvsteer_fd(id->pref_v4_port, opt->core_id) == cfg->fd) {
+    return 0;
+  }
+  return srvrun_listen_new(id->pref_v4_port, opt);
+}
+
 void srvrun_pref_listen(
     srvrun_cfg* cfg, wired_srvboot_id* id, const wired_srvrun_opt* opt) {
-  i64 fd = -1;
-  if (srvrun_pref_wanted(cfg, id)) {
-    fd = srvrun_listen(id->pref_v4_port, opt);
-  }
+  i64 fd = srvrun_pref_open(cfg, id, opt);
   if (fd < 0) {
     id->pref_v4 = 0;
     return;

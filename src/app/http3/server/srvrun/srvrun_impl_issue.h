@@ -13,6 +13,9 @@ int        srvrun_claim_slot(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial);
 int srvrun_issue_cid(
     const srvrun_cfg* cfg, const conntable* t, u8* cid, u8 cid_len);
+/* 1 when this run embeds its worker index into issued CIDs under the
+ * reuseport steering key (srvrun_claim.c). */
+int  srvrun_udp_steer_routing(const srvrun_cfg* cfg);
 void srvrun_issue_spare_cid(
     const srvrun_cfg* cfg, const conntable* t, srvrun_conn* c);
 int srvrun_open_slot(

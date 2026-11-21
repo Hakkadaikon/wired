@@ -1,3 +1,4 @@
+#include "app/http3/server/srvsteer/srvsteer.h"
 #include "app/http3/server/srvthreads/srvthreads_impl.h"
 
 static i64 srvthreads_spawn_all(
@@ -27,6 +28,14 @@ static void srvthreads_fill_args(
     const int*                   cores);
 static void srvthreads_pin_control(int control_core);
 static void srvthreads_serve(srvthreads_worker_arg* args, int n);
+static void srvthreads_steer(
+    u16 port, const wired_srvboot_id* id, const wired_srvthreads_opt* opt);
+static void srvthreads_teardown(
+    wired_srvxdpbpf*        bpf,
+    u8*                     envs,
+    wired_srvinbox_ring*    mesh,
+    int                     n,
+    const wired_srvxdp_cfg* xdp);
 
 /* Spawn every worker thread. On the first wired_thread_start failure, stops
  * and returns that negative error; every already-started thread is left
@@ -161,6 +170,33 @@ static void srvthreads_pin_control(int control_core) {
   }
 }
 
+/* RFC 9000 5.2/9 (UDP mode only; XDP steers by CID already): bind every
+ * worker's reuseport socket in worker order and attach the CID-selection
+ * program before any worker thread spawns, so each worker's srvrun_listen
+ * finds its own pre-bound socket at group index == worker index
+ * (srvsteer.h). Best-effort: on failure (or n_cores == 1) each worker
+ * binds its own socket as before. */
+static void srvthreads_steer(
+    u16 port, const wired_srvboot_id* id, const wired_srvthreads_opt* opt) {
+  if (!opt->xdp) {
+    srvsteer_open(port, opt->n_cores, id->scid_len);
+  }
+}
+
+/* Release everything the run set up: the steering sockets, the shared BPF
+ * filter (XDP mode), the inbox mesh and the env table. */
+static void srvthreads_teardown(
+    wired_srvxdpbpf*        bpf,
+    u8*                     envs,
+    wired_srvinbox_ring*    mesh,
+    int                     n,
+    const wired_srvxdp_cfg* xdp) {
+  srvsteer_close();
+  srvthreads_close_bpf(bpf, xdp);
+  srvthreads_free_mesh(mesh, n);
+  srvthreads_free_envs(envs, n);
+}
+
 /* Spawn every worker, wait for the shutdown word, then join them all. */
 static void srvthreads_serve(srvthreads_worker_arg* args, int n) {
   wired_thread threads[WIRED_SRVTHREADS_MAX] = {0};
@@ -190,12 +226,11 @@ int wired_srvthreads_run(
   if (!srvthreads_setup(&bpf, &envs, &mesh, n, opt->xdp)) {
     return 0;
   }
+  srvthreads_steer(port, id, opt);
   srvthreads_fill_common(&common, port, id, h, obs, opt, &bpf);
   srvthreads_fill_args(args, &common, envs, mesh, n, opt->cores);
   srvthreads_serve(args, n);
 
-  srvthreads_close_bpf(&bpf, opt->xdp);
-  srvthreads_free_mesh(mesh, n);
-  srvthreads_free_envs(envs, n);
+  srvthreads_teardown(&bpf, envs, mesh, n, opt->xdp);
   return 1;
 }

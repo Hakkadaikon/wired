@@ -400,13 +400,15 @@ typedef struct {
    * one wired_srvrun_serve_env instance in the same process (e.g. one per
    * thread) -- only one of them may own the process-wide signal handlers. */
   int no_signal_handlers;
-  /** AF_XDP core-routing, only when xdp is set: this worker's own
-   * core/queue index (>= 0), masked into the leading byte of every SCID it
-   * generates (ncid_route_encode under xdp->route_key) so the BPF filter
-   * routes by CID instead of NIC queue after a connection migrates. -1 (the
-   * default, a sentinel like incoming_cpu since core 0 is itself valid)
-   * embeds the xdp socket's own queue_id. When xdp is 0 no core id is ever
-   * embedded in a CID; a non-negative value then only salts this worker's
+  /** Worker core-routing: this worker's own core/queue index (>= 0),
+   * masked into the leading byte of every SCID it generates
+   * (ncid_route_encode) so a BPF program routes by CID after a connection
+   * migrates -- the AF_XDP filter under xdp->route_key when xdp is set, or
+   * the multi-worker UDP reuseport program under srvsteer's key when the
+   * driver activated steering (srvsteer_open; with steering inactive no
+   * core id is embedded). -1 (the default, a sentinel like incoming_cpu
+   * since core 0 is itself valid) embeds the xdp socket's own queue_id in
+   * XDP mode. A non-negative value always also salts this worker's
    * stateless-reset key (RFC 9000 10.3.2, srvrun_pin_reset_seed). */
   int core_id;
   /** WebTransport subprotocol negotiation (draft-ietf-webtrans-http3-15

@@ -113,6 +113,12 @@ i64 wired_udp_reuseport_enable(i64 fd) {
       fd, WIRED_SOL_SOCKET, WIRED_SO_REUSEPORT, &val, sizeof(val));
 }
 
+i64 wired_udp_reuseport_cbpf_attach(i64 fd, const u64* prog, u16 len) {
+  udp_sock_fprog fp = {len, {0}, prog};
+  return wired_arch_setsockopt(
+      fd, WIRED_SOL_SOCKET, WIRED_SO_ATTACH_REUSEPORT_CBPF, &fp, sizeof(fp));
+}
+
 i64 wired_udp_recvmmsg_nowait(i64 fd, mmsg_buf* bufs, usz count) {
   /* Not zeroed here: recvmmsg_fill_all initializes every byte of the n
    * slots and iovecs the syscall reads, and of a cmsg buffer only the

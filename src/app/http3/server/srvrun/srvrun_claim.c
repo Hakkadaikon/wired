@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "app/http3/server/srvsteer/srvsteer.h"
 
 static void srvrun_resend_flight_on_hs_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int booting, wired_mspan dg);
@@ -126,11 +127,28 @@ static u8 srvrun_xdp_core(const srvrun_cfg* cfg) {
   return (u8)(cfg->core_id >= 0 ? (u32)cfg->core_id : cfg->xdp->queue_id);
 }
 
-/* Embed the issuing worker's routing byte into cid when this run steers by
- * the AF_XDP filter; a plain socket run leaves the CID fully random. */
+/* RFC 9000 5.2 / 9: in a steered multi-worker UDP run the reuseport BPF
+ * program decodes every DCID's leading byte under the shared key, so every
+ * CID this worker issues must carry its own index -- exactly the AF_XDP
+ * rule above, same key scheme, different transport. The run is steered
+ * exactly when the socket it serves IS its worker's steering socket
+ * (srvsteer_owns): a run on any other socket -- the preferred-address
+ * port, or a serve_env outside the group -- must not embed bytes under a
+ * key its packets never traverse. */
+int srvrun_udp_steer_routing(const srvrun_cfg* cfg) {
+  return !cfg->xdp && cfg->core_id >= 0 && srvsteer_owns(cfg->fd, cfg->core_id);
+}
+
+/* Embed the issuing worker's routing byte into cid, under whichever of the
+ * two steering transports (AF_XDP filter / reuseport BPF) this run uses;
+ * a plain single-socket run leaves the CID fully random. */
 static void srvrun_route_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
   if (srvrun_xdp_core_routing(cfg)) {
     ncid_route_encode(cid, cid_len, srvrun_xdp_core(cfg), &cfg->xdp->route_key);
+    return;
+  }
+  if (srvrun_udp_steer_routing(cfg)) {
+    ncid_route_encode(cid, cid_len, (u8)cfg->core_id, srvsteer_key());
   }
 }
 

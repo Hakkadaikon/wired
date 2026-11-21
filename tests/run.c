@@ -252,6 +252,8 @@
 #include "transport/io/socket/io/udp_cmsg.c"
 #include "transport/io/socket/io/udp_tos.c"
 #include "transport/io/socket/io/udp_recvmmsg.c"
+#include "transport/io/socket/rpsteer/rpsteer.c"
+#include "transport/io/socket/rpsteer/rpsteer_mix.c"
 #include "tls/keys/keyupdate/aeadlimit.c"
 #include "tls/keys/keyupdate/aeadintegrity.c"
 #include "tls/keys/keyupdate/keyphase.c"
@@ -672,6 +674,7 @@
 #include "app/media/mp4frag/mp4frag.c"
 #include "app/http3/server/mimetype/mimetype.c"
 #include "app/http3/server/srvpin/srvpin.c"
+#include "app/http3/server/srvsteer/srvsteer.c"
 #include "app/http3/server/srvworkers/srvworkers.c"
 #include "app/http3/server/srvthreads/srvthreads.c"
 #include "app/http3/server/srvthreads/srvthreads_cores.c"
@@ -1278,6 +1281,7 @@
 #include "app/mimetype_test.c"
 #include "app/h3reqenc_test.c"
 #include "app/srvpin_test.c"
+#include "app/srvsteer_test.c"
 #include "app/srvworkers_test.c"
 #include "app/srvinbox_test.c"
 #include "app/srvthreads_test.c"
@@ -1293,6 +1297,7 @@
 #include "app/srvpoll_test.c"
 #include "transport/eth_test.c"
 #include "transport/xdpmac_test.c"
+#include "transport/rpsteer_test.c"
 #include "transport/xdpbpf_test.c"
 #include "transport/xskring_test.c"
 #include "transport/xskumem_test.c"
@@ -1792,6 +1797,7 @@ int main(void) {
   test_h3reqenc();
   test_stats();
   test_srvpin();
+  test_srvsteer();
   test_srvworkers();
   test_srvinbox();
   test_srvthreads();
@@ -1806,6 +1812,7 @@ int main(void) {
   test_srvpoll();
   test_eth();
   test_xdpmac();
+  test_rpsteer();
   test_xdpbpf();
   test_xskring();
   test_xskumem();

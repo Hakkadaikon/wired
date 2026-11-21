@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "app/http3/server/srvsteer/srvsteer.h"
 
 /* Pin id's stateless-reset secret to a per-worker copy, held in env, of the
  * start-time seed (the caller's reset_seed when set, else cert_seed): tokens
@@ -6,9 +7,11 @@
  * 10.3), and salting with the worker index keeps the key per worker, so
  * only the worker that issued a CID can build its reset (RFC 9000 10.3.2);
  * the salt is deterministic, so a restarted worker keeps its tokens. In
- * the non-XDP fork/threads modes nothing steers a CID to its worker, so a
- * reset there is only valid when the datagram happens to reach the worker
- * with the same index -- defense in depth, not delivery. */
+ * the fork/threads UDP modes the reuseport steering (srvsteer) routes a
+ * server-issued CID to the worker with the issuing index, which is the
+ * worker whose salted key can reproduce the token; without steering
+ * (single worker, or srvsteer_open failed) a reset is only valid when the
+ * datagram happens to reach the same-index worker -- defense in depth. */
 void srvrun_pin_reset_seed(
     wired_srvrun_env* env, wired_srvboot_id* id, int worker) {
   bytes_memcpy(env->reset_seed, srvboot_reset_seed(id), sizeof env->reset_seed);
@@ -73,9 +76,15 @@ static void srvrun_env_take(
 
 /* Close the run's sockets once its loop returns: they are SO_REUSEPORT, so
  * one left open after shutdown would keep taking a share of the port's
- * packets from a later run on the same port, and nobody reads it. */
-static void srvrun_close_listen(srvrun_cfg* cfg) {
-  wired_udp_close(cfg->fd);
+ * packets from a later run on the same port, and nobody reads it. A
+ * steered socket is the one exception -- srvsteer owns it (closing it here
+ * would, in thread mode, drop it out of the live group and remap the
+ * remaining workers' indices, and leave srvsteer_close to close a reused
+ * fd number). */
+void srvrun_close_listen(srvrun_cfg* cfg) {
+  if (!srvsteer_owned(cfg->fd)) {
+    wired_udp_close(cfg->fd);
+  }
   if (cfg->env->pref_fd) {
     wired_udp_close(cfg->env->pref_fd);
     cfg->env->pref_fd = 0;

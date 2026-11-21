@@ -130,6 +130,17 @@ typedef struct {
 #define WIRED_SOL_SOCKET 1
 /* SO_REUSEPORT setsockopt name (Linux, kernel >= 3.9). */
 #define WIRED_SO_REUSEPORT 15
+/* SO_ATTACH_REUSEPORT_CBPF setsockopt name (Linux, kernel >= 4.5). */
+#define WIRED_SO_ATTACH_REUSEPORT_CBPF 51
+
+/* struct sock_fprog (linux/filter.h) as the kernel reads it on x86_64: a
+ * u16 instruction count at offset 0 and the instruction pointer at offset 8
+ * (6 bytes of struct padding in between, zeroed explicitly here). */
+typedef struct {
+  u16        len;
+  u8         pad[6];
+  const u64* filter;
+} udp_sock_fprog;
 
 /* MSG_DONTWAIT (linux/socket.h): non-blocking for this call only, unlike
  * O_NONBLOCK which is a persistent open-file-description flag. */

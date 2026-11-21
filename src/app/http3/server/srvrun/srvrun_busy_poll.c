@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "app/http3/server/srvsteer/srvsteer.h"
 
 static void srvrun_ghost_add(const srvrun_step_ctx* ctx, const u8* cid, u8 len);
 static void srvrun_refuse_unroutable(
@@ -16,6 +17,7 @@ static int  srvrun_prefer_busy_poll_wanted(const wired_srvrun_opt* opt);
 static void srvrun_maybe_prefer_busy_poll(i64 fd, const wired_srvrun_opt* opt);
 static void srvrun_maybe_busy_poll_budget(i64 fd, const wired_srvrun_opt* opt);
 static void srvrun_maybe_incoming_cpu(i64 fd, const wired_srvrun_opt* opt);
+static void srvrun_listen_opts(i64 fd, const wired_srvrun_opt* opt);
 
 /* Remember one cid of len bytes as freshly closed in the next ring entry. */
 static void srvrun_ghost_add(
@@ -145,8 +147,29 @@ static void srvrun_maybe_incoming_cpu(i64 fd, const wired_srvrun_opt* opt) {
   }
 }
 
-/* Bind a UDP socket on port. Returns the fd, or <0 on failure. */
-i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
+/* Per-socket options, applied whether the socket was freshly opened here or
+ * came pre-bound from the steering group (srvrun_listen below) -- all
+ * best-effort.
+ * RFC 9000 13.4 / RFC 9002 19.3.2: ECT(0) marking on send and IP_TOS cmsg
+ * on receive are an optimization an ECN-unaware kernel/NIC simply won't
+ * provide, never a bind blocker.
+ * RFC 8899 4.5: this connection runs its own DPLPMTUD search (pmtu via
+ * srvrun_pmtu.c's probe drive), so the kernel's own PMTU enforcement must
+ * be suspended for this socket's flows. */
+static void srvrun_listen_opts(i64 fd, const wired_srvrun_opt* opt) {
+  wired_udp_ect0_enable(fd);
+  wired_udp_recvtos_enable(fd);
+  wired_udp_pmtu_probe_enable(fd);
+  srvrun_maybe_busy_poll(fd, opt->so_busy_poll_us);
+  srvrun_maybe_prefer_busy_poll(fd, opt);
+  srvrun_maybe_busy_poll_budget(fd, opt);
+  srvrun_maybe_incoming_cpu(fd, opt);
+}
+
+/* Open and bind a fresh UDP socket on port, never a steered fd (the
+ * preferred-address listener's path, srvrun_pref_open). Returns the fd,
+ * or <0. */
+i64 srvrun_listen_new(u16 port, const wired_srvrun_opt* opt) {
   sockaddr sa;
   i64      fd = wired_udp_socket();
   if (fd < 0) {
@@ -156,24 +179,29 @@ i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
    * single-worker run does not need it, so a failure here is not fatal --
    * fall through to bind unconditionally. */
   wired_udp_reuseport_enable(fd);
-  /* RFC 9000 13.4 / RFC 9002 19.3.2: best-effort like reuseport above -- ECT(0)
-   * marking on send and IP_TOS cmsg on receive are an optimization an ECN-
-   * unaware kernel/NIC simply won't provide, never a bind blocker. */
-  wired_udp_ect0_enable(fd);
-  wired_udp_recvtos_enable(fd);
-  /* RFC 8899 4.5: this connection runs its own DPLPMTUD search (pmtu via
-   * srvrun_pmtu.c's probe drive), so the kernel's own PMTU enforcement
-   * must be suspended for this socket's flows -- best-effort like the ECN
-   * options above, never a bind blocker. */
-  wired_udp_pmtu_probe_enable(fd);
-  srvrun_maybe_busy_poll(fd, opt->so_busy_poll_us);
-  srvrun_maybe_prefer_busy_poll(fd, opt);
-  srvrun_maybe_busy_poll_budget(fd, opt);
-  srvrun_maybe_incoming_cpu(fd, opt);
+  srvrun_listen_opts(fd, opt);
   wired_udp_addr(&sa, port, (const u8[4]){0, 0, 0, 0});
   if (wired_udp_bind(fd, &sa) < 0) {
     wired_udp_close(fd);
     return -1;
   }
   return fd;
+}
+
+/* Bind a UDP socket on port. In a steered multi-worker run (RFC 9000 5.2:
+ * srvsteer bound one socket per worker, in worker order, before any worker
+ * started) this worker's socket for THIS port already exists -- take it,
+ * so the reuseport group's BPF index for cfg->core_id keeps meaning this
+ * worker; the per-socket options are still applied per worker here. Any
+ * other port (a preferred-address port other than the steered one,
+ * srvrun_pref_listen, or a serve_env on a port the group was not opened
+ * for) misses the lookup and opens its own fresh socket. Returns the fd,
+ * or <0 on failure. */
+i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
+  i64 fd = srvsteer_fd(port, opt->core_id);
+  if (fd >= 0) {
+    srvrun_listen_opts(fd, opt);
+    return fd;
+  }
+  return srvrun_listen_new(port, opt);
 }

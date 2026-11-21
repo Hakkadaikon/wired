@@ -262,6 +262,21 @@ i64 wired_udp_recvtos_enable(i64 fd);
  * @return 0 on success, or a negative errno. */
 i64 wired_udp_reuseport_enable(i64 fd);
 
+/** Attach a classic-BPF socket-selection program to fd's SO_REUSEPORT group
+ * (SO_ATTACH_REUSEPORT_CBPF, Linux >= 4.5, no privilege needed): the
+ * program's return value picks the group member (by bind order) each
+ * datagram is delivered to; a value >= the member count falls back to the
+ * kernel's 4-tuple hash. Attaching through any member replaces the whole
+ * group's program.
+ * @param fd a socket with SO_REUSEPORT set, bound into the group or about
+ *   to bind (an unbound attach makes the group the bind then forms inherit
+ *   the program; a bind into a group that already exists elsewhere then
+ *   fails EADDRINUSE instead of joining it)
+ * @param prog len packed sock_filter instructions (rpsteer_insn layout)
+ * @param len instruction count
+ * @return 0 on success, or a negative errno. */
+i64 wired_udp_reuseport_cbpf_attach(i64 fd, const u64* prog, u16 len);
+
 /** Same as wired_udp_recvmmsg but non-blocking (MSG_DONTWAIT): returns
  * immediately with a negative errno (e.g. EAGAIN) if no datagram is queued,
  * instead of waiting for the first one.

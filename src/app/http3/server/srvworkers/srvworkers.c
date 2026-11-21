@@ -3,6 +3,7 @@
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvkeys/srvkeys.h"
 #include "app/http3/server/srvpin/srvpin.h"
+#include "app/http3/server/srvsteer/srvsteer.h"
 #include "common/platform/sys/syscall.h"
 #include "tls/handshake/core/sdrv/sdrv.h"
 
@@ -68,8 +69,10 @@ static wired_srvrun_opt g_srvworkers_run_base;
 /* This child's run options: the app-set base, with the per-worker fields the
  * fork model owns layered on top -- incoming_cpu hints the kernel to steer
  * this worker's packets toward the CPU it is pinned to (worker_index), and
- * core_id carries the worker index so each child's stateless-reset key is
- * its own (RFC 9000 10.3.2); with xdp 0 it never reaches CID routing. */
+ * core_id carries the worker index: it salts each child's stateless-reset
+ * key (RFC 9000 10.3.2) and, when srvsteer is active, picks this child's
+ * pre-bound steering socket and the routing byte of every CID it issues
+ * (srvrun_listen / srvrun_issue_cid). */
 static wired_srvrun_opt srvworkers_child_opt(int worker_index) {
   wired_srvrun_opt opt = g_srvworkers_run_base;
   opt.incoming_cpu     = worker_index;
@@ -180,7 +183,12 @@ static int srvworkers_fork_all(
 
 /* Respawn only a crash (killed by a signal, or a non-zero exit code; both
  * make the low 16 wait4 status bits non-zero) and only while not shutting
- * down. A clean exit 0 never respawns. */
+ * down. A clean exit 0 never respawns.
+ * shortcut: a worker that exits 0 while its siblings keep serving leaves
+ * its steering socket in the reuseport group with no reader, so that
+ * index's share of hash-fallback traffic and its routed CIDs black-hole;
+ * remove the socket from the group (or respawn on exit 0 too) if a worker
+ * is ever meant to retire early outside shutdown. */
 static int srvworkers_should_respawn(i64 status, int terminating) {
   return (status & 0xffff) != 0 && !terminating;
 }
@@ -330,6 +338,12 @@ static int srvworkers_start(
   }
   sdrv_zerortt_share();     /* on failure 0-RTT replay stays per worker */
   srvkeys_newtoken_share(); /* likewise NEW_TOKEN single use */
+  /* RFC 9000 5.2/9: bind every worker's reuseport socket in worker order
+   * and attach the CID-selection program BEFORE any fork, so children
+   * inherit the key, the fds and a group whose member index == worker
+   * index (srvsteer.h). Best-effort like SO_REUSEPORT itself: on failure
+   * (or workers == 1) each child binds its own socket as before. */
+  srvsteer_open(port, opt->workers, id->scid_len);
   wired_sigterm_install(srvworkers_on_term);
   return srvworkers_fork_all(t, port, id, h, obs, opt);
 }
@@ -346,10 +360,12 @@ int wired_srvworkers_run(
   local.workers = srvworkers_resolve_count(local.workers);
   r             = srvworkers_start(&t, port, id, h, obs, &local);
   if (r < 0) {
+    srvsteer_close();
     return r;
   }
   while (srvworkers_live(&t)) {
     srvworkers_supervise_once(&t, port, id, h, obs, &local);
   }
+  srvsteer_close();
   return 0;
 }
