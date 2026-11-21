@@ -2058,10 +2058,11 @@ static void test_srvrun_spare_cid_token_matches_reset(void) {
    * (see wired_srvrun_env_init) overflowed test_srvrun's inlined frame */
   bytes_memset(c, 0, sizeof *c);
   {
-    srvrun_cfg cfg = {
+    conntable  table[WIRED_CONNTABLE_CAP] = {0};
+    srvrun_cfg cfg                        = {
         -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
         0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    srvrun_issue_spare_cid(&cfg, c);
+    srvrun_issue_spare_cid(&cfg, table, c);
     CHECK(c->l.spare_cid_len == id.scid_len);
     CHECK(
         srvrun_seal_stateless_reset(
@@ -2191,14 +2192,15 @@ static void test_srvrun_open_slot_stamps_qlog_group(void) {
  * went unanswered about one run in three, and every interop case failed
  * when the runner's server ran on AF_XDP. */
 static void test_srvrun_issue_cid_xdp_negative_core_id_routes_to_queue(void) {
-  wired_srvxdp fake_xdp = {0};
-  srvrun_cfg   cfg      = {.xdp = &fake_xdp, .core_id = -1, 0, 0, 0, 0};
-  fake_xdp.route_key    = g_sr_route_key;
-  fake_xdp.queue_id     = 3;
+  wired_srvxdp fake_xdp                   = {0};
+  conntable    table[WIRED_CONNTABLE_CAP] = {0};
+  srvrun_cfg   cfg   = {.xdp = &fake_xdp, .core_id = -1, 0, 0, 0, 0};
+  fake_xdp.route_key = g_sr_route_key;
+  fake_xdp.queue_id  = 3;
   CHECK(srvrun_xdp_core_routing(&cfg) == 1);
   for (int i = 0; i < 64; i++) {
     u8 cid[8];
-    CHECK(srvrun_issue_cid(&cfg, cid, sizeof cid) == 1);
+    CHECK(srvrun_issue_cid(&cfg, table, cid, sizeof cid) == 1);
     CHECK(ncid_route_decode(cid, &g_sr_route_key) == 3);
   }
 }
@@ -2209,10 +2211,109 @@ static void test_srvrun_issue_cid_xdp_negative_core_id_routes_to_queue(void) {
 static void test_srvrun_issue_cid_xdp_embeds_core_id(void) {
   u8           cid[8]   = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
   wired_srvxdp fake_xdp = {0};
-  srvrun_cfg   cfg      = {.xdp = &fake_xdp, .core_id = 15, 0, 0, 0, 0};
-  fake_xdp.route_key    = g_sr_route_key;
-  CHECK(srvrun_issue_cid(&cfg, cid, sizeof cid) == 1);
+  conntable    table[WIRED_CONNTABLE_CAP] = {0};
+  srvrun_cfg   cfg   = {.xdp = &fake_xdp, .core_id = 15, 0, 0, 0, 0};
+  fake_xdp.route_key = g_sr_route_key;
+  CHECK(srvrun_issue_cid(&cfg, table, cid, sizeof cid) == 1);
   CHECK(ncid_route_decode(cid, &g_sr_route_key) == 15);
+}
+
+/* Scripted CID draw for the collision-redraw tests: draw i fills the CID
+ * with sr_cid_script[i] bytes (clamped to the last entry). */
+static u8  sr_cid_script[2];
+static int sr_cid_draws;
+static int sr_cid_draw_scripted(u8* cid, u8 len) {
+  int i = sr_cid_draws < 2 ? sr_cid_draws : 1;
+  sr_cid_draws++;
+  for (u8 j = 0; j < len; j++) {
+    cid[j] = sr_cid_script[i];
+  }
+  return 1;
+}
+
+/* RFC 9000 5.1 / 10.3.2: a draw that equals a live connection's CID is
+ * redrawn -- the first scripted draw collides with the inserted live CID,
+ * the second does not and is what gets issued. */
+static void test_srvrun_issue_cid_redraws_on_live_collision(void) {
+  conntable  table[WIRED_CONNTABLE_CAP] = {0};
+  u8         live[8] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
+  u8         cid[8]  = {0};
+  srvrun_cfg cfg     = {.core_id = -1, 0, 0, 0, 0};
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, live, sizeof live) == 0);
+  sr_cid_script[0] = 0xAA; /* == live: must be redrawn */
+  sr_cid_script[1] = 0xBB;
+  sr_cid_draws     = 0;
+  srvrun_test_set_cid_draw(sr_cid_draw_scripted);
+  CHECK(srvrun_issue_cid(&cfg, table, cid, sizeof cid) == 1);
+  srvrun_test_set_cid_draw(0);
+  CHECK(sr_cid_draws == 2);
+  CHECK(cid[0] == 0xBB && cid[7] == 0xBB);
+}
+
+/* RFC 9000 5.1: the lookup covers every CID a slot registered, not just
+ * its primary -- a draw equal to a live connection's spare (alt2) CID is
+ * redrawn too. */
+static void test_srvrun_issue_cid_redraws_on_spare_collision(void) {
+  conntable  table[WIRED_CONNTABLE_CAP] = {0};
+  u8         prim[8]  = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+  u8         spare[8] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
+  u8         cid[8]   = {0};
+  srvrun_cfg cfg      = {.core_id = -1, 0, 0, 0, 0};
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, prim, sizeof prim) == 0);
+  CHECK(
+      conntable_set_alt2(table, WIRED_CONNTABLE_CAP, 0, spare, sizeof spare) ==
+      1);
+  sr_cid_script[0] = 0xAA; /* == the spare: must be redrawn */
+  sr_cid_script[1] = 0xBB;
+  sr_cid_draws     = 0;
+  srvrun_test_set_cid_draw(sr_cid_draw_scripted);
+  CHECK(srvrun_issue_cid(&cfg, table, cid, sizeof cid) == 1);
+  srvrun_test_set_cid_draw(0);
+  CHECK(sr_cid_draws == 2);
+  CHECK(cid[0] == 0xBB && cid[7] == 0xBB);
+}
+
+/* Every bounded attempt colliding is a defined failure: no CID issued,
+ * same contract as an RNG failure (the caller already handles 0). */
+static void test_srvrun_issue_cid_gives_up_when_all_draws_collide(void) {
+  conntable  table[WIRED_CONNTABLE_CAP] = {0};
+  u8         live[8] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
+  u8         cid[8]  = {0};
+  srvrun_cfg cfg     = {.core_id = -1, 0, 0, 0, 0};
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, live, sizeof live) == 0);
+  sr_cid_script[0] = 0xAA;
+  sr_cid_script[1] = 0xAA; /* every draw collides */
+  sr_cid_draws     = 0;
+  srvrun_test_set_cid_draw(sr_cid_draw_scripted);
+  CHECK(srvrun_issue_cid(&cfg, table, cid, sizeof cid) == 0);
+  srvrun_test_set_cid_draw(0);
+  CHECK(sr_cid_draws == SRVRUN_CID_REDRAWS);
+}
+
+/* The collision check runs on the routed bytes: in XDP mode the live CID
+ * it must avoid is one whose ROUTED form collides, so a scripted raw draw
+ * whose routed form equals the live CID is redrawn too. */
+static void test_srvrun_issue_cid_collision_checked_after_routing(void) {
+  conntable    table[WIRED_CONNTABLE_CAP] = {0};
+  wired_srvxdp fake_xdp                   = {0};
+  u8           live[8];
+  u8           cid[8] = {0};
+  srvrun_cfg   cfg    = {.xdp = &fake_xdp, .core_id = 5, 0, 0, 0, 0};
+  fake_xdp.route_key  = g_sr_route_key;
+  /* the routed form of an all-0xAA draw under core 5 */
+  for (usz j = 0; j < sizeof live; j++) {
+    live[j] = 0xAA;
+  }
+  ncid_route_encode(live, sizeof live, 5, &g_sr_route_key);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, live, sizeof live) == 0);
+  sr_cid_script[0] = 0xAA;
+  sr_cid_script[1] = 0xBB;
+  sr_cid_draws     = 0;
+  srvrun_test_set_cid_draw(sr_cid_draw_scripted);
+  CHECK(srvrun_issue_cid(&cfg, table, cid, sizeof cid) == 1);
+  srvrun_test_set_cid_draw(0);
+  CHECK(sr_cid_draws == 2);
+  CHECK(ncid_route_decode(cid, &g_sr_route_key) == 5);
 }
 
 /* BOOT RETRANSMIT (RFC 9000 13.3): before the handshake is confirmed, the
@@ -5569,7 +5670,7 @@ static void sr_spare_setup(
     srvrun_conn* c, struct lp_fix* f, conntable* table, const srvrun_cfg* cfg) {
   sockaddr old_peer, new_peer;
   sr_path_setup(c, f, table, &old_peer, &new_peer);
-  srvrun_issue_spare_cid(cfg, c);
+  srvrun_issue_spare_cid(cfg, table, c);
   CHECK(c->l.spare_cid_len == cfg->id->scid_len);
   CHECK(
       conntable_insert(
@@ -30073,6 +30174,10 @@ void test_srvrun(void) {
   test_srvrun_open_slot_stamps_qlog_group();
   test_srvrun_issue_cid_xdp_negative_core_id_routes_to_queue();
   test_srvrun_issue_cid_xdp_embeds_core_id();
+  test_srvrun_issue_cid_redraws_on_live_collision();
+  test_srvrun_issue_cid_redraws_on_spare_collision();
+  test_srvrun_issue_cid_gives_up_when_all_draws_collide();
+  test_srvrun_issue_cid_collision_checked_after_routing();
   test_srvrun_initial_retransmit_resends_cached_flight();
   test_srvrun_boot_antiamp_first_round_caps_at_3x();
   test_srvrun_boot_antiamp_unsent_tail_not_counted();

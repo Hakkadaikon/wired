@@ -114,8 +114,9 @@ int srvrun_open_slot(
   }
   c = &ctx->st->conns[slot];
   srvrun_conn_fresh(ctx, c, slot);
-  if (srvrun_issue_cid(ctx->cfg, c->scid, ctx->cfg->id->scid_len)) {
-    srvrun_issue_spare_cid(ctx->cfg, c);
+  if (srvrun_issue_cid(
+          ctx->cfg, ctx->st->table, c->scid, ctx->cfg->id->scid_len)) {
+    srvrun_issue_spare_cid(ctx->cfg, ctx->st->table, c);
     return slot;
   }
   conntable_remove(ctx->st->table, WIRED_CONNTABLE_CAP, slot);

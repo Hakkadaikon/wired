@@ -72,7 +72,7 @@ static void srvrun_own_announce(
 
 static void srvrun_own_reissue(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_own_id* o) {
-  if (!srvrun_issue_cid(ctx->cfg, o->cid, o->len)) {
+  if (!srvrun_issue_cid(ctx->cfg, ctx->st->table, o->cid, o->len)) {
     return; /* RNG failure: the peer keeps the IDs it has */
   }
   *o->seq = c->mig.next++;

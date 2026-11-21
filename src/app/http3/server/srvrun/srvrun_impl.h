@@ -75,16 +75,8 @@ int  srvrun_boot_probe_or_replay(const srvrun_step_ctx* ctx, srvrun_conn* c);
 void srvrun_flush_held_on_confirm(
     const srvrun_step_ctx* ctx, int slot, int booting);
 void srvrun_serve_slot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg);
-wired_span srvrun_dcid(wired_mspan dg, u8 short_hdr_len);
-int        srvrun_find_slot(const srvrun_step_ctx* ctx, wired_span dcid);
-int        srvrun_claim_refused(wired_span dcid, int is_initial);
-int        srvrun_claim_slot(
-    const srvrun_step_ctx* ctx, wired_span dcid, int is_initial);
-int  srvrun_issue_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len);
-int  srvrun_cc_algo(const srvrun_cfg* cfg);
-void srvrun_issue_spare_cid(const srvrun_cfg* cfg, srvrun_conn* c);
-int  srvrun_open_slot(
-    const srvrun_step_ctx* ctx, wired_span dcid, int is_initial);
+#include "app/http3/server/srvrun/srvrun_impl_issue.h"
+int srvrun_cc_algo(const srvrun_cfg* cfg);
 usz srvrun_retry_pkt_build(
     const lhdr* h,
     u32         version,

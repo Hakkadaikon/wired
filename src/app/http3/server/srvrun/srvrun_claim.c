@@ -126,18 +126,58 @@ static u8 srvrun_xdp_core(const srvrun_cfg* cfg) {
   return (u8)(cfg->core_id >= 0 ? (u32)cfg->core_id : cfg->xdp->queue_id);
 }
 
-/* One place both a fresh accept (srvrun_open_slot) and any future additional-
- * CID issuance route through, so both share the exact same core-id embedding
- * policy (see NEW_CONNECTION_ID note in srvrun.h's core_id doc). Returns 1 on
- * success matching cid_generate's own contract. */
-int srvrun_issue_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
-  if (!cid_generate(cid, cid_len)) {
-    return 0;
-  }
+/* Embed the issuing worker's routing byte into cid when this run steers by
+ * the AF_XDP filter; a plain socket run leaves the CID fully random. */
+static void srvrun_route_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
   if (srvrun_xdp_core_routing(cfg)) {
     ncid_route_encode(cid, cid_len, srvrun_xdp_core(cfg), &cfg->xdp->route_key);
   }
-  return 1;
+}
+
+/* Test seam (srvworkers_test_set_child_fn precedent): substitute the raw
+ * CID draw so the collision redraw below is testable against a scripted
+ * sequence. Pass 0 to restore the real CSPRNG draw. */
+typedef int (*srvrun_cid_draw_fn)(u8* cid, u8 len);
+static srvrun_cid_draw_fn g_srvrun_cid_draw = cid_generate;
+
+__attribute__((unused)) static void srvrun_test_set_cid_draw(
+    srvrun_cid_draw_fn fn) {
+  g_srvrun_cid_draw = fn ? fn : cid_generate;
+}
+
+/* Draw + route one candidate and accept it only if no live connection in t
+ * already answers to it (RFC 9000 5.1 / 10.3.2: a connection ID must not
+ * be reused for another connection under the same static reset key -- the
+ * routed, final bytes are what the table and the reset key see, so the
+ * check runs after the routing byte is embedded). */
+static int srvrun_cid_fresh(
+    const srvrun_cfg* cfg, const conntable* t, u8* cid, u8 cid_len) {
+  if (!g_srvrun_cid_draw(cid, cid_len)) {
+    return 0;
+  }
+  srvrun_route_cid(cfg, cid, cid_len);
+  return conntable_find(t, WIRED_CONNTABLE_CAP, cid, cid_len) < 0;
+}
+
+/* Collision-redraw attempts: with <= 64 live connections' CIDs in a
+ * >= 5-byte (routing byte + 4 mixed bytes) ID space, one redraw is already
+ * vanishingly rare; 8 bounds the loop without ever mattering in practice. */
+#define SRVRUN_CID_REDRAWS 8
+
+/* One place both a fresh accept (srvrun_open_slot) and any additional-CID
+ * issuance route through, so both share the exact same core-id embedding
+ * policy (see NEW_CONNECTION_ID note in srvrun.h's core_id doc) and the
+ * same across-connections uniqueness check. Returns 1 on success; 0 when
+ * the RNG failed or every attempt collided (no CID issued -- callers treat
+ * it exactly like an RNG failure). */
+int srvrun_issue_cid(
+    const srvrun_cfg* cfg, const conntable* t, u8* cid, u8 cid_len) {
+  for (int i = 0; i < SRVRUN_CID_REDRAWS; i++) {
+    if (srvrun_cid_fresh(cfg, t, cid, cid_len)) {
+      return 1;
+    }
+  }
+  return 0;
 }
 
 int srvrun_cc_algo(const srvrun_cfg* cfg) {
@@ -151,8 +191,9 @@ int srvrun_cc_algo(const srvrun_cfg* cfg) {
  * Best-effort: an RNG failure on the CID draw just leaves spare_cid_len 0
  * and no frame is ever sent -- the connection works, the client simply
  * cannot migrate. */
-void srvrun_issue_spare_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (!srvrun_issue_cid(cfg, c->l.spare_cid, cfg->id->scid_len)) {
+void srvrun_issue_spare_cid(
+    const srvrun_cfg* cfg, const conntable* t, srvrun_conn* c) {
+  if (!srvrun_issue_cid(cfg, t, c->l.spare_cid, cfg->id->scid_len)) {
     return;
   }
   srvboot_reset_token(
