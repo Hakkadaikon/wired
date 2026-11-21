@@ -30,7 +30,8 @@ static int srvrun_boot_hs_unacked(const srvrun_conn* c) {
 
 /* RFC 9002 A.8: the Handshake space has ack-eliciting data in flight -- or
  * the peer provably finished (peer_at_onertt), when the Handshake timer
- * paces the 1-RTT keepalive (srvrun_send_boot_probe) instead. */
+ * paces srvrun_boot_keepalive instead: a fresh Handshake PING until a
+ * client Handshake packet opens (hs_rx_seen), a 1-RTT PING after. */
 int srvrun_boot_hs_armed(const srvrun_conn* c) {
   return srvrun_boot_pto_waiting(c) &&
          (srvrun_boot_hs_unacked(c) || c->peer_at_onertt);
@@ -70,9 +71,17 @@ static int srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms) {
   return now_ms >= c->boot_sent_ms[sp] + srvrun_boot_pto_wait(c) ? sp : -1;
 }
 
-/* The 1-RTT keepalive for a peer that provably finished (its doc). */
+/* RFC 9002 6.2.4 for a peer that provably finished (peer_at_onertt): it
+ * holds the whole flight, so a replay (reused packet numbers, discarded as
+ * duplicates, RFC 9000 12.3) elicits nothing. Until one of its Handshake
+ * packets opens here (hs_rx_seen), a fresh Handshake PING: the space still
+ * in flight, and the client's Handshake ACK of it lifts the boot deadline
+ * (a 1-RTT PING drew 1-RTT ACKs only, and the slot was reaped before the
+ * late Finished). After that, the 1-RTT keepalive (its doc). */
 static int srvrun_boot_keepalive(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  return c->peer_at_onertt && srvrun_send_boot_probe(ctx, c);
+  static int (*const probe[])(const srvrun_step_ctx*, srvrun_conn*) = {
+      srvrun_boot_hs_probe, srvrun_send_boot_probe};
+  return c->peer_at_onertt && probe[c->l.hs_rx_seen != 0](ctx, c);
 }
 
 /* RFC 9002 6.2.4: "An endpoint SHOULD include new data in packets that are

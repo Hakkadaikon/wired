@@ -43,9 +43,11 @@ int srvrun_boot_gate_blocks(const srvrun_conn* c, int confirmed, usz want) {
 
 /* RFC 9001 4.9.1: the Initial keys were discarded (the first Handshake
  * packet processed), or RFC 9002 A.7: the client acknowledged the
- * ServerHello Initial -- either way nothing of it is in flight. */
+ * ServerHello Initial, or its 1-RTT packet opened (peer_at_onertt: RFC
+ * 8446 7.1, its 1-RTT keys need the ServerHello, and it has discarded its
+ * Initial keys, RFC 9001 4.9.1) -- either way nothing of it is in flight. */
 int srvrun_boot_ini_done(const srvrun_conn* c) {
-  return c->l.hs_rx_seen || c->boot_ini_acked;
+  return c->l.hs_rx_seen || c->boot_ini_acked || c->peer_at_onertt;
 }
 
 /* Send/resend the boot Initial through the same antiamp gate as the

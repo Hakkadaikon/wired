@@ -3245,6 +3245,43 @@ static void test_srvrun_finished_wait_probes_small(void) {
   CHECK(st.conns[0].up == 1);
 }
 
+/* HANDSHAKE PROBE FOR A 1-RTT-ONLY PEER (RFC 9002 6.2.4): the client has
+ * the whole flight and sends 1-RTT, but its Finished was lost and none of
+ * its Handshake packets arrived. The boot PTO must send a fresh Handshake
+ * packet -- only its Handshake ACK (hs_rx_seen) lifts the boot deadline;
+ * a 1-RTT PING drew 1-RTT ACKs only and the slot was reaped (interop
+ * handshakeloss). Its 1-RTT datagram also counts toward the RFC 9000 8.1
+ * budget even though it is only held, and the Initial space is not probed:
+ * holding 1-RTT keys, the client has the ServerHello. */
+static void test_srvrun_boot_pto_onertt_peer_probes_handshake(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               sh[PMTU_MAX];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_conn*    c   = sr_boot_with_budget(&ctx, dg, sizeof dg, 0);
+    usz             n   = sr_client_onertt_ping(c, 0, sh);
+    u64             rx  = c->boot_rx_bytes;
+    u64             hs_pn, pn;
+    srvrun_serve(&ctx, wired_mspan_of(sh, n));
+    CHECK(c->boot_rx_bytes == rx + n); /* RFC 9000 8.1 */
+    CHECK(c->peer_at_onertt == 1);
+    CHECK(c->l.hs_rx_seen == 0);
+    hs_pn      = c->l.hs_tx_pn;
+    pn         = c->l.tx_pn;
+    ctx.now_ms = SRVRUN_BOOT_RESEND_CAP_MS; /* past the probe window */
+    srvrun_boot_pto_slot(&ctx, 0);
+    CHECK(c->l.hs_tx_pn == hs_pn + 1); /* a fresh Handshake packet */
+    CHECK(c->l.tx_pn == pn);           /* not a 1-RTT PING */
+    CHECK(c->boot_tx_bytes <= 3 * c->boot_rx_bytes);
+  }
+}
+
 /* A short header that does not open under the client 1-RTT keys (forged
  * or corrupt) proves nothing: the probe stays the flight's own -- the
  * Initial space is still probed first, no 1-RTT keepalive. */
@@ -3309,6 +3346,37 @@ static void test_srvrun_boot_onertt_opens_suite_and_pn(void) {
   CHECK(sr_onertt_opens_with(TLS_AES_128_GCM_SHA256, 0x1234) == 1);
   CHECK(sr_onertt_opens_with(TLS_CHACHA20_POLY1305_SHA256, 0) == 1);
   CHECK(sr_onertt_opens_with(TLS_CHACHA20_POLY1305_SHA256, 0x1234) == 1);
+}
+
+/* RFC 9000 10.2.3 / RFC 9001 4.9.1: a client whose 1-RTT packet opened has
+ * discarded its Initial keys, so an unconfirmed close goes out in a
+ * Handshake packet only -- an Initial copy would be unreadable to it and
+ * spend the antiamp budget. */
+static void test_srvrun_close_long_skips_initial_for_onertt_peer(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               sh[PMTU_MAX];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_conn*    c   = sr_boot_with_budget(&ctx, dg, sizeof dg, 0);
+    usz             n   = sr_client_onertt_ping(c, 0, sh);
+    u64             ini, hs;
+    srvrun_serve(&ctx, wired_mspan_of(sh, n));
+    CHECK(c->peer_at_onertt == 1);
+    c->close_pln = frame_put_conn_close(
+        c->close_pl, SRVRUN_CLOSE_PL_MAX,
+        &(conn_close_frame){0, ERR_PROTOCOL_VIOLATION, 0, 0, 0});
+    ini = c->ini_next_pn;
+    hs  = c->l.hs_tx_pn;
+    srvrun_close_send_long(&cfg, c);
+    CHECK(c->ini_next_pn == ini); /* no Initial close */
+    CHECK(c->l.hs_tx_pn == hs + 1);
+  }
 }
 
 /* Boot one connection from a fresh client Initial and copy the x25519
@@ -30678,8 +30746,10 @@ void test_srvrun(void) {
   test_srvrun_unconfirmed_close_all_levels();
   test_srvrun_hs_probe_replays_boot_flight();
   test_srvrun_finished_wait_probes_small();
+  test_srvrun_boot_pto_onertt_peer_probes_handshake();
   test_srvrun_boot_forged_short_header_keeps_probe();
   test_srvrun_boot_onertt_opens_suite_and_pn();
+  test_srvrun_close_long_skips_initial_for_onertt_peer();
   test_srvrun_boot_x25519_share_fresh_per_connection();
   test_srvrun_odcid_retransmit_resends_serverhello_first();
   test_srvrun_boot_give_up_closes_finished_peer();

@@ -53,6 +53,14 @@ static int srvrun_seal_close_ini(
 
 typedef int (*srvrun_close_sealer)(srvrun_conn*, wired_span, wired_obuf*);
 
+/* The client can still read an Initial close: its Initial keys are live
+ * on this side, and no 1-RTT packet of its opened -- holding 1-RTT keys it
+ * has sent its Finished in a Handshake packet and discarded the Initial
+ * keys (RFC 9001 4.9.1). */
+static int srvrun_close_ini_live(const srvrun_conn* c) {
+  return srvrun_initial_live(c) && !c->peer_at_onertt;
+}
+
 /* Seal fr with seal and send it; nothing goes out if sealing fails. */
 static void srvrun_close_long_send(
     const srvrun_cfg*   cfg,
@@ -80,7 +88,7 @@ void srvrun_close_send_long(const srvrun_cfg* cfg, srvrun_conn* c) {
     return;
   }
   (void)wired_server_early_send_keys(&c->s);
-  if (srvrun_initial_live(c)) {
+  if (srvrun_close_ini_live(c)) {
     srvrun_close_long_send(cfg, c, f, srvrun_seal_close_ini);
   }
   srvrun_close_long_send(cfg, c, f, srvrun_seal_hs_frames);
