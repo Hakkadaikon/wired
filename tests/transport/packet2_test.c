@@ -26,6 +26,22 @@ static void test_retry_roundtrip(void) {
   CHECK(r.tag[0] == 0xA0 && r.tag[15] == 0xAF);
 }
 
+/* RFC 9369 3.2: a v2 Retry wears type bits 0b00 (first byte 0xC0), not v1's
+ * 0b11 -- what retry_build writes for VERSION_2 parses back. */
+static void test_retry_v2_roundtrip(void) {
+  const u8     cid[1]             = {0x01};
+  u8           tag[RETRY_TAG_LEN] = {0};
+  u8           buf[64];
+  retry_packet r;
+  retry_desc   rd = {
+      VERSION_2, wired_span_of(cid, 1), wired_span_of(cid, 1),
+      wired_span_of(cid, 1), tag};
+  usz w = retry_build(buf, sizeof(buf), &rd);
+  CHECK(w != 0 && buf[0] == 0xC0);
+  CHECK(retry_parse(buf, w, &r) == w);
+  CHECK(r.version == VERSION_2);
+}
+
 static void test_retry_truncated(void) {
   const u8   dcid[1]            = {0x01};
   const u8   scid[1]            = {0x02};
@@ -138,6 +154,7 @@ void test_packet2(void) {
   test_vneg_parse_rejects_malformed();
   test_retry_parse_rejects_bad_cids();
   test_retry_roundtrip();
+  test_retry_v2_roundtrip();
   test_retry_truncated();
   test_vneg_roundtrip();
   test_vneg_respond_swap();

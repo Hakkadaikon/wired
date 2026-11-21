@@ -2,6 +2,7 @@
 
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
+#include "transport/packet/header/packet/ptype.h"
 #include "transport/version/version/v2types.h"
 #include "transport/version/version/version.h"
 
@@ -67,7 +68,8 @@ static int retry_head_ok(const u8* buf, usz n) {
   if (n < 5 + 1 + 1 + RETRY_TAG_LEN) {
     return 0;
   }
-  return (buf[0] & 0xF0) == 0xF0;
+  /* RFC 9000 17.2.5 / RFC 9369 3.2: the version's own type bits */
+  return packet_long_type(buf[0], be_get_be32(buf + 1)) == PT_RETRY;
 }
 
 /* Read both CIDs at *off; returns 1 ok, 0 if either is truncated. */
