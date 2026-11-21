@@ -24,7 +24,7 @@ graph TB
 
     subgraph xdp["AF_XDP driver (--ifindex)"]
         direction TB
-        nic2["NIC"] --> bpf["small BPF filter<br/>(reads the QUIC header,<br/>chooses the target socket)"]
+        nic2["NIC"] --> bpf["small BPF filter<br/>(matches the UDP port,<br/>keys by the rx queue)"]
         bpf -- "XDP_REDIRECT" --> xsk["AF_XDP socket<br/>(shared memory ring)"]
         xsk -- "packet already in<br/>this process's memory" --> app2["wired process"]
     end
@@ -43,7 +43,7 @@ BPF フィルターは各パケットに次のどちらかを返す。
 
 | 戻り値 | 対象 | 動作 |
 |---|---|---|
-| `XDP_REDIRECT` | UDP でサーバーのポート宛て | QUIC の宛先接続 ID の先頭バイトで宛先のソケットを選び、その AF_XDP ソケットへ移す |
+| `XDP_REDIRECT` | UDP でサーバーのポート宛て | 受信したキュー(`rx_queue_index`)の AF_XDP ソケットへ移す |
 | `XDP_PASS` | それ以外 | 通常のスタックを通す |
 
 `--skb-mode` は、ソフトウェアでエミュレートする generic XDP モードを選ぶ。ネイティブの XDP に対応しない NIC のドライバー向けである。quic-go、quiche、ngtcp2、picoquic は AF_XDP ドライバーを持たず、デフォルトのドライバーと同じ UDP ソケットで動く。
@@ -86,7 +86,7 @@ flowchart TD
 ```
 
 - WORKERS と THREADS が `--pin-core` を拒否するのは、それぞれ専用の固定用フラグ(`--pin-cores` と `--control-core`)を持つからである。
-- THREADS に `--ifindex` を付けると AF_XDP のマルチキューモードになり、ワーカースレッド *i* が NIC のキュー *i* を担当する。
+- THREADS に `--ifindex` を付けると AF_XDP のマルチキューモードになり、ワーカースレッド *i* が NIC のキュー *i* を担当する。振り分けは 2.2 節。WORKERS(fork)は AF_XDP を使わない(`srvworkers` が `xdp` を 0 にする)。
 - CI の `xdp.yml` は、veth のペアの片側を XDP ドライバーの汎用モード(`--skb-mode`)で動かし、もう片側のネットワーク名前空間から quic-go のクライアントで HTTP/3 を送って確かめる(`scripts/xdp_smoke.sh`)。NIC のドライバーモード(ゼロコピー)は試さない。
 
 ### 2.1 複数ワーカーのパケットの振り分け(UDP モード)
@@ -94,6 +94,28 @@ flowchart TD
 ワーカーが 2 つ以上のとき、ドライバーはワーカーを起動する前に、ワーカーの数だけ SO_REUSEPORT のソケットをワーカーの順に bind し、そのグループに classic BPF の選択プログラムを付ける(`srvsteer` と `rpsteer`。fork は `srvworkers`、スレッドは `srvthreads` が行う)。各ワーカーは、発行するすべての接続 ID に自分の番号を鍵付きで埋める(`srvrun_issue_cid`)。プログラムは届いたデータグラムの Destination Connection ID からその番号を復号してソケットを選ぶので、サーバーが発行した接続 ID を持つパケットは、NAT のリバインドや移行のあともその接続を持つワーカーに届く(RFC 9000 5.2、9)。
 
 クライアントが選んだ最初の Initial の DCID は、復号してもワーカーの番号の範囲に入らないことが多く、その場合はカーネルのハッシュで選ぶ。どちらの判定も同じバイト列の再送には同じ結果を返すので、ハンドシェイクは 1 つのワーカーで進む。ソケットの確保や取り付けに失敗したとき、ワーカーが 1 つのとき、接続 ID が 5 バイト未満のときは、従来どおりカーネルのハッシュだけで振り分ける。
+
+### 2.2 複数キューのパケットの振り分け(AF_XDP)
+
+カーネルは、XSKMAP へリダイレクトしたフレームを、そのフレームが届いたキューに bind した AF_XDP ソケットにしか渡さない(`net/xdp/xsk.c` の `xsk_rcv_check`)。ほかのキューのソケットを選ぶとフレームは捨てられる。そのため BPF フィルターは常に受信したキューのソケットを選ぶ(`xdpbpf_prog_build`)。
+
+接続の持ち主は利用者空間で決める。各ワーカーは発行する接続 ID に自分の番号を鍵付きで埋める(`srvrun_issue_cid` が `srvrun_route_cid` を呼ぶ)。short header を受けたワーカーは DCID からその番号を復号し、自分以外のワーカーなら転送用のリングに積む(`srvxdp_fwd.c`)。持ち主は次の受信でそれを取り出し、自分のソケットで受けたものとして元の送信元アドレスのまま処理する。そのため移行や NAT のリバインド、RSS の表の変更でキューが変わっても接続は続き、経路の検証(RFC 9000 8.2、9.3)も通常どおり走る。
+
+```mermaid
+flowchart LR
+    nic["NIC queue r"] --> xr["worker r<br/>(XSK of queue r)"]
+    xr -- "short header,<br/>DCID names worker o" --> ring["srvfwd ring (o, r)"]
+    ring --> xo["worker o<br/>(serves, replies over its own XSK)"]
+    xr -- "own CID, long header,<br/>or no such worker" --> serve["served by worker r"]
+```
+
+| 項目 | 内容 |
+|---|---|
+| リング | 持ち主と受信側の組ごとに 1 つ、計 N×N 個(`srvfwd`)。生産者と消費者が 1 つずつなので CAS もロックも使わない |
+| 深さ | 16 データグラム。満杯なら捨てて `drops` を数える。QUIC の再送が補う |
+| 運ぶもの | ペイロード、送信元アドレス、相手と自分の MAC、自分の IP。持ち主は相手の MAC を学び、自分のソケットから返信する |
+| 取り出しの割合 | 1 回の受信の半分(切り上げ)までを転送分に使い、残りを自分のキューに使う。転送分は行のリングを 1 回ごとにずらした位置から読む |
+| long header | 転送しない。ハンドシェイク中は移行できず(RFC 9000 9)、最初の Initial の DCID はクライアントが選ぶ(RFC 9000 7.2) |
 
 ## 3. 次のパケットの待ち方
 
