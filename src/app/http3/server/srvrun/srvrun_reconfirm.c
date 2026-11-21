@@ -43,10 +43,13 @@ void srvrun_path_step(
   srvrun_path_retire(ctx->cfg, c);
 }
 
-/* 1 if dg leads with a long-header Handshake packet (first byte 0b1110xxxx,
- * RFC 9000 17.2) -- readable without any keys. */
+/* 1 if dg leads with a long-header Handshake packet -- readable without any
+ * keys. The type comes from the Version's own type bits (RFC 9000 17.2,
+ * RFC 9369 3.2), never from the QUIC Bit: this server advertises
+ * grease_quic_bit, so a client may send it as 0 (RFC 9287 3). */
 static int srvrun_leads_handshake(wired_mspan dg) {
-  return dg.n != 0 && (dg.p[0] & 0xf0) == 0xe0;
+  return dg.n >= 5 &&
+         packet_long_type(dg.p[0], be_get_be32(dg.p + 1)) == PT_HANDSHAKE;
 }
 
 /* RFC 9000 19.20: a confirmed connection receiving a Handshake-space probe

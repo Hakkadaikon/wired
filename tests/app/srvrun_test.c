@@ -17817,8 +17817,8 @@ static void test_srvrun_serve_slot_reconfirms_on_handshake_probe(void) {
   sockaddr      peer = {0};
   wired_obuf    ob   = {0};
   u8            obuf[1024];
-  u8            hs[40] = {0xe0, 1, 2, 3}; /* Handshake-type long header */
-  u8            sh[40] = {0x40, 1, 2, 3}; /* short header */
+  u8            hs[40] = {0xe0, 0, 0, 0, 1}; /* v1 Handshake long header */
+  u8            sh[40] = {0x40, 1, 2, 3};    /* short header */
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                     0,  0};
@@ -17832,6 +17832,42 @@ static void test_srvrun_serve_slot_reconfirms_on_handshake_probe(void) {
   CHECK(srvrun_test_send_count() == 0); /* short header: no replay */
   srvrun_serve_slot(&ctx, 2, wired_mspan_of(hs, sizeof hs));
   CHECK(srvrun_test_send_count() > 0); /* Handshake probe: replayed */
+}
+
+/* GREASED HANDSHAKE PROBE (RFC 9287 3): this server advertises
+ * grease_quic_bit, so a client may clear the QUIC Bit of its Handshake
+ * packets -- first byte 0xAx, not 0xEx. The interop handshakeloss trace:
+ * the one confirmation datagram was lost, and ngtcp2's greased Finished
+ * retransmits drew no HANDSHAKE_DONE replay until its 180s handshake
+ * timeout. The type comes from the version's own type bits (RFC 9369 3.2),
+ * so a v2 0-RTT packet -- the bits v1 uses for Handshake -- is no probe,
+ * while a v2 Handshake packet (type bits 0b11) is. */
+static void test_srvrun_serve_slot_reconfirms_on_greased_probe(void) {
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st   = {table, sr_test_conns()};
+  sockaddr      peer = {0};
+  wired_obuf    ob   = {0};
+  u8            obuf[1024];
+  u8            hs[40]   = {0xa0, 0, 0, 0, 1};             /* QUIC Bit 0 */
+  u8            v2[40]   = {0xe0, 0x6b, 0x33, 0x43, 0xcf}; /* v2 0-RTT */
+  u8            v2hs[40] = {0xf0, 0x6b, 0x33, 0x43, 0xcf}; /* v2 Handshake */
+  usz           sent;
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 5, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&st.conns[2], &f, &ob);
+  srvrun_test_reset_send_count();
+  srvrun_serve_slot(&ctx, 2, wired_mspan_of(v2, sizeof v2));
+  CHECK(srvrun_test_send_count() == 0); /* v2 0-RTT: no replay */
+  srvrun_serve_slot(&ctx, 2, wired_mspan_of(hs, sizeof hs));
+  CHECK(srvrun_test_send_count() > 0); /* greased Handshake: replayed */
+  sent = srvrun_test_send_count();
+  srvrun_serve_slot(&ctx, 2, wired_mspan_of(v2hs, sizeof v2hs));
+  CHECK(srvrun_test_send_count() > sent); /* v2 Handshake: replayed */
 }
 
 /* RFC 9002 7.5's "MUST NOT be blocked by the congestion controller" covers
@@ -30122,6 +30158,7 @@ void test_srvrun(void) {
   test_srvrun_reconfirm_needs_prior_confirm();
   test_srvrun_reconfirm_idempotent_bytes();
   test_srvrun_serve_slot_reconfirms_on_handshake_probe();
+  test_srvrun_serve_slot_reconfirms_on_greased_probe();
   test_srvrun_pto_probe_bypasses_pacing_too();
   test_srvrun_slot_release_grants_one_more_stream();
   test_srvrun_stream_limit_never_decreases();
