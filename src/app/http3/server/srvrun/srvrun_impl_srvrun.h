@@ -852,14 +852,14 @@ typedef struct {
    * Initial (srvrun_boot_on_client_initial) -- the Initial space then has
    * nothing in flight and is neither probed nor resent. */
   u8 boot_ini_acked;
-  /** 1 once an early 1-RTT datagram was held for this still-unconfirmed
-   * connection (srvrun_boot_early_onertt, RFC 9001 5.7): the client sends
-   * 1-RTT only after finishing its handshake, so a held 1-RTT datagram
-   * proves the client already has the whole flight and only the server's
-   * receipt of its Finished is missing -- flight replays are pure waste
-   * from here (duplicate pns the client discards) and the boot probe
-   * switches to a minimal fresh keepalive instead
-   * (srvrun_send_boot_probe). */
+  /** 1 once an early 1-RTT datagram that opens under the client's 1-RTT
+   * keys was held for this still-unconfirmed connection
+   * (srvrun_boot_early_onertt, RFC 9001 5.7): the client sends 1-RTT only
+   * after finishing its handshake, so it proves the client already has the
+   * whole flight and only the server's receipt of its Finished is missing
+   * -- flight replays are pure waste from here (duplicate pns the client
+   * discards) and the boot probe switches to a fresh PING instead
+   * (srvrun_boot_keepalive). */
   u8 peer_at_onertt;
   /** RFC 9000 7.3 after a Retry (force_retry mode): the true original DCID
    * recovered from the client's validated Retry token, advertised as

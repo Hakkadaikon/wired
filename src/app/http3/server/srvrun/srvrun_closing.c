@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "transport/packet/build/hspkt/onertt.h"
 
 static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot);
 static void srvrun_path_tick_slot(const srvrun_step_ctx* ctx, int slot);
@@ -108,12 +109,47 @@ static int srvrun_unconfirmed_up(const srvrun_conn* c) {
   return c->up && !wired_server_is_confirmed(&c->s);
 }
 
+/* The client's 1-RTT read keys: derivable once the flight is built (RFC
+ * 8446 7.1, the transcript through the server Finished). */
+static int srvrun_client_ap(srvrun_conn* c, const initial_keys** ap) {
+  return wired_server_early_send_keys(&c->s) &&
+         keysched_get(&c->s.sched, KS_CLIENT_AP, ap);
+}
+
+/* RFC 9001 5.7: dg opens under the client's 1-RTT keys. A copy is opened
+ * only to learn the client finished -- its frames are not processed, and
+ * the held original is replayed at confirmation. Before confirmation the
+ * client cannot have updated its keys (RFC 9001 6.1) and has sent no
+ * earlier 1-RTT packet this server opened, so generation 0 and a largest
+ * packet number of 0 are exact. */
+static int srvrun_onertt_opens(srvrun_conn* c, wired_mspan dg) {
+  u8                  pkt[WIRED_SRVBOOT_ZERORTT_DG_MAX];
+  const initial_keys* ap;
+  wired_span          pt;
+  if (dg.n > sizeof pkt || !srvrun_client_ap(c, &ap)) {
+    return 0;
+  }
+  bytes_memcpy(pkt, dg.p, dg.n);
+  {
+    protect_keys           pk = {ap, 0, 0};
+    hspkt_onertt_open_desc d  = {
+        wired_mspan_of(pkt, dg.n), c->s.sdrv.iscid_len, 0};
+    return hspkt_onertt_open_suite(c->s.sdrv.cipher_suite, &pk, &d, &pt);
+  }
+}
+
+/* The client finished: a 1-RTT packet that authenticates proves it; a
+ * short header alone is forgeable by anyone who saw the DCID. */
+static void srvrun_note_onertt(srvrun_conn* c, wired_mspan dg) {
+  c->peer_at_onertt = (u8)(c->peer_at_onertt || srvrun_onertt_opens(c, dg));
+}
+
 int srvrun_boot_early_onertt(srvrun_conn* c, wired_mspan dg) {
   if (!srvrun_unconfirmed_up(c) || !srvrun_short_header(dg)) {
     return 0;
   }
   wired_srvboot_acc_hold(&c->boot, dg);
-  c->peer_at_onertt = 1; /* the client finished: 1-RTT proves it */
+  srvrun_note_onertt(c, dg);
   return 1;
 }
 

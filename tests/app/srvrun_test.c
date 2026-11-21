@@ -3087,6 +3087,32 @@ static usz sr_client_hs_ping(const srvrun_conn* c, u64 pn, u8* out) {
   }
 }
 
+/* Client role: a 1-RTT packet carrying a PING and PADDING at client packet
+ * number pn, sealed toward c's SCID under the client 1-RTT keys of c's
+ * negotiated suite -- what a client that finished its handshake sends (RFC
+ * 9001 5.7). The keys come from a copy of c's key schedule, so the
+ * server's own derivation is left to the code under test. */
+static usz sr_client_onertt_ping(const srvrun_conn* c, u64 pn, u8* out) {
+  u8                  pl[24] = {0x01}; /* PING, then PADDING */
+  keysched            ks     = c->s.sched;
+  const initial_keys* k;
+  CHECK(keysched_advance_master(&ks, c->s.tr, c->s.tr_through_flight) == 1);
+  CHECK(keysched_get(&ks, KS_CLIENT_AP, &k) == 1);
+  {
+    protect_keys      pk = {k, 0, 0};
+    hspkt_onertt_desc d  = {
+        wired_span_of(c->s.sdrv.iscid, c->s.sdrv.iscid_len),
+        pn,
+        wired_span_of(pl, sizeof pl),
+        0,
+        0,
+        0};
+    wired_obuf o = obuf_of(out, PMTU_MAX);
+    CHECK(hspkt_onertt_build_suite(c->s.sdrv.cipher_suite, &pk, &d, &o));
+    return o.len;
+  }
+}
+
 /* SECOND FLIGHT COALESCING (RFC 9000 12.2): a client's second datagram
  * coalesces an Initial (ACKing the server flight) with a Handshake packet
  * carrying its Finished -- curl/ngtcp2 and Chrome both send this shape.
@@ -3182,7 +3208,7 @@ static void test_srvrun_hs_probe_replays_boot_flight(void) {
 static void test_srvrun_finished_wait_probes_small(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], hs[PMTU_MAX];
-  u8               sh[64] = {0x40, 0};
+  u8               sh[PMTU_MAX];
   conntable        table[WIRED_CONNTABLE_CAP];
   sockaddr         peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
@@ -3203,7 +3229,8 @@ static void test_srvrun_finished_wait_probes_small(void) {
     send_count_after_boot = srvrun_test_send_count();
     /* an early 1-RTT (short-header) datagram is held and recorded as
      * proof the peer reached 1-RTT */
-    CHECK(srvrun_boot_hold_early(&st.conns[0], wired_mspan_of(sh, 40)) == 1);
+    n = sr_client_onertt_ping(&st.conns[0], 0, sh);
+    CHECK(srvrun_boot_hold_early(&st.conns[0], wired_mspan_of(sh, n)) == 1);
     CHECK(st.conns[0].peer_at_onertt == 1);
     st.conns[0].boot_rx_bytes += 4000;
     tx_before  = st.conns[0].boot_tx_bytes;
@@ -3216,6 +3243,72 @@ static void test_srvrun_finished_wait_probes_small(void) {
   /* ...and it was the small keepalive, not the multi-KB flight replay */
   CHECK(st.conns[0].boot_tx_bytes - tx_before < 200);
   CHECK(st.conns[0].up == 1);
+}
+
+/* A short header that does not open under the client 1-RTT keys (forged
+ * or corrupt) proves nothing: the probe stays the flight's own -- the
+ * Initial space is still probed first, no 1-RTT keepalive. */
+static void test_srvrun_boot_forged_short_header_keeps_probe(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               sh[PMTU_MAX];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_conn*    c   = sr_boot_with_budget(&ctx, dg, sizeof dg, 0);
+    usz             n   = sr_client_onertt_ping(c, 0, sh);
+    u64             tx, pn;
+    sh[n - 1] ^= 1; /* the AEAD tag no longer verifies */
+    c->boot_rx_bytes += 4000;
+    srvrun_serve(&ctx, wired_mspan_of(sh, n));
+    CHECK(c->peer_at_onertt == 0);
+    tx         = c->boot_tx_bytes;
+    pn         = c->l.tx_pn;
+    ctx.now_ms = SRVRUN_BOOT_RESEND_CAP_MS;
+    srvrun_boot_pto_slot(&ctx, 0);
+    CHECK(c->boot_tx_bytes - tx == c->boot_ini_len); /* the Initial probe */
+    CHECK(c->l.tx_pn == pn);
+  }
+}
+
+/* Boot a connection whose 1-RTT keys (not derived yet) belong to suite,
+ * serve it the client's 1-RTT PING at pn, and report peer_at_onertt. The
+ * fixture's client offers AES-128-GCM only; ChaCha20-Poly1305 shares its
+ * SHA-256 (RFC 8446 B.4), so re-pointing the schedule before the 1-RTT
+ * derivation yields the ChaCha20 1-RTT keys a ChaCha20 handshake would. */
+static int sr_onertt_opens_with(u16 suite, u64 pn) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               sh[PMTU_MAX];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_conn*    c   = sr_boot_with_budget(&ctx, dg, sizeof dg, 0);
+    usz             n;
+    c->s.sdrv.cipher_suite = suite;
+    keysched_set_suite(&c->s.sched, suite);
+    n = sr_client_onertt_ping(c, pn, sh);
+    srvrun_serve(&ctx, wired_mspan_of(sh, n));
+    return c->peer_at_onertt;
+  }
+}
+
+/* RFC 9001 5.7 / RFC 9000 17.1: the opened-1-RTT check follows the
+ * negotiated suite (ChaCha20-Poly1305's AEAD and header protection, RFC
+ * 9001 5.4.4) and recovers a packet number past the first byte (0x1234,
+ * sent in 4 bytes) for the AEAD nonce (RFC 9001 5.3). */
+static void test_srvrun_boot_onertt_opens_suite_and_pn(void) {
+  CHECK(sr_onertt_opens_with(TLS_AES_128_GCM_SHA256, 0x1234) == 1);
+  CHECK(sr_onertt_opens_with(TLS_CHACHA20_POLY1305_SHA256, 0) == 1);
+  CHECK(sr_onertt_opens_with(TLS_CHACHA20_POLY1305_SHA256, 0x1234) == 1);
 }
 
 /* Boot one connection from a fresh client Initial and copy the x25519
@@ -30585,6 +30678,8 @@ void test_srvrun(void) {
   test_srvrun_unconfirmed_close_all_levels();
   test_srvrun_hs_probe_replays_boot_flight();
   test_srvrun_finished_wait_probes_small();
+  test_srvrun_boot_forged_short_header_keeps_probe();
+  test_srvrun_boot_onertt_opens_suite_and_pn();
   test_srvrun_boot_x25519_share_fresh_per_connection();
   test_srvrun_odcid_retransmit_resends_serverhello_first();
   test_srvrun_boot_give_up_closes_finished_peer();
