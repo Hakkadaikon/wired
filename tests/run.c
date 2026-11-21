@@ -283,6 +283,7 @@
 #include "app/http3/server/srvxdp/srvxdp_rx.c"
 #include "app/http3/server/srvxdp/srvxdp_tx.c"
 #include "app/http3/server/srvfwd/srvfwd.c"
+#include "app/http3/server/srvxdp/srvxdp_fwd.c"
 #include "app/http3/server/srvbigbuf/srvbigbuf.c"
 #include "transport/packet/header/packet/coalesce.c"
 #include "transport/packet/header/packet/header.c"

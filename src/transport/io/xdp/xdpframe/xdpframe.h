@@ -22,7 +22,9 @@
 #define XDPFRAME_HDRS6 (ETH_HDR + IPV6_HDR + UDP_HDR)
 
 /** Everything extracted from one received frame: where the QUIC payload is,
- * who sent it, and the addressing needed to reflect a reply. */
+ * who sent it, and the addressing needed to reflect a reply. payload views
+ * the received UMEM frame, or the buf of the srvfwd_slot holding this copy.
+ * views: payload=own|slot */
 typedef struct {
   /** peer ip+port (big-endian port; native or v4-mapped address) */
   sockaddr src;

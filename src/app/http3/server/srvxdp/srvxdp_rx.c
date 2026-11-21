@@ -32,9 +32,24 @@ static void srvxdp_learn(wired_srvxdp* x, const xdpframe_rx* rx) {
   }
 }
 
-/* Process one RX frame at umem offset addr/len: parse it, and on success
- * copy its payload/src into *out. Returns 1 if out was filled, 0 if the
- * frame was rejected (e.g. malformed) or too large for out->buf. */
+/* Copy one parsed datagram's payload/src into *out and learn its
+ * addressing. Returns 1 if out was filled, 0 if it is too large for
+ * out->buf. */
+int srvxdp_rx_deliver(wired_srvxdp* x, const xdpframe_rx* rx, mmsg_buf* out) {
+  if (rx->payload_len > out->buf.n) {
+    return 0;
+  }
+  srvxdp_learn(x, rx);
+  bytes_memcpy(out->buf.p, rx->payload, rx->payload_len);
+  out->len = (u32)rx->payload_len;
+  out->src = rx->src;
+  return 1;
+}
+
+/* Process one RX frame at umem offset addr/len: parse it, hand it to the
+ * worker owning its connection (srvxdp_fwd.c), or deliver it into *out.
+ * Returns 1 if out was filled, 0 if the frame was rejected (e.g.
+ * malformed), forwarded, or too large for out->buf. */
 static int srvxdp_rx_one(wired_srvxdp* x, u64 addr, u32 len, mmsg_buf* out) {
   xdpframe_rx rx;
   wired_span  frame = wired_span_of(x->xsk.umem + addr, len);
@@ -42,14 +57,10 @@ static int srvxdp_rx_one(wired_srvxdp* x, u64 addr, u32 len, mmsg_buf* out) {
   if (!xdpframe_parse(frame, flags, &rx)) {
     return 0;
   }
-  if (rx.payload_len > out->buf.n) {
+  if (srvxdp_fwd_handoff(x, &rx)) {
     return 0;
   }
-  srvxdp_learn(x, &rx);
-  bytes_memcpy(out->buf.p, rx.payload, rx.payload_len);
-  out->len = (u32)rx.payload_len;
-  out->src = rx.src;
-  return 1;
+  return srvxdp_rx_deliver(x, &rx, out);
 }
 
 /* Return nframes RX frame addresses (read via addr_at at rx_idx..) to the
@@ -78,13 +89,18 @@ static u32 srvxdp_rx_drain(wired_srvxdp* x, u32 rx_idx, u32 n, mmsg_buf* bufs) {
   return filled;
 }
 
+/* Datagrams other workers forwarded here take at most half the batch
+ * (rounded up). With nbufs >= 2 neither they nor this queue's own traffic
+ * can starve the other; with nbufs == 1 a steady forwarded stream takes
+ * every burst (srvrun always passes SRVRUN_RX_BATCH, 16). */
 i64 wired_srvxdp_rx_burst(wired_srvxdp* x, mmsg_buf* bufs, usz nbufs) {
   u32 rx_idx;
+  u32 fwd = srvxdp_fwd_drain(x, bufs, (u32)(nbufs + 1) / 2);
   u32 filled;
   u32 n;
   srvxdp_reap_comp(x);
-  n      = xskring_cons_peek(&x->xsk.rx, (u32)nbufs, &rx_idx);
-  filled = srvxdp_rx_drain(x, rx_idx, n, bufs);
+  n      = xskring_cons_peek(&x->xsk.rx, (u32)nbufs - fwd, &rx_idx);
+  filled = fwd + srvxdp_rx_drain(x, rx_idx, n, bufs + fwd);
   if (!n) {
     return filled;
   }

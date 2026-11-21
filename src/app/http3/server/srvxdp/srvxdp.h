@@ -17,6 +17,9 @@
  * xskumem for the TX frame pool): this file is only the driving glue
  * between them. */
 
+/* The forwarding ring (app/http3/server/srvfwd/srvfwd.h), internal. */
+struct srvfwd_ring;
+
 /** Caller-supplied configuration for one AF_XDP-backed server socket. */
 typedef struct {
   u32 ifindex;      /**< network interface index */
@@ -42,8 +45,16 @@ typedef struct {
   u32           queue_id;   /**< cfg->queue_id: this socket's XSKMAP slot */
   /** cfg->skip_udp_csum */
   int skip_udp_csum;
-  /** the BPF program's CID routing key (wired_srvxdpbpf.route_key) */
+  /** the CID routing key (wired_srvxdpbpf.route_key) */
   ncid_route_key route_key;
+  /** forwarding mesh of a multi-queue run, fwd_n * fwd_n rings: ring
+   * [o * fwd_n + r] carries datagrams queue r received for the worker
+   * owning queue o (srvxdp_fwd.c); 0 = serve everything locally */
+  struct srvfwd_ring* fwd;
+  /** worker count of the mesh (queue_id is this worker's index in it) */
+  u32 fwd_n;
+  /** the row's ring the next forwarded drain starts at (round robin) */
+  u32 fwd_next;
   /** next IPv4 Identification to send (RFC 791 3.2; DF is always set, so
    * a per-socket counter suffices, RFC 6864 4.1) */
   u16 ip_id;

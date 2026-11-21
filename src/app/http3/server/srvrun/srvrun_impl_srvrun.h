@@ -6,6 +6,7 @@
 #include "app/http3/server/srvrun/srvrun_impl_own.h"
 #include "app/http3/server/srvrun/srvrun_impl_protos1.h"
 #include "app/http3/server/srvrun/srvrun_impl_rst.h"
+#include "transport/io/xdp/xsksetup/xsksetup.h"
 #include "transport/recovery/detect/recovery/rtt.h"
 #include "transport/recovery/stats/stats.h"
 #include "transport/stream/data/appdata/stream_send.h"
@@ -1014,7 +1015,7 @@ _Static_assert(
 #define SRVRUN_BOOT_PTO_MAX 120
 
 /* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
- * ponytail: 16 x 2048B storage (32KB) per env; raise if a profile ever shows
+ * ponytail: 16 x XSKSETUP_FRAME_SIZE storage per env; raise if a profile ever shows
  * the loop syscall-bound at higher fan-in. Hoisted here (from its former
  * point of use, next to g_srvrun_rxstorage) so wired_srvrun_env below can
  * size its rxstorage member. */
@@ -1039,8 +1040,10 @@ struct wired_srvrun_env {
   /* Response storage, one row per (connection slot, response slot) (see
    * WIRED_SRVRUN_RESP_MAX above). */
   u8 respstore[WIRED_CONNTABLE_CAP][SRVRUN_RESP_SLOTS][WIRED_SRVRUN_RESP_MAX];
-  /* Receive batch storage (SRVRUN_RX_BATCH above). */
-  u8 rxstorage[SRVRUN_RX_BATCH][2048];
+  /* Receive batch storage (SRVRUN_RX_BATCH above), one AF_XDP frame per
+   * datagram: no payload either driver delivers (an XSK frame, a srvfwd
+   * slot, a UDP datagram the server accepts) is larger. */
+  u8 rxstorage[SRVRUN_RX_BATCH][XSKSETUP_FRAME_SIZE];
   /* Backing storage for the large-body pool (srvbigbuf.h) plus the pool
    * itself, a view over it. A response body that does not fit
    * WIRED_SRVRUN_RESP_MAX (16KB) borrows a row here instead. */

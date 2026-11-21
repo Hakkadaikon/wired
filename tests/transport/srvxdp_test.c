@@ -1,3 +1,4 @@
+#include "ncid_key.h"
 #include "test.h"
 
 /* Fake-kernel harness for wired_srvxdp: no mmap, no bpf, no real fd. Every
@@ -345,6 +346,199 @@ static void test_srvxdp_send_sets_df_unique_id(void) {
   CHECK(be_get_be16(ip[0] + 4) != be_get_be16(ip[1] + 4));
 }
 
+/* --- RFC 9000 9: forwarding to the CID's owner ------------------------------
+ * Two workers (queue 0 and 1) sharing one 2x2 forwarding mesh and one CID
+ * routing key, each over its own fake kernel. */
+static void sxt_join_n(wired_srvxdp* x, u32 queue, srvfwd_ring* mesh, u32 n) {
+  x->queue_id  = queue;
+  x->route_key = test_ncid_key;
+  x->fwd       = mesh;
+  x->fwd_n     = n;
+}
+
+static void sxt_join(wired_srvxdp* x, u32 queue, srvfwd_ring* mesh) {
+  sxt_join_n(x, queue, mesh, 2);
+}
+
+/* Hand the "kernel" one frame 10.7.0.2:sport -> 10.7.0.1:4433 at umem 0
+ * carrying the first qn (<= 20) bytes of a QUIC packet (short or long
+ * header) whose DCID routes to core. */
+static void sxt_kernel_rx_quic_n(
+    sxt_world* w, int is_long, u8 core, u16 sport, usz qn) {
+  const xdpframe_tx m = {
+      {0x02, 0x07, 0x00, 0x00, 0x00, 0x01},
+      {0x02, 0x07, 0x00, 0x00, 0x00, 0x02},
+      {sport, 4433},
+      {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 7, 0, 2},
+      {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 7, 0, 1},
+      0};
+  u8        q[20] = {0x40, 0, 0, 0, 0, 0, 0, 0, 0, 0x77};
+  usz       at    = is_long ? 6 : 1;
+  u32       idx;
+  xdp_desc* d;
+  if (is_long) {
+    q[0] = 0xc0, q[4] = 1, q[5] = 8;
+  }
+  q[at + 1] = 0x5a; /* a non-trivial mix input */
+  CHECK(ncid_route_encode(q + at, 8, core, &test_ncid_key) == 0);
+  CHECK(xskring_prod_reserve(&w->krx, 1, &idx) == 1);
+  d       = xskring_desc_at(&w->krx, idx);
+  d->addr = 0;
+  d->len  = (u32)xdpframe_build(
+      wired_mspan_of(w->umem, XSKUMEM_FRAME_SIZE), &m, wired_span_of(q, qn));
+  xskring_prod_submit(&w->krx, 1);
+}
+
+static void sxt_kernel_rx_quic(sxt_world* w, int is_long, u8 core, u16 sport) {
+  sxt_kernel_rx_quic_n(w, is_long, core, sport, 20);
+}
+
+/* rx_burst into n (<= 4) slots of one AF_XDP frame each: no payload an
+ * XSK frame carries (nor a srvfwd slot) is larger. */
+static i64 sxt_burst_n(wired_srvxdp* x, mmsg_buf* b, usz n) {
+  static u8 buf[4][XSKSETUP_FRAME_SIZE];
+  for (usz i = 0; i < n; i++) {
+    b[i].buf = wired_mspan_of(buf[i], sizeof buf[i]);
+  }
+  return wired_srvxdp_rx_burst(x, b, n);
+}
+
+static i64 sxt_burst(wired_srvxdp* x, mmsg_buf* b) {
+  return sxt_burst_n(x, b, 1);
+}
+
+static u16 sxt_port(const mmsg_buf* b) {
+  return be_get_be16((const u8*)&b->src.port_be);
+}
+
+/* Queue one forwarded datagram from sport straight into ring r. */
+static void sxt_fwd_push(srvfwd_ring* r, u16 sport) {
+  static const u8 pl[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  xdpframe_rx     rx    = {0};
+  wired_udp_addr(&rx.src, sport, (const u8[]){10, 7, 0, 2});
+  rx.payload     = pl;
+  rx.payload_len = sizeof pl;
+  CHECK(srvfwd_push(r, &rx) == 1);
+}
+
+/* A short header whose CID names worker 1, arriving on worker 0's queue
+ * (a path change moved it, RFC 9000 9), is not served by worker 0: worker
+ * 1's next burst returns it with the original source address and payload,
+ * so path validation (RFC 9000 8.2, 9.3) sees the new address, and worker 1
+ * can answer that address over its own XSK (the peer MAC came along). */
+static void test_srvxdp_fwd_to_owner(void) {
+  static sxt_world   wa, wb;
+  static srvfwd_ring mesh[4];
+  wired_srvxdp       a, b;
+  mmsg_buf           got;
+  sxt_init(&wa, &a);
+  sxt_init(&wb, &b);
+  sxt_join(&a, 0, mesh);
+  sxt_join(&b, 1, mesh);
+  sxt_kernel_rx_quic(&wa, 0, 1, 6000);
+  CHECK(sxt_burst(&a, &got) == 0);
+  CHECK(sxt_burst(&b, &got) == 1);
+  CHECK(be_get_be16((const u8*)&got.src.port_be) == 6000);
+  CHECK(got.src.addr[12] == 10 && got.src.addr[15] == 2);
+  CHECK(got.len == 20 && got.buf.p[0] == 0x40 && got.buf.p[9] == 0x77);
+  CHECK(b.have_mac == 1);
+  CHECK(wired_srvxdp_send(&b, &got.src, wired_span_of(got.buf.p, 1)) == 1);
+  CHECK(sxt_burst(&b, &got) == 0); /* consumed once */
+}
+
+/* Served where it arrived: a CID naming this worker, a long header (the
+ * handshake stays on the queue its 4-tuple hashes to; a client's first
+ * Initial DCID is random, RFC 9000 7.2), a CID naming a worker that does
+ * not exist (core 5 of 2), and any CID when forwarding is off. */
+static void test_srvxdp_fwd_keeps_local(void) {
+  static sxt_world   w;
+  static srvfwd_ring mesh[4];
+  wired_srvxdp       a;
+  mmsg_buf           got;
+  sxt_init(&w, &a);
+  sxt_join(&a, 0, mesh);
+  sxt_kernel_rx_quic(&w, 0, 0, 6000);
+  CHECK(sxt_burst(&a, &got) == 1);
+  sxt_kernel_rx_quic(&w, 1, 1, 6000);
+  CHECK(sxt_burst(&a, &got) == 1);
+  sxt_kernel_rx_quic(&w, 0, 5, 6000);
+  CHECK(sxt_burst(&a, &got) == 1);
+  a.fwd = 0;
+  sxt_kernel_rx_quic(&w, 0, 1, 6000);
+  CHECK(sxt_burst(&a, &got) == 1);
+  CHECK(mesh[2].prod == 0);
+}
+
+/* RFC 9000 9 under load: when the owner's ring from this queue is full the
+ * datagram is dropped and counted, never served by the worker it landed on
+ * (that worker has no connection for it; QUIC loss recovery resends). */
+static void test_srvxdp_fwd_full_ring_drops(void) {
+  static sxt_world   w;
+  static srvfwd_ring mesh[4];
+  wired_srvxdp       a;
+  mmsg_buf           got;
+  sxt_init(&w, &a);
+  sxt_join(&a, 0, mesh);
+  for (u32 i = 0; i < SRVFWD_DEPTH; i++) {
+    sxt_fwd_push(&mesh[2], 7000);
+  }
+  sxt_kernel_rx_quic(&w, 0, 1, 6000);
+  CHECK(sxt_burst(&a, &got) == 0);
+  CHECK(mesh[2].drops == 1);
+}
+
+/* One burst carries forwarded datagrams first, then the queue's own. */
+static void test_srvxdp_fwd_mixes_with_local(void) {
+  static sxt_world   w;
+  static srvfwd_ring mesh[4];
+  wired_srvxdp       b;
+  mmsg_buf           got[4];
+  sxt_init(&w, &b);
+  sxt_join(&b, 1, mesh);
+  sxt_fwd_push(&mesh[2], 7000);
+  sxt_kernel_rx_quic(&w, 0, 1, 6000);
+  CHECK(sxt_burst_n(&b, got, 4) == 2);
+  CHECK(sxt_port(&got[0]) == 7000 && sxt_port(&got[1]) == 6000);
+}
+
+/* Workers 0 and 2 of three queue for worker 1 (rings [1*3+0] and [1*3+2];
+ * its own ring [1*3+1] stays empty, as in production). The owner takes one
+ * forwarded datagram per burst (half of 2 slots) and must not keep reading
+ * the same ring while the other waits. */
+static void test_srvxdp_fwd_rotates_rings(void) {
+  static sxt_world   w;
+  static srvfwd_ring mesh[9];
+  wired_srvxdp       b;
+  mmsg_buf           got[2];
+  sxt_init(&w, &b);
+  sxt_join_n(&b, 1, mesh, 3);
+  sxt_fwd_push(&mesh[3], 7000);
+  sxt_fwd_push(&mesh[3], 7001);
+  sxt_fwd_push(&mesh[5], 8000);
+  CHECK(sxt_burst_n(&b, got, 2) == 1);
+  CHECK(sxt_port(&got[0]) == 7000);
+  CHECK(sxt_burst_n(&b, got, 2) == 1);
+  CHECK(sxt_port(&got[0]) == 8000);
+  CHECK(sxt_burst_n(&b, got, 2) == 1);
+  CHECK(sxt_port(&got[0]) == 7001);
+}
+
+/* The DCID's routing bytes need 1 + NCID_ROUTE_MIN_LEN payload bytes: one
+ * fewer is served where it landed, exactly that many is forwarded. */
+static void test_srvxdp_fwd_min_len_boundary(void) {
+  static sxt_world   w;
+  static srvfwd_ring mesh[4];
+  wired_srvxdp       a;
+  mmsg_buf           got;
+  sxt_init(&w, &a);
+  sxt_join(&a, 0, mesh);
+  sxt_kernel_rx_quic_n(&w, 0, 1, 6000, NCID_ROUTE_MIN_LEN);
+  CHECK(sxt_burst(&a, &got) == 1);
+  sxt_kernel_rx_quic_n(&w, 0, 1, 6000, NCID_ROUTE_MIN_LEN + 1);
+  CHECK(sxt_burst(&a, &got) == 0);
+  CHECK(mesh[2].prod == 1);
+}
+
 void test_srvxdp(void) {
   test_srvxdp_ipv6_rx_then_send();
   test_srvxdp_rx_basic();
@@ -357,4 +551,10 @@ void test_srvxdp(void) {
   test_srvxdp_txpool_exhaustion();
   test_srvxdp_mac_miss();
   test_srvxdp_print_stats_bad_fd();
+  test_srvxdp_fwd_to_owner();
+  test_srvxdp_fwd_keeps_local();
+  test_srvxdp_fwd_full_ring_drops();
+  test_srvxdp_fwd_mixes_with_local();
+  test_srvxdp_fwd_rotates_rings();
+  test_srvxdp_fwd_min_len_boundary();
 }
