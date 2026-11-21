@@ -65,7 +65,7 @@ CI の実行のあとに入れた修正は、同じ日にローカルのラン�
 
 ### 2.1 損失と破損のテストケースの揺れ
 
-`handshakeloss`(L1)と `handshakecorruption`(C1)は、実行ごとに不合格になるクライアントが変わる。シミュレーターのランダムな損失パターンで結果が変わるので、1 回の実行の `✕` は合否どちらの根拠としても弱い。3 回の CI 実行で不合格になったクライアントは次のとおりである。
+`handshakeloss`(L1)と `handshakecorruption`(C1)は、実行ごとに不合格になるクライアントが変わる。ngtcp2 と msquic の不合格の原因は 6.1 に示す。ほかのクライアントの原因は確かめていない。3 回の CI 実行で不合格になったクライアントは次のとおりである。
 
 | テストケース | [2026-10-27 の先の実行](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40448020712) | [2026-10-27 の後の実行](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40475049893) | 2026-11-17 の実行 |
 |---|---|---|---|
@@ -190,10 +190,55 @@ moq-interop-runner は、各クライアントのテストスイートを、リ�
 | `crosstraffic` | go-x-net(合格) | `logs_2026-11-17T18:58:10` |
 | `crosstraffic` | xquic | `logs_2026-11-17T18:47:50` |
 
-シミュレーターの損失で結果が変わる不合格(2.1)は次のとおりである。
+### 6.1 `handshakeloss` と `handshakecorruption`
 
-- ngtcp2、quiche、picoquic、msquic、xquic での `handshakeloss`
-- ngtcp2、kwik、msquic、s2n-quic での `handshakecorruption`
+ngtcp2 と msquic のクライアントで、ローカルのランナーを使って確かめた。サーバー側の原因は次の 2 つである。
+
+| 原因 | 修正 | 回帰テスト |
+|---|---|---|
+| QUIC Bit が 0 の Handshake パケット(RFC 9287 3)を Handshake として扱わず、HANDSHAKE_DONE を再送しない | `f5783cad7` | `test_srvrun_serve_slot_reconfirms_on_greased_probe` |
+| 受信を待った後も待つ前の時刻を使い、新しい接続をハンドシェイクの期限切れとして回収する | `6e48429c1` | `test_srvrun_step_clock_after_idle_recv` |
+
+1 つ目の原因の証拠は次のとおりである。
+
+- ngtcp2 は QUIC Bit を 0 にして Handshake パケットを送る。
+- HANDSHAKE_DONE を載せたデータグラムが失われると、Finished の再送が続く。
+- その再送 15 個にサーバーは何も返さなかった。
+- ngtcp2 は 180 秒の期限まで待ち、実行が時間切れになった。
+
+2 つ目の原因の証拠は次のとおりである。
+
+- サーバーは 16.7 秒の待ちの後の Initial に応答した。
+- その直後に、サーバーは接続を回収した。
+- qlog の時刻は、この応答だけキャプチャより 16.7 秒早い。
+- クライアントの Handshake の PING 7 個に、サーバーは応答しなかった。
+
+どちらも `logs_b7_ngtcp2_L1_1` で確かめた。
+
+次の表は、50 回のハンドシェイクを終えた実行の数である。修正前は b50b59ce0 で、修正後はこれに 2 つの修正を加えた版である。
+
+| テストケース | クライアント | 修正前 | 修正後 |
+|---|---|---|---|
+| `handshakeloss` | ngtcp2 | 1/4 | 4/5 |
+| `handshakecorruption` | ngtcp2 | 0/3 | 4/5 |
+| `handshakeloss` | msquic | 2/3 | 3/5 |
+| `handshakecorruption` | msquic | 3/3 | 4/5 |
+
+この表から結論を出せるのは ngtcp2 だけである。msquic は試行が少ない。また QUIC Bit を 0 にしないので、1 つ目の原因の影響を受けない。ngtcp2 の各実行で、HANDSHAKE_DONE の届かない接続を数えた。修正前は 4〜12 個だった。修正後は全実行で 3 個で、どれも下の残りの原因による。
+
+ログはこのマシンの quic-interop-runner の下にだけある。名前は `logs_b7_ngtcp2_L1_1` と `logs_b7_{before,after}_<クライアント>_<テストケース>_<回>` である。
+
+修正後に残る不合格の原因は次のとおりである。
+
+| 原因 | ログ |
+|---|---|
+| Finished が続けて失われる間に、ハンドシェイクの期限(10 秒)で接続を回収する | `logs_b7_after_msquic_handshakeloss_2`、`logs_b7_after_msquic_handshakecorruption_2`、`logs_b7_after_ngtcp2_handshakeloss_5` |
+| PTO が Initial と Handshake で 1 つで、増幅制限の残りを Handshake の再送に使う(RFC 9002 6.2.1) | `logs_b7_after_ngtcp2_handshakecorruption_2` |
+| ServerHello が届く前に msquic が自身の期限を過ぎる | `logs_b7_after_msquic_handshakeloss_3` |
+
+10 秒の期限は、未完了の接続が枠を占め続けるのを防ぐ(RFC 9000 21.6)。一方で、1-RTT の PING に ACK を返し続けるクライアントの接続も回収する。この 3 件では、回収の後にクライアントが Stateless Reset を受けた。
+
+`logs_b7_after_ngtcp2_handshakecorruption_2` では、ServerHello を載せた Initial が 4 回続けて失われた。回収の後に届いた Initial は別の接続になった。ランナーはハンドシェイクを 51 回と数えた。
 
 mvfst は、クライアントのイメージを取得できず、2026-11-17 の実行に含まれていない。
 
