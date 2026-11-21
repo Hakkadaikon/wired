@@ -282,6 +282,7 @@
 #include "app/http3/server/srvxdp/srvxdp.c"
 #include "app/http3/server/srvxdp/srvxdp_rx.c"
 #include "app/http3/server/srvxdp/srvxdp_tx.c"
+#include "app/http3/server/srvfwd/srvfwd.c"
 #include "app/http3/server/srvbigbuf/srvbigbuf.c"
 #include "transport/packet/header/packet/coalesce.c"
 #include "transport/packet/header/packet/header.c"
@@ -1284,6 +1285,7 @@
 #include "app/srvsteer_test.c"
 #include "app/srvworkers_test.c"
 #include "app/srvinbox_test.c"
+#include "app/srvfwd_test.c"
 #include "app/srvthreads_test.c"
 #include "app/srvthreads_datagram_test.c"
 #include "app/srvdriver_test.c"
@@ -1800,6 +1802,7 @@ int main(void) {
   test_srvsteer();
   test_srvworkers();
   test_srvinbox();
+  test_srvfwd();
   test_srvthreads();
   test_srvthreads_datagram();
   test_srvdriver();
