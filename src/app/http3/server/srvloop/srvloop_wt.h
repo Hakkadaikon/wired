@@ -584,6 +584,9 @@ typedef struct {
   /** Largest Handshake packet number received, valid with hs_rx_seen. */
   u64 hs_rx_hi;
   int hs_rx_seen; /**< 1 once a Handshake packet has been received */
+  /** RFC 9002 A.7: bit i set once the peer acknowledged our Handshake
+   * packet number i (i < 32: the boot flight's own numbers, srvboot). */
+  u32 hs_acked;
   /** RFC 9000 12.3/13.2.1/13.2.2/19.3: every packet number space's received-pn
    * window (pnspaces_recv, independent per space -- Initial is out of
    * this loop's scope, srvboot's own layer) plus whether/when each space

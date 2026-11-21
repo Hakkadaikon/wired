@@ -197,3 +197,38 @@ int srvloop_send_onertt_rec(
   srvloop_pn_skip_maybe(l);
   return 1;
 }
+
+/* The bits of [lo, hi] below 32. */
+static u32 srvloop_range_bits(u64 lo, u64 hi) {
+  u64 top = u64_min(hi, 31);
+  if (lo > top) {
+    return 0;
+  }
+  return (u32)(((2ull << top) - 1) & ~((1ull << lo) - 1));
+}
+
+/* RFC 9000 19.3.1: every range of the ACK frame at fr, as bits. */
+static u32 srvloop_ack_bits(const framewalk_item* fr) {
+  ack_frame f;
+  u32       bits = 0;
+  if (!ack_decode(fr->start, fr->remaining, &f)) {
+    return 0;
+  }
+  for (usz i = 0; i < f.n_ranges; i++) {
+    bits |= srvloop_range_bits(f.ranges[i].lo, f.ranges[i].hi);
+  }
+  return bits;
+}
+
+u32 srvloop_acked_bits(wired_span pl) {
+  framewalk      it;
+  framewalk_item fr;
+  u32            bits = 0;
+  framewalk_init(&it, pl.p, pl.n);
+  while (framewalk_next(&it, &fr)) {
+    if (frame_classify(fr.type) == FK_ACK) {
+      bits |= srvloop_ack_bits(&fr);
+    }
+  }
+  return bits;
+}

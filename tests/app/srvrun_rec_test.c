@@ -1026,6 +1026,31 @@ static void test_srvrun_rec_skip_long_transfer_completes(void) {
   CHECK(slots >= 3); /* the transfer really crossed several skips */
 }
 
+/* RFC 9000 19.3: srvloop_acked_bits folds every ACK frame of a payload
+ * into a bitmask of acknowledged packet numbers below 32. Worked by hand:
+ * ranges [3,3] and [0,1] -> bits 0,1,3 = 0xb; [30,40] -> bits 30,31 =
+ * 0xc0000000; [40,50] -> 0 (nothing below 32). A PING (0x01) ahead of
+ * the ACK is walked past. */
+static void test_srvloop_acked_bits(void) {
+  ack_frame f = {0};
+  u8        pl[64];
+  usz       n;
+  pl[0]       = 0x01; /* PING, RFC 9000 19.2 */
+  f.n_ranges  = 2;
+  f.ranges[0] = (ack_range){.hi = 3, .lo = 3};
+  f.ranges[1] = (ack_range){.hi = 1, .lo = 0};
+  n           = ack_encode(pl + 1, sizeof pl - 1, &f);
+  CHECK(n != 0);
+  CHECK(srvloop_acked_bits(wired_span_of(pl, 1 + n)) == 0xbu);
+  f.n_ranges  = 1;
+  f.ranges[0] = (ack_range){.hi = 40, .lo = 30};
+  n           = ack_encode(pl, sizeof pl, &f);
+  CHECK(srvloop_acked_bits(wired_span_of(pl, n)) == 0xc0000000u);
+  f.ranges[0] = (ack_range){.hi = 50, .lo = 40};
+  n           = ack_encode(pl, sizeof pl, &f);
+  CHECK(srvloop_acked_bits(wired_span_of(pl, n)) == 0);
+}
+
 void test_srvrun_rec(void) {
   test_srvrun_rec_time_threshold_latest_rtt();
   test_srvrun_rec_granularity_floor();
@@ -1059,4 +1084,5 @@ void test_srvrun_rec(void) {
   test_srvrun_rec_idle_restarts_on_any_eliciting();
   test_srvrun_rec_skip_gap_recovery();
   test_srvrun_rec_skip_long_transfer_completes();
+  test_srvloop_acked_bits();
 }

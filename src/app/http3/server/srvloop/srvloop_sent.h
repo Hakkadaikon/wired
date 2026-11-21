@@ -20,6 +20,12 @@ int srvloop_send_onertt_rec(
  * Acknowledged. */
 void srvloop_ackd_on_acked(wired_srvloop* l, u64 lo, u64 hi);
 
+/** RFC 9000 19.3 / RFC 9002 A.7: the packet numbers below 32 that the ACK
+ * frames of the opened payload pl acknowledge, as a bitmask (bit i = pn i).
+ * Used for the Initial and Handshake spaces, whose boot flight numbers are
+ * small (srvboot). */
+u32 srvloop_acked_bits(wired_span pl);
+
 /** Test-only: force the packet-number-skip RNG (RFC 9000 21.4) to fail,
  * so no number is ever skipped. The test harness entries set 1 at startup
  * to keep unit runs deterministic; skip tests set 0 for their own scope

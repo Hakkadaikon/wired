@@ -20,6 +20,7 @@ static void srvloop_init_pn_skip(wired_srvloop* l) {
 void srvloop_init_pn(wired_srvloop* l) {
   l->tx_pn           = 0;
   l->hs_tx_pn        = 0;
+  l->hs_acked        = 0;
   l->app_rx_pn       = 0;
   l->app_rx_hi       = 0;
   l->ackst.rx_gap    = 0;
