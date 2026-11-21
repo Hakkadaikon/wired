@@ -233,7 +233,7 @@ ngtcp2 と msquic のクライアントで、ローカルのランナーを使�
 | 原因 | ログ |
 |---|---|
 | Finished が続けて失われる間に、ハンドシェイクの期限(10 秒)で接続を回収する | `logs_b7_after_msquic_handshakeloss_2`、`logs_b7_after_msquic_handshakecorruption_2`、`logs_b7_after_ngtcp2_handshakeloss_5` |
-| PTO が Initial と Handshake で 1 つで、増幅制限の残りを Handshake の再送に使う(RFC 9002 6.2.1) | `logs_b7_after_ngtcp2_handshakecorruption_2` |
+| PTO が Initial と Handshake で 1 つ(RFC 9002 6.2.1)。`6e173f59a` でスペースごとにした。修正後も 3 回中 1 回は、10 秒の期限で回収した後の Initial が別の接続になる | `logs_b7_after_ngtcp2_handshakecorruption_2`、`logs_b8_pto_ngtcp2_handshakecorruption_{1,2,3}` |
 | ServerHello が届く前に msquic が自身の期限を過ぎる | `logs_b7_after_msquic_handshakeloss_3` |
 
 10 秒の期限は、未完了の接続が枠を占め続けるのを防ぐ(RFC 9000 21.6)。一方で、1-RTT の PING に ACK を返し続けるクライアントの接続も回収する。この 3 件では、回収の後にクライアントが Stateless Reset を受けた。
