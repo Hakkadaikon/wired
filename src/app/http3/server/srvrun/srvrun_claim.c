@@ -109,20 +109,18 @@ int srvrun_claim_slot(
       ctx->st->table, WIRED_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
 }
 
-/* AF_XDP core-routing (see wired_srvrun_opt.core_id): in XDP mode the BPF
- * filter decodes every DCID's leading byte under its key and redirects to
- * that XSKMAP slot, so every CID this server issues carries a slot that
- * holds a socket -- the worker's core_id, or, with core_id -1 (a single
- * AF_XDP socket), that socket's own queue. A random byte would decode to
- * an empty slot about one time in four, and the filter would hand the
- * connection's packets to the kernel stack, which drops them.
- * ncid_route_encode itself no-ops on a cid shorter than
- * NCID_ROUTE_MIN_LEN; there is simply nothing to embed into. */
+/* AF_XDP core-routing (see wired_srvrun_opt.core_id): in XDP mode a worker
+ * that receives a short header on its queue decodes the DCID's leading byte
+ * under the key and hands the datagram to that worker (srvxdp_fwd.c, RFC
+ * 9000 9), so every CID this server issues carries its owner -- the
+ * worker's core_id, or, with core_id -1 (a single AF_XDP socket), that
+ * socket's own queue. ncid_route_encode itself no-ops on a cid shorter
+ * than NCID_ROUTE_MIN_LEN; there is simply nothing to embed into. */
 static int srvrun_xdp_core_routing(const srvrun_cfg* cfg) {
   return cfg->xdp != 0;
 }
 
-/* The XSKMAP slot this server's CIDs route to (see above). */
+/* The owning worker index this server's CIDs carry (see above). */
 static u8 srvrun_xdp_core(const srvrun_cfg* cfg) {
   return (u8)(cfg->core_id >= 0 ? (u32)cfg->core_id : cfg->xdp->queue_id);
 }
@@ -140,7 +138,7 @@ int srvrun_udp_steer_routing(const srvrun_cfg* cfg) {
 }
 
 /* Embed the issuing worker's routing byte into cid, under whichever of the
- * two steering transports (AF_XDP filter / reuseport BPF) this run uses;
+ * two steering paths (AF_XDP forwarding / reuseport BPF) this run uses;
  * a plain single-socket run leaves the CID fully random. */
 static void srvrun_route_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
   if (srvrun_xdp_core_routing(cfg)) {

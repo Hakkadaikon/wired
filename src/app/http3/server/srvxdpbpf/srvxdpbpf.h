@@ -23,13 +23,14 @@ typedef struct {
   i64 prog_fd;
   /** BPF link fd attaching the program to the interface */
   i64 link_fd;
-  /** per-process key the program unmasks CID routing bytes with; every
-   * wired_srvxdp registered here copies it for ncid_route_encode */
+  /** per-process key of the worker byte in every issued CID; every
+   * wired_srvxdp registered here copies it (ncid_route_encode on issue,
+   * ncid_route_decode when forwarding, srvxdp_fwd.c) */
   ncid_route_key route_key;
 } wired_srvxdpbpf;
 
 /** Generate b->route_key, create the XSKMAP (WIRED_SRVXDPBPF_MAP_ENTRIES
- * slots), build and load the redirect-filter program around both
+ * slots), build and load the redirect-filter program around the map
  * (xdpbpf_prog_build, dport == port),
  * and attach it to the interface with a BPF link. On any failure, everything
  * already built is closed in reverse order and every fd is left at -1.

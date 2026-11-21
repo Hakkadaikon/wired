@@ -4,14 +4,14 @@
 #include "common/platform/sys/syscall.h"
 
 /** RFC 9312 2.6 / RFC 9000 5.1: a routing byte readable only by holders of a
- * per-process key (the AF_XDP BPF steering program and the server), not by
- * an on-path observer. cid[0] = core ^ mask, where mask is a keyed mix of
- * cid[1..4], so each CID of a connection shows an unrelated first byte.
- * This is obfuscation (QUIC-LB style, no block cipher: the BPF side must
+ * per-process key (the server's workers, the reuseport BPF steering
+ * program), not by an on-path observer. cid[0] = core ^ mask, where mask is a
+ * keyed mix of cid[1..4], so each CID of a connection shows an unrelated first
+ * byte. This is obfuscation (QUIC-LB style, no block cipher: the BPF side must
  * stay a short straight-line program), not encryption.
  *
- * The mix, mirrored instruction for instruction by xdpbpf_prog_build:
- *   w = cid[1] | cid[2] << 8 | cid[3] << 16 | cid[4] << 24  (BPF LDXW, LE)
+ * The mix (recomputed in classic BPF by rpsteer_prog_build):
+ *   w = cid[1] | cid[2] << 8 | cid[3] << 16 | cid[4] << 24  (little-endian)
  *   x = (w ^ k[0]) * k[1];  x ^= x >> 32;  x *= k[2];  mask = x >> 56. */
 typedef struct {
   /** k[0] xor key, k[1] and k[2] odd multipliers */

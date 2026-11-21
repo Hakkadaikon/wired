@@ -11,25 +11,28 @@ static void srvxdpbpf_close_fd(i64* fd) {
 }
 
 /* Reset every fd to -1, draw the CID routing key and create the XSKMAP.
- * Returns 0, or a negative errno. */
+ * Returns 0, or a negative errno.
+ * shortcut: the filter no longer reads the key, only the workers do
+ * (srvxdp_fwd.c), yet it is drawn and held here; move it to srvthreads if
+ * the BPF object ever needs to open without a working CSPRNG. */
 static i64 srvxdpbpf_key_and_map(wired_srvxdpbpf* b) {
   b->prog_fd = b->link_fd = b->map_fd = -1;
   if (!ncid_route_keygen(&b->route_key)) {
-    return -5; /* -EIO: no key, no obfuscated routing */
+    return -5; /* -EIO: no key, no obfuscated CID routing */
   }
   b->map_fd = xdpbpf_map_create(WIRED_SRVXDPBPF_MAP_ENTRIES);
   return b->map_fd < 0 ? b->map_fd : 0;
 }
 
 /* srvxdpbpf_key_and_map, then load the redirect-filter program built around
- * the map and key. Returns 0, or the first negative errno. */
+ * the map. Returns 0, or the first negative errno. */
 static i64 srvxdpbpf_load(wired_srvxdpbpf* b, u16 port) {
   u64 insns[XDPBPF_PROG_LEN];
   i64 r = srvxdpbpf_key_and_map(b);
   if (r < 0) {
     return r;
   }
-  xdpbpf_prog_build(insns, (i32)b->map_fd, port, &b->route_key);
+  xdpbpf_prog_build(insns, (i32)b->map_fd, port);
   b->prog_fd = xdpbpf_prog_load(insns, XDPBPF_PROG_LEN, wired_mspan_of(0, 0));
   return b->prog_fd < 0 ? b->prog_fd : 0;
 }

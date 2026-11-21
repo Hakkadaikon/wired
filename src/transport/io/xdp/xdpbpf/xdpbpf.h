@@ -3,44 +3,29 @@
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
-#include "transport/packet/frame/frame/ncid_worker.h"
 
 /** @file
  * XDP filter program builder plus the bpf(2) calls needed to run it: create
  * an XSKMAP, load the program, and attach it to an interface with a BPF
  * link. The filter redirects IPv4/UDP and IPv6/UDP frames (no IPv6
- * extension headers) for one destination port to the
- * XSKMAP, keyed by the worker/core index the QUIC destination CID carries
- * (ncid_route_encode: cid[0] masked by a keyed mix of cid[1..4], the key
- * patched into the program, RFC 9312 2.6) when the packet's QUIC header is
- * readable as a short header; a long header, a too-short packet, or a
- * decoded byte out of range for the XSKMAP uses the NIC rx_queue_index. A
- * long header's DCID may be the client's self-chosen initial one (RFC 9000
- * 7.2), whose byte decodes to an empty slot as often as not, and
- * bpf_redirect_map() then passes the packet to the kernel, which drops it:
- * the handshake never completes. Anything
- * that is not IPv4- or IPv6-UDP/dport-match is XDP_PASS, so the kernel keeps
- * handling ARP/ICMP/ICMPv6 neighbour discovery/other traffic.
- *
- * Header-format offsets (RFC 9000 17.2/17.3), all relative to the fixed
- * UDP-payload start at byte 42 (Ethernet 14 + IPv4 IHL=5 20 + UDP 8; an
- * IPv6 frame's 62 is read through a frame pointer moved 20 bytes on): a short
- * header's DCID starts right after the 1-byte flags (offset 43). The DCID's
- * length never changes where its first byte lands (the receiver's fixed CID
- * length is not on the wire at all, RFC 9000 17.3), so routing needs no
- * build-time DCID-length parameter. */
+ * extension headers, no IPv4 fragments) for one destination port to the
+ * XSKMAP slot of the NIC rx_queue_index. That is the only slot a frame can
+ * be delivered to: the kernel refuses an XSK bound to any other queue
+ * (xsk_rcv_check, net/xdp/xsk.c) and the frame is dropped. Which worker
+ * owns the QUIC connection is decided in user space from the DCID
+ * (srvxdp_fwd.c), so a path change (RFC 9000 9) that moves a connection's
+ * packets to another queue still reaches it. Anything that is not IPv4- or
+ * IPv6-UDP/dport-match is XDP_PASS, so the kernel keeps handling
+ * ARP/ICMP/ICMPv6 neighbour discovery/other traffic. */
 
 /** Number of u64 instructions xdpbpf_prog_build() emits. */
-#define XDPBPF_PROG_LEN 59
+#define XDPBPF_PROG_LEN 32
 
-/** Build the XDP filter into out: eth/IPv4 (IHL=5, non-fragment)/UDP with
- * dport == port is redirected to the XSKMAP map_fd, keyed by the core index
- * ncid_route_decode(dcid, key) recovers (falling back to rx_queue_index, see
- * @file); anything else is XDP_PASS. Pure function: a fixed template with
- * the port, map fd and the three key words patched in. Returns
- * XDPBPF_PROG_LEN. */
-usz xdpbpf_prog_build(
-    u64 out[XDPBPF_PROG_LEN], i32 map_fd, u16 port, const ncid_route_key* key);
+/** Build the XDP filter into out: eth/IPv4 (IHL=5, non-fragment)/UDP or
+ * eth/IPv6/UDP with dport == port is redirected to the XSKMAP map_fd under
+ * key rx_queue_index; anything else is XDP_PASS. Pure function: a fixed
+ * template with the port and map fd patched in. Returns XDPBPF_PROG_LEN. */
+usz xdpbpf_prog_build(u64 out[XDPBPF_PROG_LEN], i32 map_fd, u16 port);
 
 /** Create an XSKMAP (key u32 queue index -> value u32 XSK socket fd) with
  * max_entries slots. Returns the map fd, or a negative errno. */

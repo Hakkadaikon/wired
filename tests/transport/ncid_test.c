@@ -1,3 +1,4 @@
+#include "ncid_key.h"
 #include "test.h"
 
 static void test_ncid_roundtrip(void) {
@@ -92,6 +93,22 @@ static void test_ncid_route_roundtrip(void) {
   CHECK(ncid_route_encode(cid, NCID_ROUTE_MIN_LEN - 1, 1, &k) < 0);
 }
 
+/* RFC 9312 2.6: the routing byte on the wire is not the core. Across CIDs
+ * that all route to core 3 under one key, the first byte takes many values
+ * (an observer cannot read or correlate the core from it). */
+static void test_ncid_route_byte_hides_core(void) {
+  u8  seen[256] = {0}, cid[8] = {0};
+  usz distinct = 0;
+  for (u32 i = 0; i < 256; i++) {
+    cid[1] = (u8)i;
+    cid[3] = (u8)(i * 7);
+    CHECK(ncid_route_encode(cid, sizeof cid, 3, &test_ncid_key) == 0);
+    distinct += !seen[cid[0]];
+    seen[cid[0]] = 1;
+  }
+  CHECK(distinct > 100);
+}
+
 /* RFC 9000 19.15: type, seq, retire_prior_to, length, CID, 16-byte token.
  * An encode into any cap shorter than the frame fails, and a decode of any
  * strict prefix fails at whichever field it cuts. */
@@ -113,6 +130,7 @@ static void test_ncid_every_prefix_rejected(void) {
 void test_ncid(void) {
   test_ncid_every_prefix_rejected();
   test_ncid_route_roundtrip();
+  test_ncid_route_byte_hides_core();
   test_ncid_roundtrip();
   test_ncid_invalid_and_truncated();
   test_ncid_decode_rejects_over_max_len();

@@ -9,7 +9,7 @@
  * datagram of a multi-worker UDP run to the reuseport-group member whose
  * index the QUIC Destination Connection ID carries -- the same keyed
  * routing byte the AF_XDP path embeds and decodes (ncid_route_encode /
- * xdpbpf, RFC 9312 2.6), so a server-issued CID keeps reaching the worker
+ * srvxdp_fwd.c, RFC 9312 2.6), so a server-issued CID keeps reaching the worker
  * that holds its connection after a NAT rebinding or migration (RFC 9000
  * 5.2, 9). Classic BPF on purpose: SO_ATTACH_REUSEPORT_CBPF needs no
  * bpf(2) syscall and no privilege, unlike the eBPF form. cBPF has only

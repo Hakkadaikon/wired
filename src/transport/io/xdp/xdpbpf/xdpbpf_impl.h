@@ -21,13 +21,9 @@
 #define BPF_INSN_MOV64_IMM 0xb7 /* BPF_ALU64|BPF_MOV|BPF_K: r_dst = imm */
 #define BPF_INSN_ADD64_IMM 0x07 /* BPF_ALU64|BPF_ADD|BPF_K: r_dst += imm */
 #define BPF_INSN_JGT_REG 0x2d   /* BPF_JMP|BPF_JGT|BPF_X: if r_dst>r_src goto */
-#define BPF_INSN_JGE_IMM 0x35   /* BPF_JMP|BPF_JGE|BPF_K: if r_dst>=imm goto */
 #define BPF_INSN_JNE_IMM 0x55   /* BPF_JMP|BPF_JNE|BPF_K: if r_dst!=imm goto */
 #define BPF_INSN_JSET_IMM 0x45  /* BPF_JMP|BPF_JSET|BPF_K: if r_dst&imm goto */
 #define BPF_INSN_JA 0x05        /* BPF_JMP|BPF_JA: unconditional goto */
-#define BPF_INSN_XOR64_REG 0xaf /* BPF_ALU64|BPF_XOR|BPF_X: r_dst ^= r_src */
-#define BPF_INSN_MUL64_REG 0x2f /* BPF_ALU64|BPF_MUL|BPF_X: r_dst *= r_src */
-#define BPF_INSN_RSH64_IMM 0x77 /* BPF_ALU64|BPF_RSH|BPF_K: r_dst >>= imm */
 #define BPF_INSN_LDDW_IMM 0x18  /* BPF_LD|BPF_DW|BPF_IMM: 16-byte wide load */
 #define BPF_INSN_CALL 0x85      /* BPF_JMP|BPF_CALL */
 #define BPF_INSN_EXIT 0x95      /* BPF_JMP|BPF_EXIT */
@@ -36,39 +32,13 @@
 #define XDP_PASS 2
 
 /* Fixed instruction indices: the eth/IPv4/UDP/dport prologue (idx 0-14),
- * the IPv6 block (idx 15-24), then the core routing. The IPv6 block ends by
- * moving r2 (the frame start) 20 bytes on, so every later read at a fixed
- * offset from r2 lands on the same QUIC byte as for an IPv4 frame (an IPv6
- * header is 20 bytes longer than an IHL=5 IPv4 one). */
-#define BPF_IDX_DPORT4 14     /* IPv4 dport compare (patched) */
-#define BPF_IDX_V4_SKIP 15    /* IPv4 path: jump over the IPv6 block */
-#define BPF_IDX_V6 16         /* not IPv4: is it IPv6/UDP to dport? */
-#define BPF_IDX_DPORT6 23     /* IPv6 dport compare (patched) */
-#define BPF_IDX_CORE_START 25 /* short-header boundary check begins */
-#define BPF_IDX_SHORT 30      /* Header Form 0: short-header path */
-#define BPF_IDX_MIX 32        /* r5 -> DCID: unmask the routing byte */
-#define BPF_IDX_KEY_CHECK 49  /* routing-key range check (< map size) */
-#define BPF_IDX_KEY_SKIP 50   /* key in range: skip the fallback load */
-#define BPF_IDX_FALLBACK 51   /* rx_queue_index fallback key load */
-#define BPF_IDX_REDIRECT 52   /* map fd load + bpf_redirect_map() call */
-#define BPF_IDX_PASS 57       /* dport/boundary miss -> XDP_PASS */
-/* The IPv6 frame's extra header bytes over IPv4's (40 - 20). */
-#define BPF_V6_SHIFT 20
-/* Bytes of the DCID the mix reads past its start: cid[0] plus cid[1..4]
- * (NCID_ROUTE_MIN_LEN), so each path bounds-checks dcid + 5 <= data_end. */
-#define BPF_DCID_SPAN 5
-
-/* Number of XSKMAP slots the DCID-byte routing key must stay under. The
- * server-side XSKMAP is always sized WIRED_SRVXDPBPF_MAP_ENTRIES
- * (app/http3/server/srvxdpbpf/srvxdpbpf.h), currently 64; a short header
- * carrying a CID this server never issued decodes to any byte, so the key
- * this filter reads is NOT guaranteed to fall inside the map --
- * unlike the fallback key (rx_queue_index), which stays under the RX queue
- * count and is assumed in-range (see BPF_IDX_KEY_CHECK's comment). Kept as
- * a fixed constant here rather than a xdpbpf_prog_build() parameter: this
- * transport-layer file has exactly one caller and must not depend on the
- * app-layer header that owns WIRED_SRVXDPBPF_MAP_ENTRIES. */
-#define BPF_XSKMAP_ENTRIES 64
+ * the IPv6 block (idx 15-23), then the redirect keyed by rx_queue_index. */
+#define BPF_IDX_DPORT4 14   /* IPv4 dport compare (patched) */
+#define BPF_IDX_V4_SKIP 15  /* IPv4 path: jump over the IPv6 block */
+#define BPF_IDX_V6 16       /* not IPv4: is it IPv6/UDP to dport? */
+#define BPF_IDX_DPORT6 23   /* IPv6 dport compare (patched) */
+#define BPF_IDX_REDIRECT 24 /* rx_queue_index key, map fd, redirect call */
+#define BPF_IDX_PASS 30     /* dport/boundary miss -> XDP_PASS */
 
 /* BPF_MAP_CREATE attr (linux/bpf.h:1397), first 5 fields only (20 bytes). */
 typedef struct {
@@ -113,8 +83,5 @@ u64  xdpbpf_bpf_insn(u8 code, u8 dst, u8 src, u16 off, i32 imm);
 u16  xdpbpf_bpf_htons(u16 port);
 u16  xdpbpf_bpf_off(int from, int to);
 void xdpbpf_bpf_prog_prologue(u64 out[XDPBPF_PROG_LEN]);
-void xdpbpf_bpf_prog_header_split(u64 out[XDPBPF_PROG_LEN]);
-void xdpbpf_bpf_prog_short_path(u64 out[XDPBPF_PROG_LEN]);
-void xdpbpf_bpf_prog_mix(u64 out[XDPBPF_PROG_LEN], const ncid_route_key* key);
 
 #endif

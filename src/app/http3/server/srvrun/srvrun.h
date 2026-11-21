@@ -402,9 +402,10 @@ typedef struct {
   int no_signal_handlers;
   /** Worker core-routing: this worker's own core/queue index (>= 0),
    * masked into the leading byte of every SCID it generates
-   * (ncid_route_encode) so a BPF program routes by CID after a connection
-   * migrates -- the AF_XDP filter under xdp->route_key when xdp is set, or
-   * the multi-worker UDP reuseport program under srvsteer's key when the
+   * (ncid_route_encode) so a packet reaches its worker after a connection
+   * migrates -- the AF_XDP receive path forwards it under xdp->route_key
+   * when xdp is set (srvxdp_fwd.c), or the multi-worker UDP reuseport
+   * program steers it under srvsteer's key when the
    * driver activated steering (srvsteer_open; with steering inactive no
    * core id is embedded). -1 (the default, a sentinel like incoming_cpu
    * since core 0 is itself valid) embeds the xdp socket's own queue_id in

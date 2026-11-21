@@ -1,42 +1,25 @@
+#include "ncid_key.h"
 #include "test.h"
 
-/* Golden 59-instruction program for map_fd=5, port=4433 (0x1151, byte-swapped
- * to 0x5111 at idx14 and idx23) and the route key xbt_key below. Every u64
- * was produced by an independent Python listing of the layout (code |
- * dst<<8 | src<<12 | (u16)off<<16 | (u32)imm<<32, offsets relative to the
- * next instruction): idx0-14 the eth/IPv4(IHL=5, unfragmented)/UDP/dport
- * prologue, a non-IPv4 EtherType jumping to the IPv6 block and every other
- * miss to the XDP_PASS trap at idx57; idx15 the IPv4 path's jump over the
- * IPv6 block; idx16-24 the IPv6 block (EtherType 0x86DD, data+62 bound, Next
- * Header 17, dport, then r2 += 20); idx25-29 the short-header bound
- * (data+48) and the Header Form split (0x80 -> the fallback); idx30-31 the
- * short path (r5 = data+43); idx32-48 the routing-byte unmask
- * (ncid_route_decode in eBPF, three key LDDWs at 34/37/43); idx49 the key
- * < 64 range check; idx50 the skip to the redirect; idx51 the
- * rx_queue_index fallback; idx52-56 bpf_redirect_map; idx57-58 XDP_PASS.
- * Every branch is forward-only, the property the kernel verifier needs (see
- * bpf_prog_key_check's comment). */
-static const ncid_route_key xbt_key = {
-    {0x0123456789abcdefULL, 0x9e3779b97f4a7c15ULL, 0xbf58476d1ce4e5b9ULL}};
-
+/* Golden 32-instruction program for map_fd=5, port=4433 (0x1151, byte-swapped
+ * to 0x5111 at idx14 and idx23). Every u64 was produced by an independent
+ * Python listing of the layout (code | dst<<8 | src<<12 | (u16)off<<16 |
+ * (u32)imm<<32, offsets relative to the next instruction): idx0-14 the
+ * eth/IPv4(IHL=5, unfragmented)/UDP/dport prologue, a non-IPv4 EtherType
+ * jumping to the IPv6 block and every other miss to the XDP_PASS trap at
+ * idx30; idx15 the IPv4 path's jump over the IPv6 block to idx24; idx16-23
+ * the IPv6 block (EtherType 0x86DD, data+62 bound, Next Header 17, dport);
+ * idx24 key = rx_queue_index; idx25-29 bpf_redirect_map; idx30-31 XDP_PASS.
+ * Every branch is forward-only, the property the kernel verifier needs. */
 static const u64 xbt_golden[XDPBPF_PROG_LEN] = {
     0x0000000000001261ULL, 0x0000000000041361ULL, 0x00000000000025bfULL,
-    0x0000002a00000507ULL, 0x000000000034352dULL, 0x00000000000c2469ULL,
-    0x0000000800090455ULL, 0x00000000000e2471ULL, 0x0000004500300455ULL,
-    0x0000000000142469ULL, 0x0000ff3f002e0445ULL, 0x0000000000172471ULL,
-    0x00000011002c0455ULL, 0x0000000000242469ULL, 0x00005111002a0455ULL,
-    0x0000000000090005ULL, 0x0000dd8600280455ULL, 0x00000000000025bfULL,
-    0x0000003e00000507ULL, 0x000000000025352dULL, 0x0000000000142471ULL,
-    0x0000001100230455ULL, 0x0000000000382469ULL, 0x0000511100210455ULL,
-    0x0000001400000207ULL, 0x00000000000025bfULL, 0x0000003000000507ULL,
-    0x000000000017352dULL, 0x00000000002a2471ULL, 0x0000008000150445ULL,
-    0x00000000000025bfULL, 0x0000002b00000507ULL, 0x0000000000005671ULL,
-    0x0000000000015761ULL, 0x89abcdef00000818ULL, 0x0123456700000000ULL,
-    0x00000000000087afULL, 0x7f4a7c1500000818ULL, 0x9e3779b900000000ULL,
-    0x000000000000872fULL, 0x00000000000078bfULL, 0x0000002000000877ULL,
-    0x00000000000087afULL, 0x1ce4e5b900000818ULL, 0xbf58476d00000000ULL,
-    0x000000000000872fULL, 0x0000003800000777ULL, 0x00000000000076afULL,
-    0x00000000000062bfULL, 0x0000004000010235ULL, 0x0000000000010005ULL,
+    0x0000002a00000507ULL, 0x000000000019352dULL, 0x00000000000c2469ULL,
+    0x0000000800090455ULL, 0x00000000000e2471ULL, 0x0000004500150455ULL,
+    0x0000000000142469ULL, 0x0000ff3f00130445ULL, 0x0000000000172471ULL,
+    0x0000001100110455ULL, 0x0000000000242469ULL, 0x00005111000f0455ULL,
+    0x0000000000080005ULL, 0x0000dd86000d0455ULL, 0x00000000000025bfULL,
+    0x0000003e00000507ULL, 0x00000000000a352dULL, 0x0000000000142471ULL,
+    0x0000001100080455ULL, 0x0000000000382469ULL, 0x0000511100060455ULL,
     0x0000000000101261ULL, 0x0000000500001118ULL, 0x0000000000000000ULL,
     0x00000002000003b7ULL, 0x0000003300000085ULL, 0x0000000000000095ULL,
     0x00000002000000b7ULL, 0x0000000000000095ULL};
@@ -44,25 +27,24 @@ static const u64 xbt_golden[XDPBPF_PROG_LEN] = {
 /* The built program matches the golden array exactly. */
 static void test_xdpbpf_prog_build_golden(void) {
   u64 out[XDPBPF_PROG_LEN];
-  CHECK(xdpbpf_prog_build(out, 5, 4433, &xbt_key) == XDPBPF_PROG_LEN);
+  CHECK(xdpbpf_prog_build(out, 5, 4433) == XDPBPF_PROG_LEN);
   for (usz i = 0; i < XDPBPF_PROG_LEN; i++) {
     CHECK(out[i] == xbt_golden[i]);
   }
 }
 
-/* A different map fd, port and key change only idx14/23 (the dports), the
- * six key half-words (34/35, 37/38, 43/44) and idx52 (the map-fd LDDW). */
+/* A different map fd and port change only idx14/23 (the dports) and idx25
+ * (the map-fd LDDW). */
 static void test_xdpbpf_prog_build_patches_only_params(void) {
-  static const usz     patched[9] = {14, 23, 34, 35, 37, 38, 43, 44, 52};
-  const ncid_route_key k          = {{1, 3, 5}};
-  u64                  out[XDPBPF_PROG_LEN];
-  usz                  diffs = 0;
-  CHECK(xdpbpf_prog_build(out, 9, 1234, &k) == XDPBPF_PROG_LEN);
+  static const usz patched[3] = {14, 23, 25};
+  u64              out[XDPBPF_PROG_LEN];
+  usz              diffs = 0;
+  CHECK(xdpbpf_prog_build(out, 9, 1234) == XDPBPF_PROG_LEN);
   for (usz i = 0; i < XDPBPF_PROG_LEN; i++) {
     diffs += out[i] != xbt_golden[i];
   }
-  CHECK(diffs == 9);
-  for (usz i = 0; i < 9; i++) {
+  CHECK(diffs == 3);
+  for (usz i = 0; i < 3; i++) {
     CHECK(out[patched[i]] != xbt_golden[patched[i]]);
   }
 }
@@ -138,7 +120,7 @@ static void xbt_check_branch(const u64* prog, usz idx, int expect_target) {
  * a future edit that reintroduces any backward edge fails here first. */
 static void test_xdpbpf_prog_has_no_backward_branch(void) {
   u64 prog[XDPBPF_PROG_LEN];
-  CHECK(xdpbpf_prog_build(prog, 5, 4433, &xbt_key) == XDPBPF_PROG_LEN);
+  CHECK(xdpbpf_prog_build(prog, 5, 4433) == XDPBPF_PROG_LEN);
   for (usz i = 0; i < XDPBPF_PROG_LEN; i++) {
     xbt_insn in = xbt_decode(prog[i]);
     if (!xbt_is_jump(in.code)) {
@@ -149,33 +131,28 @@ static void test_xdpbpf_prog_has_no_backward_branch(void) {
 }
 
 /* Branch targets decoded from the built program: a non-IPv4 EtherType goes
- * to the IPv6 block (idx16), the IPv4 path jumps over it to the core
- * (idx25), every IPv6 miss is XDP_PASS (idx57); the bound miss and Header
- * Form 1 reach the fallback (idx51), and the range check / skip land on
- * fallback / redirect. */
+ * to the IPv6 block (idx16), the IPv4 path jumps over it to the redirect
+ * (idx24), every miss is XDP_PASS (idx30). */
 static void test_xdpbpf_routing_branch_targets(void) {
   u64 prog[XDPBPF_PROG_LEN];
-  xdpbpf_prog_build(prog, 5, 4433, &xbt_key);
+  xdpbpf_prog_build(prog, 5, 4433);
+  xbt_check_branch(prog, 4, 30);
   xbt_check_branch(prog, 6, 16);
-  xbt_check_branch(prog, 14, 57);
-  xbt_check_branch(prog, 15, 25);
-  xbt_check_branch(prog, 16, 57);
-  xbt_check_branch(prog, 19, 57);
-  xbt_check_branch(prog, 21, 57);
-  xbt_check_branch(prog, 23, 57);
-  xbt_check_branch(prog, 27, 51);
-  xbt_check_branch(prog, 29, 51);
-  xbt_check_branch(prog, 49, 51);
-  xbt_check_branch(prog, 50, 52);
+  xbt_check_branch(prog, 14, 30);
+  xbt_check_branch(prog, 15, 24);
+  xbt_check_branch(prog, 16, 30);
+  xbt_check_branch(prog, 19, 30);
+  xbt_check_branch(prog, 21, 30);
+  xbt_check_branch(prog, 23, 30);
 }
 
 /* --- a reference eBPF interpreter -------------------------------------------
- * Runs the built program over a real frame, so the BPF side of the routing
- * byte is checked against ncid_route_decode (the C side) by execution, not by
- * reading instruction fields. Memory model: the xdp_md context (data,
- * data_end, data_meta, ingress_ifindex, rx_queue_index as u32) lives at
- * XBT_CTX, the packet at XBT_PKT; any packet read outside [data, data_end)
- * fails a CHECK, the access the kernel verifier would have refused. */
+ * Runs the built program over a real frame, so the redirect key is checked
+ * by execution, not by reading instruction fields. Memory model: the xdp_md
+ * context (data, data_end, data_meta, ingress_ifindex, rx_queue_index as u32)
+ * lives at XBT_CTX, the packet at XBT_PKT; any packet read outside [data,
+ * data_end) fails a CHECK, the access the kernel verifier would have refused.
+ */
 #define XBT_CTX 0x100u
 #define XBT_PKT 0x10000u
 #define XBT_PASS (-1)
@@ -348,92 +325,70 @@ static usz xbt_quic(u8* q, int is_long, u8 core, const ncid_route_key* k) {
   return 40;
 }
 
-/* RFC 9312 2.6 routing, end to end: for random CIDs, random keys and every
- * core 0..63, the BPF program run over a short-header frame redirects to
- * exactly the core ncid_route_encode masked into the CID. */
-static void test_xdpbpf_prog_unmasks_routing_byte(void) {
+/* A short header whose CID names another worker's slot still goes to the
+ * rx queue's own XSK: the kernel delivers an XDP_REDIRECT into an XSKMAP
+ * only to a socket bound to the queue the frame arrived on (xsk_rcv_check,
+ * net/xdp/xsk.c), so any other slot drops it. After a path change (RFC
+ * 9000 9) the frame can land on any queue; user space forwards it to the
+ * CID's owner (srvxdp_fwd.c). IPv4 and IPv6, every core 0..63. */
+static void test_xdpbpf_prog_foreign_cid_uses_rx_queue(void) {
   u8  q[40], f[128];
   u64 prog[XDPBPF_PROG_LEN];
-  for (int round = 0; round < 8; round++) {
-    ncid_route_key k;
-    for (usz i = 0; i < sizeof k.k; i++) {
-      ((u8*)k.k)[i] = xbt_rand8();
-    }
-    k.k[1] |= 1;
-    k.k[2] |= 1;
-    xdpbpf_prog_build(prog, 5, 4433, &k);
-    for (u8 core = 0; core < 64; core++) {
-      usz n = xbt_frame(f, sizeof f, 4433, q, xbt_quic(q, 0, core, &k));
-      CHECK(xbt_run(prog, f, n, 9) == core);
-    }
+  xdpbpf_prog_build(prog, 5, 4433);
+  for (u8 core = 0; core < 64; core++) {
+    usz n =
+        xbt_frame(f, sizeof f, 4433, q, xbt_quic(q, 0, core, &test_ncid_key));
+    CHECK(xbt_run(prog, f, n, 9) == 9);
+    n = xbt_frame6(f, sizeof f, 4433, q, xbt_quic(q, 0, core, &test_ncid_key));
+    CHECK(xbt_run(prog, f, n, 9) == 9);
   }
 }
 
-/* The routing byte on the wire is not the core: across CIDs that all route
- * to core 3 under one key, the first DCID byte takes many values (an
- * observer cannot read or correlate the core from it). */
-static void test_xdpbpf_routing_byte_hides_core(void) {
-  u8  seen[256] = {0}, q[40];
-  usz distinct  = 0;
-  for (int i = 0; i < 256; i++) {
-    xbt_quic(q, 0, 3, &xbt_key);
-    distinct += !seen[q[1]];
-    seen[q[1]] = 1;
-  }
-  CHECK(distinct > 100);
-}
-
-/* Fallback and pass paths, executed: every long header (whatever core its
- * DCID decodes to: a client's random Initial DCID lands on an empty slot as
- * often as not), a zero-length long-header DCID and a packet too short for
- * the routing bytes all use rx_queue_index; another port or a fragment is
- * XDP_PASS. */
+/* Redirect and pass paths, executed: every long header (whatever core its
+ * DCID decodes to), a zero-length long-header DCID and a 3-byte packet all
+ * use rx_queue_index; another port or a fragment is XDP_PASS. */
 static void test_xdpbpf_prog_fallback_and_pass(void) {
   u8  q[40], f[128];
   u64 prog[XDPBPF_PROG_LEN];
   usz n;
-  xdpbpf_prog_build(prog, 5, 4433, &xbt_key);
-  n = xbt_frame(f, sizeof f, 4433, q, xbt_quic(q, 1, 200, &xbt_key));
+  xdpbpf_prog_build(prog, 5, 4433);
+  n = xbt_frame(f, sizeof f, 4433, q, xbt_quic(q, 1, 200, &test_ncid_key));
   CHECK(xbt_run(prog, f, n, 7) == 7);
   for (u8 core = 0; core < 64; core++) {
-    n = xbt_frame(f, sizeof f, 4433, q, xbt_quic(q, 1, core, &xbt_key));
+    n = xbt_frame(f, sizeof f, 4433, q, xbt_quic(q, 1, core, &test_ncid_key));
     CHECK(xbt_run(prog, f, n, 7) == 7);
   }
-  xbt_quic(q, 1, 0, &xbt_key);
+  xbt_quic(q, 1, 0, &test_ncid_key);
   q[5] = 0; /* zero-length DCID */
   n    = xbt_frame(f, sizeof f, 4433, q, 40);
   CHECK(xbt_run(prog, f, n, 7) == 7);
   n = xbt_frame(f, sizeof f, 4433, q, 3); /* short header, 3 bytes */
   CHECK(xbt_run(prog, f, n, 7) == 7);
-  n = xbt_frame(f, sizeof f, 4434, q, xbt_quic(q, 0, 1, &xbt_key));
+  n = xbt_frame(f, sizeof f, 4434, q, xbt_quic(q, 0, 1, &test_ncid_key));
   CHECK(xbt_run(prog, f, n, 7) == XBT_PASS);
-  n = xbt_frame(f, sizeof f, 4433, q, xbt_quic(q, 0, 1, &xbt_key));
+  n = xbt_frame(f, sizeof f, 4433, q, xbt_quic(q, 0, 1, &test_ncid_key));
   f[ETH_HDR + 6] |= 0x20; /* MF */
   CHECK(xbt_run(prog, f, n, 7) == XBT_PASS);
 }
 
-/* RFC 8200 frames through the same filter: IPv6/UDP to the port routes a
- * short header to the core the CID carries and a long header to
- * rx_queue_index (the core reads the QUIC header 20 bytes further on); another
- * port, an extension header (Next Header 0), ICMPv6 (58) and a frame too short
- * for the IPv6 + UDP headers are XDP_PASS, so neighbour discovery still reaches
- * the kernel. */
+/* RFC 8200 frames through the same filter: IPv6/UDP to the port goes to
+ * rx_queue_index, long header or short; another port, an extension header
+ * (Next Header 0), ICMPv6 (58) and a frame too short for the IPv6 + UDP
+ * headers are XDP_PASS, so neighbour discovery still reaches the kernel. */
 static void test_xdpbpf_prog_ipv6(void) {
   u8  q[40], f[128];
   u64 prog[XDPBPF_PROG_LEN];
   usz n;
-  xdpbpf_prog_build(prog, 5, 4433, &xbt_key);
+  xdpbpf_prog_build(prog, 5, 4433);
   for (u8 core = 0; core < 64; core++) {
-    n = xbt_frame6(f, sizeof f, 4433, q, xbt_quic(q, 0, core, &xbt_key));
-    CHECK(xbt_run(prog, f, n, 9) == core);
-    n = xbt_frame6(f, sizeof f, 4433, q, xbt_quic(q, 1, core, &xbt_key));
+    n = xbt_frame6(f, sizeof f, 4433, q, xbt_quic(q, 1, core, &test_ncid_key));
     CHECK(xbt_run(prog, f, n, 9) == 9);
   }
   n = xbt_frame6(f, sizeof f, 4433, q, 3); /* short header, 3 bytes */
   CHECK(xbt_run(prog, f, n, 7) == 7);
-  n = xbt_frame6(f, sizeof f, 4434, q, xbt_quic(q, 0, 1, &xbt_key));
+  n = xbt_frame6(f, sizeof f, 4434, q, xbt_quic(q, 0, 1, &test_ncid_key));
   CHECK(xbt_run(prog, f, n, 7) == XBT_PASS);
-  n = xbt_frame6(f, sizeof f, 4433, q, xbt_quic(q, 0, 1, &xbt_key));
+  n = xbt_frame6(f, sizeof f, 4433, q, xbt_quic(q, 0, 1, &test_ncid_key));
   f[ETH_HDR + 6] = 0; /* Hop-by-Hop Options header */
   CHECK(xbt_run(prog, f, n, 7) == XBT_PASS);
   f[ETH_HDR + 6] = 58; /* ICMPv6 */
@@ -453,7 +408,7 @@ static u8 xbt_accept_log[XBT_ACCEPT_LOG_CAP];
 static void test_xdpbpf_prog_load_accepts_golden(i64 map_fd) {
   u64 prog[XDPBPF_PROG_LEN];
   i64 prog_fd;
-  xdpbpf_prog_build(prog, (i32)map_fd, 4433, &xbt_key);
+  xdpbpf_prog_build(prog, (i32)map_fd, 4433);
   prog_fd = xdpbpf_prog_load(
       prog, XDPBPF_PROG_LEN,
       wired_mspan_of(xbt_accept_log, sizeof xbt_accept_log));
@@ -467,7 +422,7 @@ static void test_xdpbpf_prog_load_rejects_corrupted(i64 map_fd) {
   u64 bad[XDPBPF_PROG_LEN];
   u8  log[256];
   i64 bad_fd;
-  xdpbpf_prog_build(bad, (i32)map_fd, 4433, &xbt_key);
+  xdpbpf_prog_build(bad, (i32)map_fd, 4433);
   bad[4] = bad[4] ^ 0x00ffULL;
   bad_fd =
       xdpbpf_prog_load(bad, XDPBPF_PROG_LEN, wired_mspan_of(log, sizeof log));
@@ -496,7 +451,6 @@ void test_xdpbpf(void) {
   test_xdpbpf_prog_has_no_backward_branch();
   test_xdpbpf_routing_branch_targets();
   test_xdpbpf_prog_ipv6();
-  test_xdpbpf_prog_unmasks_routing_byte();
-  test_xdpbpf_routing_byte_hides_core();
+  test_xdpbpf_prog_foreign_cid_uses_rx_queue();
   test_xdpbpf_prog_fallback_and_pass();
 }

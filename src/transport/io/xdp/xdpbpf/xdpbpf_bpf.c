@@ -1,73 +1,39 @@
 #include "transport/io/xdp/xdpbpf/xdpbpf_impl.h"
 
-static void bpf_prog_key_check(u64 out[XDPBPF_PROG_LEN]);
 static void bpf_prog_epilogue(u64 out[XDPBPF_PROG_LEN]);
-static void bpf_prog_template(u64 out[XDPBPF_PROG_LEN]);
 static void prog_load_attach_log(bpf_attr_prog_load* attr, wired_mspan log);
 
-/* idx 49-50 (BPF_IDX_KEY_CHECK, BPF_IDX_KEY_SKIP): the short path lands at
- * KEY_CHECK with the unmasked routing byte in r2. A CID this server never
- * issued decodes to any byte, so unlike the fallback key (rx_queue_index,
- * always < the RX queue count) this key is NOT guaranteed to be a valid
- * XSKMAP index. Values >= BPF_XSKMAP_ENTRIES go to BPF_IDX_FALLBACK instead
- * of bpf_redirect_map(), which would XDP_PASS the packet on the lookup miss.
- *
- * Both jumps here are FORWARD (KEY_CHECK -> FALLBACK, KEY_SKIP -> REDIRECT):
- * this block sits *before* BPF_IDX_FALLBACK so neither edge is a backward
- * branch. A range check placed after the fallback's key load made the
- * verifier read a cycle and BPF_PROG_LOAD failed with "infinite loop
- * detected", even though runtime execution never loops. */
-static void bpf_prog_key_check(u64 out[XDPBPF_PROG_LEN]) {
-  out[BPF_IDX_KEY_CHECK] = xdpbpf_bpf_insn(
-      BPF_INSN_JGE_IMM, 2, 0,
-      xdpbpf_bpf_off(BPF_IDX_KEY_CHECK, BPF_IDX_FALLBACK), BPF_XSKMAP_ENTRIES);
-  out[BPF_IDX_KEY_SKIP] = xdpbpf_bpf_insn(
-      BPF_INSN_JA, 0, 0, xdpbpf_bpf_off(BPF_IDX_KEY_SKIP, BPF_IDX_REDIRECT), 0);
-}
-
-/* idx 51,52-58: the rx_queue_index fallback key load (BPF_IDX_FALLBACK,
- * bounded by the NIC's actual RX queue count, so it needs no range check of
- * its own), then the shared redirect-map epilogue every path above converges
- * on (BPF_IDX_REDIRECT), and finally the XDP_PASS trap every dport/
- * boundary miss above jumps to (BPF_IDX_PASS). map_fd (idx REDIRECT+0/+1,
- * the LDDW) is patched by the caller after this runs, same as the original
- * template's idx16. */
+/* idx 24-31: key = ctx->rx_queue_index (BPF_IDX_REDIRECT), the map fd LDDW
+ * (patched by the caller), bpf_redirect_map(map, key, XDP_PASS), then the
+ * XDP_PASS trap every dport/boundary miss above jumps to (BPF_IDX_PASS).
+ * The rx queue is the only legal key: the kernel delivers into an XSK only
+ * when the socket is bound to the queue the frame arrived on (xsk_rcv_check,
+ * net/xdp/xsk.c), so routing by the DCID's worker byte dropped every frame
+ * that a path change (RFC 9000 9) or an RSS update moved to another queue.
+ * The owner is found in user space instead (srvxdp_fwd.c). */
 static void bpf_prog_epilogue(u64 out[XDPBPF_PROG_LEN]) {
-  out[BPF_IDX_FALLBACK] = xdpbpf_bpf_insn(BPF_INSN_LDXW, 2, 1, 16, 0);
-  out[BPF_IDX_REDIRECT] =
+  int i  = BPF_IDX_REDIRECT;
+  out[i] = xdpbpf_bpf_insn(BPF_INSN_LDXW, 2, 1, 16, 0);
+  out[i + 1] =
       xdpbpf_bpf_insn(BPF_INSN_LDDW_IMM, 1, BPF_SRC_MAP_FD, 0, 0); /* patched */
-  out[BPF_IDX_REDIRECT + 1] = xdpbpf_bpf_insn(0, 0, 0, 0, 0);
-  out[BPF_IDX_REDIRECT + 2] =
-      xdpbpf_bpf_insn(BPF_INSN_MOV64_IMM, 3, 0, 0, XDP_PASS);
-  out[BPF_IDX_REDIRECT + 3] =
-      xdpbpf_bpf_insn(BPF_INSN_CALL, 0, 0, 0, BPF_FUNC_REDIRECT_MAP);
-  out[BPF_IDX_REDIRECT + 4] = xdpbpf_bpf_insn(BPF_INSN_EXIT, 0, 0, 0, 0);
+  out[i + 2] = xdpbpf_bpf_insn(0, 0, 0, 0, 0);
+  out[i + 3] = xdpbpf_bpf_insn(BPF_INSN_MOV64_IMM, 3, 0, 0, XDP_PASS);
+  out[i + 4] = xdpbpf_bpf_insn(BPF_INSN_CALL, 0, 0, 0, BPF_FUNC_REDIRECT_MAP);
+  out[i + 5] = xdpbpf_bpf_insn(BPF_INSN_EXIT, 0, 0, 0, 0);
   out[BPF_IDX_PASS] = xdpbpf_bpf_insn(BPF_INSN_MOV64_IMM, 0, 0, 0, XDP_PASS);
   out[BPF_IDX_PASS + 1] = xdpbpf_bpf_insn(BPF_INSN_EXIT, 0, 0, 0, 0);
 }
 
-/* Fixed filter template (see xdpbpf.h for the full semantics); dport
- * (BPF_IDX_DPORT4/6), the route key (the three LDDWs in BPF_IDX_MIX) and map_fd
- * (the LDDW at BPF_IDX_REDIRECT) are patched per call by xdpbpf_prog_build. */
-static void bpf_prog_template(u64 out[XDPBPF_PROG_LEN]) {
+usz xdpbpf_prog_build(u64 out[XDPBPF_PROG_LEN], i32 map_fd, u16 port) {
   xdpbpf_bpf_prog_prologue(out);
-  xdpbpf_bpf_prog_header_split(out);
-  xdpbpf_bpf_prog_short_path(out);
-  bpf_prog_key_check(out);
   bpf_prog_epilogue(out);
-}
-
-usz xdpbpf_prog_build(
-    u64 out[XDPBPF_PROG_LEN], i32 map_fd, u16 port, const ncid_route_key* key) {
-  bpf_prog_template(out);
-  xdpbpf_bpf_prog_mix(out, key);
   out[BPF_IDX_DPORT4] = xdpbpf_bpf_insn(
       BPF_INSN_JNE_IMM, 4, 0, xdpbpf_bpf_off(BPF_IDX_DPORT4, BPF_IDX_PASS),
       xdpbpf_bpf_htons(port));
   out[BPF_IDX_DPORT6] = xdpbpf_bpf_insn(
       BPF_INSN_JNE_IMM, 4, 0, xdpbpf_bpf_off(BPF_IDX_DPORT6, BPF_IDX_PASS),
       xdpbpf_bpf_htons(port));
-  out[BPF_IDX_REDIRECT] =
+  out[BPF_IDX_REDIRECT + 1] =
       xdpbpf_bpf_insn(BPF_INSN_LDDW_IMM, 1, BPF_SRC_MAP_FD, 0, map_fd);
   return XDPBPF_PROG_LEN;
 }
