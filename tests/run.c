@@ -681,6 +681,7 @@
 #include "app/http3/server/srvthreads/srvthreads.c"
 #include "app/http3/server/srvthreads/srvthreads_cores.c"
 #include "app/http3/server/srvthreads/srvthreads_spawn.c"
+#include "app/http3/server/srvthreads/srvthreads_fwd.c"
 #include "app/http3/server/srvdriver/srvdriver.c"
 #include "app/http3/server/srvdriver/srvdriver_run.c"
 #include "app/http3/server/srvpoll/srvpoll.c"

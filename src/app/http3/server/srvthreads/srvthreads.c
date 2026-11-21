@@ -38,12 +38,16 @@ static void srvthreads_worker_serve_udp(srvthreads_worker_arg* a) {
 
 /* Point a->run at the just-opened queue and this worker's own core/queue
  * index (worker i == queue i == core-routing byte i, the same 1:1 mapping
- * wired_srvxdpbpf_register relies on) -- split out from
+ * wired_srvxdpbpf_register relies on), and join x to the forwarding mesh
+ * that carries a migrated connection's datagrams from whichever queue they
+ * land on to this worker (RFC 9000 9, srvxdp_fwd.c) -- split out from
  * srvthreads_worker_serve_xdp so the index-passing itself is directly
  * testable without a real AF_XDP queue open succeeding. */
 static void srvthreads_arm_xdp_run(srvthreads_worker_arg* a, wired_srvxdp* x) {
   a->run.xdp     = x;
   a->run.core_id = a->index;
+  x->fwd         = a->fwd;
+  x->fwd_n       = (u32)a->n_total;
 }
 
 /* XDP mode: open this worker's queue (queue_id == worker index) against the
@@ -134,6 +138,22 @@ wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores) {
 void srvthreads_free_mesh(wired_srvinbox_ring* mesh, int n_cores) {
   wired_arch_munmap(
       (i64)mesh, sizeof(wired_srvinbox_ring) * (usz)n_cores * (usz)n_cores);
+}
+
+/* mmap the n_cores^2 AF_XDP forwarding mesh (srvfwd.h); mmap's zero fill
+ * is every ring's empty state. 0 on failure. */
+srvfwd_ring* srvthreads_alloc_fwd(int n_cores) {
+  usz sz   = sizeof(srvfwd_ring) * (usz)n_cores * (usz)n_cores;
+  i64 base = wired_arch_mmap(
+      0, sz, SRVTHREADS_PROT_RW, SRVTHREADS_MAP_PRIVATE_ANON, -1, 0);
+  return base < 0 ? 0 : (srvfwd_ring*)base;
+}
+
+void srvthreads_free_fwd(srvfwd_ring* fwd, int n_cores) {
+  if (fwd) {
+    wired_arch_munmap(
+        (i64)fwd, sizeof(srvfwd_ring) * (usz)n_cores * (usz)n_cores);
+  }
 }
 
 /* Worker i's receive row is mesh + i*n_cores (n_cores rings). */

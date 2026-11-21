@@ -5,6 +5,7 @@
  * and the functions and tables more than one piece uses. Not public API. */
 
 #include "app/http3/server/sigterm/sigterm.h"
+#include "app/http3/server/srvfwd/srvfwd.h"
 #include "app/http3/server/srvinbox/srvinbox.h"
 #include "app/http3/server/srvkeys/srvkeys.h"
 #include "app/http3/server/srvpin/srvpin.h"
@@ -29,6 +30,7 @@ typedef struct {
   wired_srvrun_env*       env;
   const wired_srvxdp_cfg* xdp_cfg; /**< 0 in UDP mode */
   wired_srvxdpbpf*        bpf;     /**< shared BPF, XDP mode only */
+  srvfwd_ring*            fwd; /**< XDP mode: n_total^2 forwarding mesh, or 0 */
   wired_srvrun_handler    h;
   wired_srvrun_obs        obs;
   wired_srvboot_id        id;    /**< per-worker copy (SIGHUP reload safety) */
@@ -47,7 +49,11 @@ void                 srvthreads_worker_trampoline(void* argp);
 u8*                  srvthreads_alloc_envs(int n_cores);
 void                 srvthreads_free_envs(u8* base, int n_cores);
 wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores);
-void srvthreads_free_mesh(wired_srvinbox_ring* mesh, int n_cores);
+void         srvthreads_free_mesh(wired_srvinbox_ring* mesh, int n_cores);
+srvfwd_ring* srvthreads_alloc_fwd(int n_cores);
+void         srvthreads_free_fwd(srvfwd_ring* fwd, int n_cores);
+int          srvthreads_fwd_ready(
+    srvfwd_ring** fwd, const wired_srvthreads_opt* opt, u8 scid_len);
 void srvthreads_fill_common(
     srvthreads_worker_arg*      a,
     u16                         port,

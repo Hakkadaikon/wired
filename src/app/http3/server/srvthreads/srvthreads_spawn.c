@@ -13,12 +13,19 @@ static void srvthreads_sigterm_handler(int sig);
 static void srvthreads_start_workers(
     wired_thread* threads, srvthreads_worker_arg* args, int n);
 static int srvthreads_alloc_state(u8** envs, wired_srvinbox_ring** mesh, int n);
-static int srvthreads_setup(
+static int srvthreads_setup_io(
     wired_srvxdpbpf*        bpf,
     u8**                    envs,
     wired_srvinbox_ring**   mesh,
     int                     n,
     const wired_srvxdp_cfg* xdp);
+static int srvthreads_setup(
+    wired_srvxdpbpf*            bpf,
+    u8**                        envs,
+    wired_srvinbox_ring**       mesh,
+    srvfwd_ring**               fwd,
+    const wired_srvthreads_opt* opt,
+    const wired_srvboot_id*     id);
 static void srvthreads_fill_args(
     srvthreads_worker_arg*       args,
     const srvthreads_worker_arg* common,
@@ -31,11 +38,10 @@ static void srvthreads_serve(srvthreads_worker_arg* args, int n);
 static void srvthreads_steer(
     u16 port, const wired_srvboot_id* id, const wired_srvthreads_opt* opt);
 static void srvthreads_teardown(
-    wired_srvxdpbpf*        bpf,
-    u8*                     envs,
-    wired_srvinbox_ring*    mesh,
-    int                     n,
-    const wired_srvxdp_cfg* xdp);
+    const srvthreads_worker_arg* common,
+    u8*                          envs,
+    wired_srvinbox_ring*         mesh,
+    int                          n);
 
 /* Spawn every worker thread. On the first wired_thread_start failure, stops
  * and returns that negative error; every already-started thread is left
@@ -132,7 +138,7 @@ static int srvthreads_alloc_state(
 /* Open the shared BPF filter (XDP mode) and allocate the per-worker env
  * table + broadcast mesh; any failure tears down what already succeeded and
  * returns 0. */
-static int srvthreads_setup(
+static int srvthreads_setup_io(
     wired_srvxdpbpf*        bpf,
     u8**                    envs,
     wired_srvinbox_ring**   mesh,
@@ -170,7 +176,7 @@ static void srvthreads_pin_control(int control_core) {
   }
 }
 
-/* RFC 9000 5.2/9 (UDP mode only; XDP steers by CID already): bind every
+/* RFC 9000 5.2/9 (UDP mode only; XDP forwards by CID, srvxdp_fwd.c): bind every
  * worker's reuseport socket in worker order and attach the CID-selection
  * program before any worker thread spawns, so each worker's srvrun_listen
  * finds its own pre-bound socket at group index == worker index
@@ -183,16 +189,36 @@ static void srvthreads_steer(
   }
 }
 
+/* The forwarding mesh first (XDP mode), then the BPF filter and the
+ * per-worker state; any failure releases what already succeeded. */
+static int srvthreads_setup(
+    wired_srvxdpbpf*            bpf,
+    u8**                        envs,
+    wired_srvinbox_ring**       mesh,
+    srvfwd_ring**               fwd,
+    const wired_srvthreads_opt* opt,
+    const wired_srvboot_id*     id) {
+  if (!srvthreads_fwd_ready(fwd, opt, id->scid_len)) {
+    return 0;
+  }
+  if (srvthreads_setup_io(bpf, envs, mesh, opt->n_cores, opt->xdp)) {
+    return 1;
+  }
+  srvthreads_free_fwd(*fwd, opt->n_cores);
+  return 0;
+}
+
 /* Release everything the run set up: the steering sockets, the shared BPF
- * filter (XDP mode), the inbox mesh and the env table. */
+ * filter and the forwarding mesh (XDP mode), the inbox mesh and the env
+ * table. */
 static void srvthreads_teardown(
-    wired_srvxdpbpf*        bpf,
-    u8*                     envs,
-    wired_srvinbox_ring*    mesh,
-    int                     n,
-    const wired_srvxdp_cfg* xdp) {
+    const srvthreads_worker_arg* common,
+    u8*                          envs,
+    wired_srvinbox_ring*         mesh,
+    int                          n) {
   srvsteer_close();
-  srvthreads_close_bpf(bpf, xdp);
+  srvthreads_close_bpf(common->bpf, common->xdp_cfg);
+  srvthreads_free_fwd(common->fwd, n);
   srvthreads_free_mesh(mesh, n);
   srvthreads_free_envs(envs, n);
 }
@@ -216,6 +242,7 @@ int wired_srvthreads_run(
   wired_srvxdpbpf       bpf = {-1, -1, -1, {{0, 0, 0}}};
   u8*                   envs;
   wired_srvinbox_ring*  mesh;
+  srvfwd_ring*          fwd;
   int                   n = opt->n_cores;
 
   srvthreads_pin_control(opt->control_core);
@@ -223,14 +250,15 @@ int wired_srvthreads_run(
   if (!srvkeys_ready()) {
     return 0;
   }
-  if (!srvthreads_setup(&bpf, &envs, &mesh, n, opt->xdp)) {
+  if (!srvthreads_setup(&bpf, &envs, &mesh, &fwd, opt, id)) {
     return 0;
   }
   srvthreads_steer(port, id, opt);
   srvthreads_fill_common(&common, port, id, h, obs, opt, &bpf);
+  common.fwd = fwd;
   srvthreads_fill_args(args, &common, envs, mesh, n, opt->cores);
   srvthreads_serve(args, n);
 
-  srvthreads_teardown(&bpf, envs, mesh, n, opt->xdp);
+  srvthreads_teardown(&common, envs, mesh, n);
   return 1;
 }

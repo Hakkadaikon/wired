@@ -177,15 +177,79 @@ static void test_srvthreads_parse_cores_leading_comma(void) {
 }
 
 /* AF_XDP CORE ROUTING: each worker passes its own index (== queue id) into
- * the srvrun opt that drives its CID issuance, once its queue is armed. */
+ * the srvrun opt that drives its CID issuance, once its queue is armed, and
+ * joins the run's forwarding mesh (RFC 9000 9, srvxdp_fwd.c). */
 static void test_srvthreads_xdp_worker_passes_own_core_id_to_cid_issuance(
     void) {
   srvthreads_worker_arg a = {0};
-  wired_srvxdp          x;
-  a.index = 5;
+  wired_srvxdp          x = {0};
+  static srvfwd_ring    mesh[1];
+  a.index   = 5;
+  a.n_total = 6;
+  a.fwd     = mesh;
   srvthreads_arm_xdp_run(&a, &x);
   CHECK(a.run.xdp == &x);
   CHECK(a.run.core_id == 5);
+  CHECK(x.fwd == mesh && x.fwd_n == 6);
+}
+
+static int         g_sth_fwd_allocs;
+static srvfwd_ring g_sth_fwd_ring[4];
+
+static srvfwd_ring* sth_fwd_alloc_fails(int n_cores) {
+  (void)n_cores;
+  g_sth_fwd_allocs++;
+  return 0;
+}
+
+static srvfwd_ring* sth_fwd_alloc_ok(int n_cores) {
+  (void)n_cores;
+  g_sth_fwd_allocs++;
+  return g_sth_fwd_ring;
+}
+
+/* srvthreads_fwd_ready with the allocation seam set to fn: its result,
+ * with *fwd and the allocation count checked against want_fwd/allocs. */
+static int sth_fwd_ready(
+    srvthreads_fwd_alloc_fn fn,
+    const wired_srvxdp_cfg* xdp,
+    int                     n,
+    u8                      scid_len,
+    srvfwd_ring*            want_fwd,
+    int                     allocs) {
+  wired_srvthreads_opt opt = {0};
+  srvfwd_ring*         fwd = (srvfwd_ring*)1;
+  int                  r;
+  opt.n_cores      = n;
+  opt.xdp          = xdp;
+  g_sth_fwd_allocs = 0;
+  srvthreads_test_set_fwd_alloc(fn);
+  r = srvthreads_fwd_ready(&fwd, &opt, scid_len);
+  srvthreads_test_set_fwd_alloc(0);
+  CHECK(fwd == want_fwd);
+  CHECK(g_sth_fwd_allocs == allocs);
+  return r;
+}
+
+/* RFC 9000 9 on AF_XDP: 2+ workers whose CIDs carry the owner (scid_len >=
+ * NCID_ROUTE_MIN_LEN) get the forwarding mesh, and a failed allocation
+ * stops the run (a worker would serve another queue's migrated short
+ * header with no connection for it and the connection would stall). One
+ * worker, the UDP driver, or CIDs too short to carry an owner (decoding
+ * one would send short headers to a random worker) need none. */
+static void test_srvthreads_fwd_ready(void) {
+  wired_srvxdp_cfg xdp = {0};
+  CHECK(sth_fwd_ready(sth_fwd_alloc_fails, &xdp, 2, 8, 0, 1) == 0);
+  CHECK(sth_fwd_ready(sth_fwd_alloc_ok, &xdp, 2, 8, g_sth_fwd_ring, 1) == 1);
+  CHECK(sth_fwd_ready(sth_fwd_alloc_fails, &xdp, 1, 8, 0, 0) == 1);
+  CHECK(sth_fwd_ready(sth_fwd_alloc_fails, 0, 2, 8, 0, 0) == 1);
+  CHECK(
+      sth_fwd_ready(
+          sth_fwd_alloc_fails, &xdp, 2, NCID_ROUTE_MIN_LEN - 1, 0, 0) == 1);
+  CHECK(
+      sth_fwd_ready(
+          sth_fwd_alloc_ok, &xdp, 2, NCID_ROUTE_MIN_LEN, g_sth_fwd_ring, 1) ==
+      1);
 }
 
 void test_srvthreads(void) {
@@ -201,4 +265,5 @@ void test_srvthreads(void) {
   test_srvthreads_parse_cores_trailing_comma();
   test_srvthreads_parse_cores_leading_comma();
   test_srvthreads_xdp_worker_passes_own_core_id_to_cid_issuance();
+  test_srvthreads_fwd_ready();
 }
