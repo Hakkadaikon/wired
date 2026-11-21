@@ -9,6 +9,7 @@ static int srvrun_recovery_waiting(const srvrun_conn* c);
 static int srvrun_polling(const srvrun_cfg* cfg);
 static int srvrun_bounded_wait_forced(const srvrun_cfg* cfg);
 static int srvrun_poll_sockets(const srvrun_cfg* cfg);
+static int srvrun_wait_unbounded(const srvrun_cfg* cfg);
 static i64 srvrun_recv_xdp(const srvrun_cfg* cfg, mmsg_buf* bufs, usz nbufs);
 
 /* Serve a recvmmsg batch message by message, in arrival order. One idle
@@ -159,6 +160,14 @@ int srvrun_may_block_unbounded(const srvrun_cfg* cfg, srvrun_state* st) {
   return !srvrun_any_waiting(st);
 }
 
+/* 1 if this step's receive itself sleeps without a bound: the blocking
+ * recvmmsg on the single socket with nothing in flight (srvrun_wait_input
+ * returned at once). Only then is the step's clock reading stale. */
+int srvrun_recv_blocks_unbounded(const srvrun_cfg* cfg, srvrun_state* st) {
+  return !srvrun_polling(cfg) && !cfg->env->pref_fd &&
+         srvrun_may_block_unbounded(cfg, st);
+}
+
 /* The bounded readable-wait over the primary socket, or over both when the
  * preferred-address socket exists (one poll syscall either way). */
 static int srvrun_poll_sockets(const srvrun_cfg* cfg) {
@@ -168,12 +177,23 @@ static int srvrun_poll_sockets(const srvrun_cfg* cfg) {
   return poll_wait_readable(cfg->fd, SRVRUN_PTO_MS) > 0;
 }
 
+/* Nothing in flight: the single socket's own blocking recvmmsg is the wait.
+ * With the preferred-address socket both are drained non-blocking
+ * (srvrun_recv_serve_one), so wait on both here with no timeout (poll(2)
+ * -1), or the idle loop spins. */
+static int srvrun_wait_unbounded(const srvrun_cfg* cfg) {
+  if (!cfg->env->pref_fd) {
+    return 1;
+  }
+  return poll_wait_readable2(cfg->fd, cfg->env->pref_fd, (u64)-1) > 0;
+}
+
 int srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st) {
   if (srvrun_polling(cfg)) {
     return 1;
   }
   if (srvrun_may_block_unbounded(cfg, st)) {
-    return 1;
+    return srvrun_wait_unbounded(cfg);
   }
   return srvrun_poll_sockets(cfg);
 }

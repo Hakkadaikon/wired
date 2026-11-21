@@ -5,7 +5,10 @@ static void srvrun_recv_serve_one(
 static void srvrun_recv_serve(
     const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, usz nbufs);
 static void srvrun_app_step(const srvrun_cfg* cfg);
-static int  srvrun_drain_tick(
+static void srvrun_step_clock(const srvrun_cfg* cfg);
+static i64  srvrun_recv_fresh(
+    const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, usz nbufs);
+static int srvrun_drain_tick(
     const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, int tick);
 static void srvrun_rx_init(wired_srvrun_env* env, mmsg_buf* bufs);
 static u64  srvrun_close_grease_id(void);
@@ -33,6 +36,21 @@ static void srvrun_recv_serve_one(
   cfg->env->rx_fd = 0;
 }
 
+/* srvrun_recv, then a fresh step clock when that receive slept without a
+ * bound (srvrun_recv_blocks_unbounded): a boot claimed from it must not be
+ * stamped with the pre-wait time, or it is reaped as overdue (RFC 9000
+ * 21.6) right after its flight. Any other receive returns at once, so the
+ * step's own reading stands and no clock syscall is added. */
+static i64 srvrun_recv_fresh(
+    const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, usz nbufs) {
+  int slept = srvrun_recv_blocks_unbounded(cfg, st);
+  i64 r     = srvrun_recv(cfg, bufs, nbufs);
+  if (slept) {
+    srvrun_step_clock(cfg);
+  }
+  return r;
+}
+
 static void srvrun_recv_serve(
     const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, usz nbufs) {
   i64 r;
@@ -41,7 +59,7 @@ static void srvrun_recv_serve(
     srvrun_recv_serve_one(cfg, st, bufs, nbufs, cfg->env->pref_fd);
     return;
   }
-  r = srvrun_recv(cfg, bufs, nbufs);
+  r = srvrun_recv_fresh(cfg, st, bufs, nbufs);
   if (r > 0) {
     srvrun_serve_batch(cfg, st, bufs, r);
   }

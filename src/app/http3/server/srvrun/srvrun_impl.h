@@ -134,6 +134,7 @@ int  srvrun_any_waiting(const srvrun_state* st);
 int  srvrun_pto_due(const srvrun_cfg* cfg, wired_srvrun_env* env);
 void srvrun_polling_ptos(const srvrun_cfg* cfg, srvrun_state* st);
 int  srvrun_may_block_unbounded(const srvrun_cfg* cfg, srvrun_state* st);
+int  srvrun_recv_blocks_unbounded(const srvrun_cfg* cfg, srvrun_state* st);
 int  srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st);
 i64  srvrun_recv(const srvrun_cfg* cfg, mmsg_buf* bufs, usz nbufs);
 void srvrun_step(

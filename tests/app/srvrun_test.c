@@ -7714,6 +7714,146 @@ static void test_srvrun_busy_poll_step_never_blocks(void) {
   CHECK(1);
 }
 
+#define SR_IDLE_GAP_MS 200
+
+/* The client of the idle-wait tests below: one datagram, sent to the
+ * loopback port after SR_IDLE_GAP_MS of silence. */
+typedef struct {
+  const u8* dg;
+  usz       n;
+  u16       port;
+} sr_late_send;
+
+static void sr_late_initial(void* arg) {
+  const sr_late_send* s     = arg;
+  i64                 fd    = wired_udp_socket();
+  u64                 until = clock_mono_ms() + SR_IDLE_GAP_MS;
+  sockaddr            to;
+  while (clock_mono_ms() < until) {
+    wired_arch_pause();
+  }
+  wired_udp_addr(&to, s->port, (const u8[4]){127, 0, 0, 1});
+  wired_udp_send(fd, &to, wired_span_of(s->dg, s->n));
+  wired_udp_close(fd);
+}
+
+/* IDLE GAP: with nothing in flight the blocking driver's step waits inside
+ * recvmmsg itself, so a clock read taken before that wait is as old as the
+ * gap. The interop handshakeloss trace: a first Initial after 16.7s of
+ * silence was stamped 16.7s in the past, so the new boot was already past
+ * its deadline (RFC 9000 21.6) and was reaped right after its flight; the
+ * client probed a dead slot until its 180s handshake timeout. */
+static void test_srvrun_step_clock_after_idle_recv(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  static u8        storage[2][XSKSETUP_FRAME_SIZE]; /* = env->rxstorage */
+  mmsg_buf         bufs[2];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  wired_thread     t;
+  sockaddr         sa;
+  i64              fd = wired_udp_socket();
+  srvrun_state     st = {table, sr_test_conns()};
+  sr_late_send     s  = {
+      dg, sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8), 4499};
+  srvrun_cfg cfg;
+  u64        t0;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  wired_udp_addr(&sa, 4499, (const u8[4]){127, 0, 0, 1});
+  if (wired_udp_bind(fd, &sa) < 0) {
+    CHECK(0); /* no socket: the step below would block forever */
+    wired_udp_close(fd);
+    return;
+  }
+  cfg = (srvrun_cfg){
+      fd, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+      0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  bufs[0].buf = wired_mspan_of(storage[0], sizeof storage[0]);
+  bufs[1].buf = wired_mspan_of(storage[1], sizeof storage[1]);
+  t0          = clock_mono_ms();
+  if (wired_thread_start(&t, sr_late_initial, &s) != 0) {
+    CHECK(0); /* no sender: the step below would block forever */
+    wired_udp_close(fd);
+    return;
+  }
+  srvrun_step(&cfg, &st, bufs, 2);
+  wired_thread_join(&t);
+  wired_udp_close(fd);
+  CHECK(st.conns[0].up == 1);
+  CHECK(st.conns[0].boot_claim_ms >= t0 + SR_IDLE_GAP_MS);
+}
+
+/* Only the blocking single-socket receive sleeps without a bound, so only it
+ * re-reads the step clock afterwards: a polling driver, a preferred-address
+ * pair (polled first) or a slot with work in flight (bounded poll) keeps
+ * the step's own reading -- each re-read is a real clock_gettime. */
+static void test_srvrun_recv_blocks_unbounded(void) {
+  conntable    table[WIRED_CONNTABLE_CAP];
+  srvrun_state st = {table, sr_test_conns()};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  CHECK(srvrun_recv_blocks_unbounded(&cfg, &st) == 1);
+  cfg.busy_poll = 1;
+  CHECK(srvrun_recv_blocks_unbounded(&cfg, &st) == 0);
+  cfg.busy_poll        = 0;
+  g_srvrun_env.pref_fd = 7;
+  CHECK(srvrun_recv_blocks_unbounded(&cfg, &st) == 0);
+  g_srvrun_env.pref_fd            = 0;
+  st.conns[0].up                  = 1;
+  st.conns[0].resp[0].in_use      = 1;
+  st.conns[0].resp[0].sess.active = 1; /* srvrun_any_waiting says yes */
+  CHECK(srvrun_recv_blocks_unbounded(&cfg, &st) == 0);
+}
+
+/* RFC 9000 9.6.2 two-socket receive with nothing in flight: both sockets
+ * are drained non-blocking, so the step must first wait on both in poll(2)
+ * -- returning at once instead spins the loop on an idle server. The step
+ * returns only once the late datagram arrives on the preferred socket. */
+static void test_srvrun_pref_fd_idle_blocks(void) {
+  wired_srvboot_id id; /* the served datagram reads the server's scid length */
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  static u8        storage[2][XSKSETUP_FRAME_SIZE];
+  static u8        junk[1] = {0};
+  mmsg_buf         bufs[2];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  wired_thread     t;
+  sockaddr         sa;
+  i64              fd  = wired_udp_socket();
+  i64              pfd = wired_udp_socket();
+  srvrun_state     st  = {table, sr_test_conns()};
+  sr_late_send     s   = {junk, sizeof junk, 4496};
+  int              up  = 1;
+  srvrun_cfg       cfg;
+  u64              t0;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  wired_udp_addr(&sa, 4495, (const u8[4]){127, 0, 0, 1});
+  up &= wired_udp_bind(fd, &sa) >= 0;
+  wired_udp_addr(&sa, 4496, (const u8[4]){127, 0, 0, 1});
+  up &= wired_udp_bind(pfd, &sa) >= 0;
+  cfg = (srvrun_cfg){
+      fd, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+      0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  bufs[0].buf = wired_mspan_of(storage[0], sizeof storage[0]);
+  bufs[1].buf = wired_mspan_of(storage[1], sizeof storage[1]);
+  if (!up || wired_thread_start(&t, sr_late_initial, &s) != 0) {
+    CHECK(0); /* no sockets or sender: the step below would block forever */
+    wired_udp_close(fd);
+    wired_udp_close(pfd);
+    return;
+  }
+  g_srvrun_env.pref_fd = pfd;
+  t0                   = clock_mono_ms();
+  srvrun_step(&cfg, &st, bufs, 2);
+  CHECK(clock_mono_ms() >= t0 + SR_IDLE_GAP_MS / 2);
+  g_srvrun_env.pref_fd = 0;
+  wired_thread_join(&t);
+  wired_udp_close(fd);
+  wired_udp_close(pfd);
+}
+
 /* Polling drivers never reach the poll-timeout probe pass, so the PTO tick
  * is clocked instead: the 1024th spin arms the SRVRUN_PTO_MS window and
  * fires, further due spins inside the window do not re-fire. The blocking
@@ -30405,6 +30545,9 @@ void test_srvrun(void) {
   test_srvrun_busy_poll_off_uses_any_waiting_branch();
   test_srvrun_busy_poll_on_never_blocks_wait();
   test_srvrun_busy_poll_step_never_blocks();
+  test_srvrun_step_clock_after_idle_recv();
+  test_srvrun_recv_blocks_unbounded();
+  test_srvrun_pref_fd_idle_blocks();
   test_srvrun_polling_pto_tick();
   test_srvrun_opt_zeroed_matches_plain_default();
   test_srvrun_so_busy_poll_zero_still_binds();
