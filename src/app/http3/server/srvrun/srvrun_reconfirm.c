@@ -84,16 +84,18 @@ void srvrun_reconfirm_on_hs_probe(
 /* RFC 9002 6.2.1: a datagram LEADING with a Handshake packet while c still
  * awaits confirmation is the client probing at the Handshake level -- it
  * demonstrably holds Handshake keys yet its handshake has not advanced, so
- * part of the cached flight is missing on its side. Replay the flight now
- * (antiamp-gated) instead of waiting out the boot PTO's exponential
- * backoff: five straight losses of a resumption flight's EE+Finished
- * datagram once pushed the next backoff replay past a neqo client's idle
- * timeout while its once-per-second probes went unanswered. booting is the
- * PRE-step state: a probe whose own processing just confirmed the
- * handshake (or tore the slot down) needs no replay -- awaiting_confirm
- * re-checks the POST-step state. */
+ * part of the cached flight is missing on its side. Replay the unacknowledged
+ * part now (antiamp-gated) instead of waiting out the boot PTO's
+ * exponential backoff: five straight losses of a resumption flight's
+ * EE+Finished datagram once pushed the next backoff replay past a neqo
+ * client's idle timeout while its once-per-second probes went unanswered.
+ * booting is the PRE-step state: a probe whose own processing just
+ * confirmed the handshake (or tore the slot down) needs no replay --
+ * srvrun_boot_hs_armed re-checks the POST-step state, and with every
+ * Handshake packet acknowledged there is nothing to replay (a PING in its
+ * place would answer each client ACK with a packet it must ACK again). */
 int srvrun_hs_probe_pending(const srvrun_conn* c, int booting, wired_mspan dg) {
-  return booting && srvrun_awaiting_confirm(c) && srvrun_leads_handshake(dg);
+  return booting && srvrun_boot_hs_armed(c) && srvrun_leads_handshake(dg);
 }
 
 /* RFC 9002 6.2.4 while c awaits its peer's Finished with proof the peer
@@ -140,7 +142,7 @@ int srvrun_send_boot_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
     return 0;
   }
   srvrun_boot_send(ctx->cfg, c, wired_span_of(out, n), "boot keepalive sent\n");
-  c->boot_pto_sent_ms = ctx->now_ms;
-  c->boot_pto_count   = 0;
+  c->boot_sent_ms[SRVRUN_BOOT_SP_HS] = ctx->now_ms;
+  c->boot_pto_count                  = 0;
   return 1;
 }

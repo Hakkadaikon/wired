@@ -46,6 +46,7 @@ typedef struct {
   u64 app_pn;
   int hs_seen;
   u64 hs_pn;
+  u32 hs_acked; /**< wired_srvloop.hs_acked before the step */
 } srvrun_rxmark;
 
 /* srvrun_on_initial: the datagram was absorbed but the ClientHello is not
@@ -284,6 +285,7 @@ void srvrun_qlog_stream_sent(
     u64                 pn,
     const stream_frame* f);
 srvrun_rxmark srvrun_rx_mark(const wired_srvloop* l);
+void          srvrun_boot_on_rx(srvrun_conn* c, const srvrun_rxmark* m);
 int           srvrun_rx_app_adv(const srvrun_rxmark* m, const wired_srvloop* l);
 void          srvrun_note_recv(
     const srvrun_step_ctx* ctx,

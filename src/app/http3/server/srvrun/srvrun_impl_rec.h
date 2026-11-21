@@ -24,4 +24,18 @@ void srvrun_ack_tick_slot(const srvrun_step_ctx* ctx, int slot);
 void srvrun_loss_pass(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, u64 largest_before);
 
+/* RFC 9002 6.2 for the boot flight's Initial and Handshake spaces
+ * (srvrun_boot.c, srvrun_resend.c, srvrun_boot_pto.c). */
+int srvrun_boot_ini_done(const srvrun_conn* c);
+usz srvrun_boot_resend_hs(const srvrun_cfg* cfg, srvrun_conn* c, usz max);
+usz srvrun_boot_send_hs_upto(
+    const srvrun_cfg* cfg, srvrun_conn* c, int confirmed, usz max);
+int srvrun_boot_hs_armed(const srvrun_conn* c);
+int srvrun_boot_mark(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int sp, int sent);
+int  srvrun_resend_ini(const srvrun_step_ctx* ctx, srvrun_conn* c);
+int  srvrun_boot_hs_probe(const srvrun_step_ctx* ctx, srvrun_conn* c);
+void srvrun_boot_on_client_initial(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg);
+
 #endif

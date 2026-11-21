@@ -41,6 +41,13 @@ int srvrun_boot_gate_blocks(const srvrun_conn* c, int confirmed, usz want) {
   return !srvrun_path_validated(c, confirmed) && want > srvrun_boot_budget(c);
 }
 
+/* RFC 9001 4.9.1: the Initial keys were discarded (the first Handshake
+ * packet processed), or RFC 9002 A.7: the client acknowledged the
+ * ServerHello Initial -- either way nothing of it is in flight. */
+int srvrun_boot_ini_done(const srvrun_conn* c) {
+  return c->l.hs_rx_seen || c->boot_ini_acked;
+}
+
 /* Send/resend the boot Initial through the same antiamp gate as the
  * Handshake flight (one decision point covers both). The very first
  * Initial always fits in practice (it never exceeds the client's own
@@ -50,8 +57,7 @@ int srvrun_boot_gate_blocks(const srvrun_conn* c, int confirmed, usz want) {
 int srvrun_boot_send_initial(
     const srvrun_cfg* cfg, srvrun_conn* c, const char* what) {
   int confirmed = wired_server_is_confirmed(&c->s);
-  /* RFC 9001 4.9.1: no Initial goes out once its keys are discarded */
-  if (c->l.hs_rx_seen) {
+  if (srvrun_boot_ini_done(c)) {
     return 0;
   }
   if (srvrun_boot_gate_blocks(c, confirmed, c->boot_ini_len)) {
@@ -70,10 +76,9 @@ static usz srvrun_boot_sent_off(const srvrun_conn* c) {
   return off;
 }
 
-/* The Initial half's bytes in flight: until RFC 9001 4.9.1 discards the
- * Initial keys (the first Handshake packet processed). */
+/* The Initial half's bytes in flight: until srvrun_boot_ini_done. */
 static usz srvrun_boot_ini_inflight(const srvrun_conn* c) {
-  return c->l.hs_rx_seen ? 0 : c->boot_ini_len;
+  return srvrun_boot_ini_done(c) ? 0 : c->boot_ini_len;
 }
 
 /* RFC 9002 2 / 6.2.2: the boot flight's bytes in flight -- the Initial and
@@ -96,9 +101,16 @@ usz srvrun_boot_inflight(const srvrun_conn* c) {
  * remaining goes out in one pass. */
 usz srvrun_boot_send_hs_gated(
     const srvrun_cfg* cfg, srvrun_conn* c, int confirmed) {
+  return srvrun_boot_send_hs_upto(cfg, c, confirmed, WIRED_SRVBOOT_FLIGHT_MAX);
+}
+
+/* srvrun_boot_send_hs_gated, at most max datagrams. */
+usz srvrun_boot_send_hs_upto(
+    const srvrun_cfg* cfg, srvrun_conn* c, int confirmed, usz max) {
   usz off  = srvrun_boot_sent_off(c);
   usz sent = 0;
-  while (c->boot_dgram_sent < c->boot_dgram_count) {
+  usz end  = (usz)u64_min(c->boot_dgram_count, c->boot_dgram_sent + max);
+  while (c->boot_dgram_sent < end) {
     wired_span pkt =
         wired_span_of(c->boot_hs + off, c->boot_dgram_len[c->boot_dgram_sent]);
     if (srvrun_boot_gate_blocks(c, confirmed, pkt.n)) {
@@ -108,6 +120,32 @@ usz srvrun_boot_send_hs_gated(
     off += pkt.n;
     c->boot_dgram_sent++;
     sent++;
+  }
+  return sent;
+}
+
+/* Resend datagram i (at off in boot_hs) unless the client acknowledged its
+ * packet (pn i, srvboot_seal_next) or it would exceed the antiamp budget. */
+static int srvrun_boot_resend_one(
+    const srvrun_cfg* cfg, srvrun_conn* c, usz i, usz off) {
+  wired_span pkt = wired_span_of(c->boot_hs + off, c->boot_dgram_len[i]);
+  if ((c->l.hs_acked >> i & 1) ||
+      srvrun_boot_gate_blocks(c, wired_server_is_confirmed(&c->s), pkt.n)) {
+    return 0;
+  }
+  srvrun_boot_send(cfg, c, pkt, "server Handshake resent\n");
+  return 1;
+}
+
+/* RFC 9002 6.2.4: retransmit up to max of the already-sent Handshake
+ * datagrams the client has not acknowledged, lowest packet number first,
+ * each through the RFC 9000 8.1 gate. Returns how many went out. */
+usz srvrun_boot_resend_hs(const srvrun_cfg* cfg, srvrun_conn* c, usz max) {
+  usz off  = 0;
+  usz sent = 0;
+  for (usz i = 0; i < c->boot_dgram_sent && sent < max; i++) {
+    sent += (usz)srvrun_boot_resend_one(cfg, c, i, off);
+    off += c->boot_dgram_len[i];
   }
   return sent;
 }

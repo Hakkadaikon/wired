@@ -1,13 +1,9 @@
+#include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "transport/packet/frame/pipeline/framewalk.h"
 
 static int srvrun_resend_hs(const srvrun_step_ctx* ctx, srvrun_conn* c);
 static int srvrun_resend_flight_parts(
-    const srvrun_step_ctx* ctx, srvrun_conn* c);
-static int  srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms);
-static int  srvrun_boot_hs_probe(const srvrun_step_ctx* ctx, srvrun_conn* c);
-static void srvrun_boot_pto_resend(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, int fired);
-static void srvrun_boot_give_up_close(
     const srvrun_step_ctx* ctx, srvrun_conn* c);
 
 /* RFC 9000 7.2: a retransmitting client's own DCID tells which flight half
@@ -43,27 +39,48 @@ void srvrun_cold_start(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   srvrun_boot_partial_ack(ctx, slot);
 }
 
-/* RFC 9000 13.3: resend c's cached accept flight verbatim -- same Initial,
- * same Handshake datagrams -- instead of stepping dg through the confirmed-
+/* RFC 9002 A.8 time_of_last_ack_eliciting_packet[sp]: restart space sp's
+ * clock when something went out in it. Returns sent. */
+int srvrun_boot_mark(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int sp, int sent) {
+  if (sent) {
+    c->boot_sent_ms[sp] = ctx->now_ms;
+  }
+  return sent;
+}
+
+/* The ServerHello Initial again, unless acknowledged or discarded
+ * (srvrun_boot_send_initial). */
+int srvrun_resend_ini(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  return srvrun_boot_mark(
+      ctx, c, SRVRUN_BOOT_SP_INI,
+      srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n"));
+}
+
+/* RFC 9000 13.3: resend c's cached accept flight -- same Initial, same
+ * Handshake datagrams -- instead of stepping dg through the confirmed-
  * connection path, where an Initial-keyed retransmit would just fail to
  * decrypt and get silently dropped. */
 /* RFC 9002 6.2: a resend means the client is still waiting. Once the
- * WHOLE flight has gone out, any of its datagrams may be sitting in a
- * dropped packet, so rewind and replay from the start (without this a
- * single lost Handshake datagram deadlocked the handshake: the client
- * held the ServerHello and retransmitted its Initial forever, answered
- * only by verbatim Initial replays). While a tail is still withheld by
- * the antiamp budget, though, keep continuing FROM the tail -- an
- * unconditional rewind burned each budget grant re-sending datagrams
- * the client already had, and the amplificationlimit flight's tail
- * never went out at all (observed live: the client dropped the same
- * Handshake datagram 0 as a duplicate until its idle timeout). */
+ * WHOLE flight has gone out, any datagram the client has not acknowledged
+ * may be sitting in a dropped packet, so every unacknowledged one goes
+ * again (without this a single lost Handshake datagram deadlocked the
+ * handshake: the client held the ServerHello and retransmitted its Initial
+ * forever, answered only by verbatim Initial replays). While a tail is
+ * still withheld by the antiamp budget, though, keep continuing FROM the
+ * tail -- re-sending from the start burned each budget grant on datagrams
+ * the client already had, and the amplificationlimit flight's tail never
+ * went out at all (observed live: the client dropped the same Handshake
+ * datagram 0 as a duplicate until its idle timeout). */
 static int srvrun_resend_hs(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (c->boot_dgram_sent == c->boot_dgram_count) {
-    c->boot_dgram_sent = 0;
+  usz n;
+  if (c->boot_dgram_sent < c->boot_dgram_count) {
+    n = srvrun_boot_send_hs_gated(
+        ctx->cfg, c, wired_server_is_confirmed(&c->s));
+  } else {
+    n = srvrun_boot_resend_hs(ctx->cfg, c, WIRED_SRVBOOT_FLIGHT_MAX);
   }
-  return (int)srvrun_boot_send_hs_gated(
-      ctx->cfg, c, wired_server_is_confirmed(&c->s));
+  return srvrun_boot_mark(ctx, c, SRVRUN_BOOT_SP_HS, n != 0);
 }
 
 /* Both halves of the cached flight, in this resend's budget-priority order
@@ -71,11 +88,9 @@ static int srvrun_resend_hs(const srvrun_step_ctx* ctx, srvrun_conn* c) {
 static int srvrun_resend_flight_parts(
     const srvrun_step_ctx* ctx, srvrun_conn* c) {
   if (c->boot_resend_flip) {
-    return srvrun_resend_hs(ctx, c) +
-           srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n");
+    return srvrun_resend_hs(ctx, c) + srvrun_resend_ini(ctx, c);
   }
-  return srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n") +
-         srvrun_resend_hs(ctx, c);
+  return srvrun_resend_ini(ctx, c) + srvrun_resend_hs(ctx, c);
 }
 
 /* RFC 9002 6.2.4 / RFC 9000 8.1: every cached datagram exceeds the
@@ -84,7 +99,7 @@ static int srvrun_resend_flight_parts(
  * address (hs_rx_seen). Without it the server fell silent with budget left
  * and msquic idled out while the amplificationlimit testcase dropped its
  * own probes. */
-static int srvrun_boot_hs_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+int srvrun_boot_hs_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   static const u8 ping = 0x01; /* RFC 9000 19.2 */
   u8              out[128];
   wired_obuf      ob = obuf_of(out, sizeof out);
@@ -97,7 +112,7 @@ static int srvrun_boot_hs_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   }
   srvrun_boot_send(
       ctx->cfg, c, wired_span_of(out, ob.len), "boot Handshake probe sent\n");
-  return 1;
+  return srvrun_boot_mark(ctx, c, SRVRUN_BOOT_SP_HS, 1);
 }
 
 int srvrun_resend_boot_flight(const srvrun_step_ctx* ctx, srvrun_conn* c) {
@@ -115,95 +130,52 @@ int srvrun_resend_boot_flight(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   if (!sent) {
     return 0;
   }
-  /* boot PTO: something real went out -- push the boot PTO deadline so the
-   * timer-driven probe does not also fire for the same round. */
-  c->boot_pto_sent_ms = ctx->now_ms;
-  c->boot_pto_count   = 0;
+  /* something real went out (each part restarted its own space's clock):
+   * the client is still there, so the backoff restarts too. */
+  c->boot_pto_count = 0;
   return 1;
 }
 
-/* c is in the boot PTO's window at all -- up (accepted) but not
- * yet confirmed (srvrun_awaiting_confirm), and has actually sent a flight to
- * probe (boot_ini_len == 0 means nothing was ever cached, e.g. a slot still
- * mid-ClientHello-reassembly or a slot that failed to boot). */
-int srvrun_boot_pto_waiting(const srvrun_conn* c) {
-  return srvrun_boot_probe_armed(c) && c->boot_ini_len != 0;
+/* RFC 9002 A.7: pl acknowledges the ServerHello Initial (pn) for the first
+ * time -- only a newly acknowledged packet resets the backoff. */
+static int srvrun_boot_ini_newly_acked(
+    const srvrun_conn* c, wired_span pl, u64 pn) {
+  return !c->boot_ini_acked &&
+         ((u64)srvloop_acked_bits(pl) >> u64_min(pn, 63) & 1);
 }
 
-/* RFC 9002 6.2: 1 once c is in the boot PTO's window AND now_ms has crossed
- * its deadline (scaled by boot_pto_count's backoff, measured from the boot
- * flight's own single sent timestamp). RFC 9002 6.2.1: max_ack_delay is 0
- * for the Initial and Handshake spaces -- the peer does not delay them. */
-static int srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms) {
-  pto_rtt rtt  = {c->rtt.smoothed_rtt, c->rtt.rttvar};
-  u64     wait = u64_min(
-      pto_duration(rtt, 0, (u32)c->boot_pto_count) / 1000,
-      SRVRUN_BOOT_RESEND_CAP_MS);
-  if (!srvrun_boot_pto_waiting(c)) {
+/* RFC 9002 A.7: dg is a client Initial; if it opens, note whether it
+ * acknowledges the ServerHello Initial (pn ini_next_pn - 1, srvrun_boot_up).
+ * Opening decrypts dg in place -- it is consumed here.
+ * shortcut: only numbers below 32 are seen (srvloop_acked_bits); a flight
+ * Initial past 31 partial ACKs stays in flight until the Initial keys go,
+ * record the Largest Acknowledged if that ever happens. */
+static int srvrun_boot_ini_ack_only(srvrun_conn* c, wired_mspan dg) {
+  wired_srvloop_recv_in  in = {dg, 0, 0};
+  wired_srvloop_recv_out out;
+  u64                    pn = c->ini_next_pn - 1;
+  if (!wired_srvloop_recv(&c->s, &in, &out)) {
     return 0;
   }
-  return now_ms >= c->boot_pto_sent_ms + wait;
+  if (srvrun_boot_ini_newly_acked(c, out.payload, pn)) {
+    c->boot_ini_acked = 1;
+    c->boot_pto_count = 0; /* RFC 9002 6.2.1: reset on an acknowledgment */
+  }
+  return !framewalk_kinds_ack_eliciting(framewalk_kinds(out.payload));
 }
 
-/* Resend the boot flight for a fired probe and restore its post-resend probe
- * count: srvrun_resend_boot_flight itself resets boot_pto_count to 0 (any
- * real send re-arms the deadline), which would erase this probe's own
- * budget spend -- put it back to `fired` right after so consecutive timer
- * probes keep climbing instead of resetting every single one. */
-static void srvrun_boot_pto_resend(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, int fired) {
-  if (!srvrun_boot_probe_or_replay(ctx, c)) {
+/* A client Initial on a slot whose flight is out: an ACK-only one is no
+ * retransmission request (RFC 9002 6.2: loss detection and the PTO drive
+ * retransmission), anything else (a ClientHello retransmit, a PING) is
+ * answered with the flight (srvrun_resend_boot_flight). An Initial that
+ * does not open is treated as a retransmit, as before. */
+void srvrun_boot_on_client_initial(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg) {
+  srvrun_boot_flip_from_dcid(ctx, c, dg);
+  if (srvrun_boot_ini_ack_only(c, dg)) {
+    /* RFC 9000 8.1: its bytes raised the budget a held tail may need */
+    srvrun_boot_release_pending(ctx, c);
     return;
   }
-  c->boot_pto_count = fired;
-}
-
-/* RFC 9002 6.2 boot-stage PTO: while awaiting confirm with a flight already
- * sent, resend the cached boot_ini/boot_hs verbatim once the deadline
- * elapses -- quic-interop-runner's handshakeloss/handshakecorruption drop the
- * server's first flight often enough that waiting on a client-triggered
- * retransmit alone (srvrun_resend_boot_flight) leaves the handshake to time
- * out. Tears the slot down once the boot probe budget is spent
- * (SRVRUN_BOOT_PTO_MAX -- sized for the capped cadence; srvrun_pto_slot
- * keeps its own SRVRUN_PTO_MAX for in-flight responses, and the two are
- * never both active for the same slot). */
-/* RFC 9000 10.2: tell a still-listening peer this handshake is abandoned
- * before reclaiming its slot. Only a peer that provably finished
- * (peer_at_onertt) can read the 1-RTT close -- and that peer is exactly
- * the one otherwise left pinging a dead slot through its own idle timeout
- * and a multi-second draining period (observed live: one such zombie
- * connection burned two minutes of a 300s multiconnect budget). A keyless
- * peer cannot be told anything it can decrypt, so nothing is sent. */
-static void srvrun_boot_give_up_close(
-    const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (!c->peer_at_onertt) {
-    return;
-  }
-  (void)wired_server_early_send_keys(&c->s); /* 0.5-RTT seal, RFC 9001 4.9 */
-  srvrun_send_app_close(ctx->cfg, c, 0, wired_span_of((const u8*)0, 0));
-}
-
-void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c     = &ctx->st->conns[slot];
-  int          fired = c->boot_pto_count + 1;
-  if (!srvrun_boot_pto_due(c, ctx->now_ms)) {
-    return;
-  }
-  if (fired >= SRVRUN_BOOT_PTO_MAX) {
-    srvrun_boot_give_up_close(ctx, c);
-    srvrun_note_ghost(ctx, c); /* swallow its closing-period stragglers */
-    srvrun_free_slot(ctx->cfg, ctx->st, slot);
-    return;
-  }
-  srvrun_boot_pto_resend(ctx, c, fired);
-}
-
-/* RFC 9002 6.2.2 / A.11: the Initial keys went this step (RFC 9001 4.9.1:
- * the first Handshake packet was processed, hs_rx_seen rose), so the boot
- * PTO backoff restarts; the timer keeps its flight's send time and from
- * now on probes the Handshake half only (srvrun_boot_send_initial). */
-void srvrun_boot_on_initial_discard(srvrun_conn* c, int hs_was_seen) {
-  if (!hs_was_seen && c->l.hs_rx_seen) {
-    c->boot_pto_count = 0;
-  }
+  srvrun_resend_boot_flight(ctx, c);
 }

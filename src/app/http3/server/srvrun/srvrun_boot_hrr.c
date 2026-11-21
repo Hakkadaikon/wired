@@ -24,8 +24,8 @@ static int srvrun_boot_hrr_sent(
   c->boot_dgram_count = 0;
   c->boot_dgram_sent  = 0;
   srvrun_boot_send_initial(ctx->cfg, c, "HelloRetryRequest sent\n");
-  c->boot_pto_sent_ms = ctx->now_ms;
-  c->boot_pto_count   = 0;
+  c->boot_sent_ms[SRVRUN_BOOT_SP_INI] = ctx->now_ms;
+  c->boot_pto_count                   = 0;
   return SRVRUN_BOOT_PENDING;
 }
 
@@ -104,7 +104,8 @@ static int srvrun_boot_up(
    * PTO clock fresh (any real send, not just the timer's own probe,
    * pushes the next deadline out so the two re-send paths never double
    * fire). */
-  c->boot_pto_sent_ms = ctx->now_ms;
-  c->boot_pto_count   = 0;
+  c->boot_sent_ms[SRVRUN_BOOT_SP_INI] = ctx->now_ms;
+  c->boot_sent_ms[SRVRUN_BOOT_SP_HS]  = ctx->now_ms;
+  c->boot_pto_count                   = 0;
   return 1;
 }

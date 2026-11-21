@@ -633,16 +633,355 @@ static void test_srvrun_boot_pto_no_max_ack_delay(void) {
 /* RFC 9002 6.2.2 / A.11: discarding the Initial keys resets the boot PTO
  * backoff (pto_count = 0); a step that leaves them alone does not. */
 static void test_srvrun_boot_pto_resets_on_initial_discard(void) {
-  srvrun_conn c;
+  srvrun_conn   c;
+  srvrun_rxmark m;
   sr_make_boot_conn(&c, 0);
   c.boot_pto_count = 3;
-  srvrun_boot_on_initial_discard(&c, 0);
+  m                = srvrun_rx_mark(&c.l);
+  srvrun_boot_on_rx(&c, &m);
   CHECK(c.boot_pto_count == 3); /* hs_rx_seen still 0 */
   c.l.hs_rx_seen = 1;
-  srvrun_boot_on_initial_discard(&c, 1);
+  m              = srvrun_rx_mark(&c.l);
+  srvrun_boot_on_rx(&c, &m);
   CHECK(c.boot_pto_count == 3); /* already discarded before this step */
-  srvrun_boot_on_initial_discard(&c, 0);
+  m.hs_seen = 0;
+  srvrun_boot_on_rx(&c, &m);
   CHECK(c.boot_pto_count == 0);
+}
+
+/* RFC 9002 6.2.1: "The PTO backoff factor is reset when an acknowledgment
+ * is received" -- a step that newly acknowledged a Handshake packet resets
+ * the boot backoff; one that acknowledged nothing new does not. */
+static void test_srvrun_boot_pto_resets_on_hs_ack(void) {
+  srvrun_conn   c;
+  srvrun_rxmark m;
+  sr_make_boot_conn(&c, 0);
+  c.l.hs_rx_seen   = 1;
+  c.l.hs_acked     = 1;
+  c.boot_pto_count = 3;
+  m                = srvrun_rx_mark(&c.l);
+  srvrun_boot_on_rx(&c, &m);
+  CHECK(c.boot_pto_count == 3);
+  c.l.hs_acked |= 2;
+  srvrun_boot_on_rx(&c, &m);
+  CHECK(c.boot_pto_count == 0);
+}
+
+/* RFC 9000 19.3: srvloop_acked_bits folds every ACK frame of a payload
+ * into a bitmask of acknowledged packet numbers below 32. Worked by hand:
+ * ranges [3,3] and [0,1] -> bits 0,1,3 = 0xb; [30,40] -> bits 30,31 =
+ * 0xc0000000; [40,50] -> 0 (nothing below 32). A PING (0x01) ahead of
+ * the ACK is walked past. */
+static void test_srvloop_acked_bits(void) {
+  ack_frame f = {0};
+  u8        pl[64];
+  usz       n;
+  pl[0]       = 0x01; /* PING, RFC 9000 19.2 */
+  f.n_ranges  = 2;
+  f.ranges[0] = (ack_range){.hi = 3, .lo = 3};
+  f.ranges[1] = (ack_range){.hi = 1, .lo = 0};
+  n           = ack_encode(pl + 1, sizeof pl - 1, &f);
+  CHECK(n != 0);
+  CHECK(srvloop_acked_bits(wired_span_of(pl, 1 + n)) == 0xbu);
+  f.n_ranges  = 1;
+  f.ranges[0] = (ack_range){.hi = 40, .lo = 30};
+  n           = ack_encode(pl, sizeof pl, &f);
+  CHECK(srvloop_acked_bits(wired_span_of(pl, n)) == 0xc0000000u);
+  f.ranges[0] = (ack_range){.hi = 50, .lo = 40};
+  n           = ack_encode(pl, sizeof pl, &f);
+  CHECK(srvloop_acked_bits(wired_span_of(pl, n)) == 0);
+}
+
+/* A real boot (sr_boot_with_budget: one client Initial served at now 0)
+ * that the boot-PTO-per-space tests below drive. */
+typedef struct {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[PMTU_MAX];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer;
+  srvrun_state     st;
+  srvrun_cfg       cfg;
+  srvrun_step_ctx  ctx;
+  srvrun_conn*     c;
+} srvrec_bootfix;
+
+/* Boot f with `budget` antiamp bytes left; each space last sent at ini_ms /
+ * hs_ms (RFC 9002 A.8 time_of_last_ack_eliciting_packet). */
+static void srvrec_boot(srvrec_bootfix* f, u64 budget, u64 ini_ms, u64 hs_ms) {
+  bytes_memset(&f->peer, 0, sizeof f->peer);
+  sr_make_id(&f->id, f->priv, f->pub, f->seed, f->rnd);
+  f->st  = (srvrun_state){f->table, g_srvrun_state.conns};
+  f->cfg = sr_antiamp_cfg(&f->id);
+  f->ctx = (srvrun_step_ctx){&f->cfg, &f->peer, &f->st, 0, 0};
+  f->c   = sr_boot_with_budget(&f->ctx, f->dg, sizeof f->dg, budget);
+  CHECK(f->c->up == 1);
+  CHECK(wired_server_is_confirmed(&f->c->s) == 0);
+  f->c->boot_sent_ms[SRVRUN_BOOT_SP_INI] = ini_ms;
+  f->c->boot_sent_ms[SRVRUN_BOOT_SP_HS]  = hs_ms;
+}
+
+/* Bytes of the first `max` cached Handshake datagrams whose packet number
+ * (= datagram index, srvboot_seal_next) is not in `skip`. */
+static u64 srvrec_hs_bytes(const srvrun_conn* c, u32 skip, usz max) {
+  u64 sum = 0;
+  usz got = 0;
+  for (usz i = 0; i < c->boot_dgram_count && got < max; i++) {
+    if (!(skip >> i & 1)) {
+      sum += c->boot_dgram_len[i];
+      got++;
+    }
+  }
+  return sum;
+}
+
+/* Client role: one ACK-only packet acknowledging server pn `acked`, sealed
+ * toward c's SCID under keys k -- an Initial (byte0 0xc0, padded to the
+ * RFC 9000 14.1 1200-byte floor) or a Handshake packet (byte0 0xe0). */
+static usz srvrec_client_ack(
+    const srvrun_conn* c, const initial_keys* k, u8 byte0, u64 acked, u8* out) {
+  ack_frame f        = {0};
+  u8        pl[1170] = {0};
+  aes128    hp;
+  int       ini = byte0 == 0xc0;
+  f.n_ranges    = 1;
+  f.ranges[0]   = (ack_range){.hi = acked, .lo = acked};
+  CHECK(ack_encode(pl, sizeof pl, &f) != 0);
+  aes128_init(&hp, k->hp);
+  {
+    protect_keys pk = {k, &hp, 0};
+    tx_desc      t  = {
+        byte0,
+        wired_span_of(c->s.sdrv.iscid, c->s.sdrv.iscid_len),
+        wired_span_of(g_cli_scid, 6),
+        ini,
+        wired_span_of((const u8*)0, 0),
+        1,
+        wired_span_of(pl, ini ? sizeof pl : 24),
+        0};
+    return tx_packet(&pk, &t, wired_mspan_of(out, PMTU_MAX));
+  }
+}
+
+/* The client's Initial ACK of the server's ServerHello Initial (RFC 9001
+ * 5.2: client keys from the original DCID). */
+static usz srvrec_client_ini_ack(const srvrun_conn* c, u8* out) {
+  initial_keys ck, sk;
+  initpkt_derive_ver(wired_span_of(g_sr_odcid, 8), VERSION_1, &ck, &sk);
+  return srvrec_client_ack(c, &ck, 0xc0, c->ini_next_pn - 1, out);
+}
+
+/* The client's Handshake ACK of server Handshake pn `acked`. */
+static usz srvrec_client_hs_ack(const srvrun_conn* c, u64 acked, u8* out) {
+  const initial_keys* k;
+  CHECK(keysched_get(&c->s.sched, KS_CLIENT_HS, &k) == 1);
+  return srvrec_client_ack(c, k, 0xe0, acked, out);
+}
+
+/* RFC 9002 6.2.1 / A.8: one PTO timer, armed from the EARLIEST of the
+ * spaces with ack-eliciting data in flight; on expiry only that space is
+ * probed (6.2.4), its own send time restarts and the shared pto_count
+ * doubles. Initial sent at 0, Handshake at 50, the boot wait capped at
+ * SRVRUN_BOOT_RESEND_CAP_MS: at the cap the Initial alone goes, 50ms later
+ * the Handshake alone (at most two datagrams, 6.2.4). */
+static void test_srvrun_boot_pto_earliest_space(void) {
+  srvrec_bootfix f;
+  u64            tx;
+  srvrec_boot(&f, 3 * 1220, 0, 50);
+  f.c->boot_rx_bytes = 100000; /* the antiamp budget is not under test */
+  f.ctx.now_ms       = SRVRUN_BOOT_RESEND_CAP_MS;
+  tx                 = f.c->boot_tx_bytes;
+  srvrun_boot_pto_slot(&f.ctx, 0);
+  CHECK(f.c->boot_tx_bytes - tx == f.c->boot_ini_len);
+  CHECK(f.c->boot_sent_ms[SRVRUN_BOOT_SP_INI] == SRVRUN_BOOT_RESEND_CAP_MS);
+  CHECK(f.c->boot_sent_ms[SRVRUN_BOOT_SP_HS] == 50);
+  CHECK(f.c->boot_pto_count == 1);
+  f.ctx.now_ms = 50 + SRVRUN_BOOT_RESEND_CAP_MS;
+  tx           = f.c->boot_tx_bytes;
+  srvrun_boot_pto_slot(&f.ctx, 0);
+  CHECK(f.c->boot_tx_bytes - tx == srvrec_hs_bytes(f.c, 0, 2));
+  CHECK(f.c->boot_sent_ms[SRVRUN_BOOT_SP_HS] == 50 + SRVRUN_BOOT_RESEND_CAP_MS);
+  CHECK(f.c->boot_pto_count == 2);
+}
+
+/* RFC 9002 6.2.4 / RFC 9000 8.1: an Initial-space probe carries the
+ * ServerHello Initial and nothing else -- with budget left for the Initial
+ * plus one Handshake datagram, no Handshake byte (undecryptable to a client
+ * still lacking the ServerHello) rides along. */
+static void test_srvrun_boot_pto_initial_probe_no_handshake(void) {
+  srvrec_bootfix f;
+  u64            tx;
+  srvrec_boot(&f, 3 * 1220, 0, 0);
+  f.c->boot_tx_bytes =
+      3 * f.c->boot_rx_bytes - f.c->boot_ini_len - f.c->boot_dgram_len[0];
+  f.ctx.now_ms = SRVRUN_BOOT_RESEND_CAP_MS;
+  tx           = f.c->boot_tx_bytes;
+  srvrun_boot_pto_slot(&f.ctx, 0); /* a tie goes to Initial (A.8 order) */
+  CHECK(f.c->boot_tx_bytes - tx == f.c->boot_ini_len);
+}
+
+/* RFC 9002 6.2.1 / A.8: once the client acknowledged the ServerHello
+ * Initial, that space has nothing in flight and only the Handshake space
+ * arms the timer. A client Initial carrying only that ACK is no
+ * retransmission request (RFC 9002 6.2: retransmission is driven by loss
+ * detection and the PTO), so it sends nothing by itself. */
+static void test_srvrun_boot_pto_handshake_only_after_initial_acked(void) {
+  srvrec_bootfix f;
+  u8             ack[PMTU_MAX];
+  usz            n;
+  u64            tx;
+  srvrec_boot(&f, 3 * 1220, 0, 0);
+  f.c->boot_rx_bytes  = 100000;
+  f.c->boot_pto_count = 1;
+  n                   = srvrec_client_ini_ack(f.c, ack);
+  srvrun_test_reset_send_count();
+  srvrun_serve(&f.ctx, wired_mspan_of(ack, n));
+  CHECK(f.c->boot_ini_acked == 1);
+  CHECK(f.c->boot_pto_count == 0); /* RFC 9002 6.2.1: reset on an ACK */
+  CHECK(srvrun_test_send_count() == 0);
+  /* RFC 9002 A.7: an ACK of the already acknowledged ServerHello newly
+   * acknowledges nothing, so the backoff stays */
+  f.c->boot_pto_count = 2;
+  srvrun_serve(&f.ctx, wired_mspan_of(ack, srvrec_client_ini_ack(f.c, ack)));
+  CHECK(f.c->boot_pto_count == 2);
+  f.c->boot_pto_count                  = 0;
+  f.c->boot_sent_ms[SRVRUN_BOOT_SP_HS] = 50;
+  f.ctx.now_ms                         = SRVRUN_BOOT_RESEND_CAP_MS;
+  tx                                   = f.c->boot_tx_bytes;
+  srvrun_boot_pto_slot(&f.ctx, 0); /* the Initial would be due: not armed */
+  CHECK(f.c->boot_tx_bytes == tx);
+  CHECK(f.c->boot_pto_count == 0);
+  f.ctx.now_ms = 50 + SRVRUN_BOOT_RESEND_CAP_MS;
+  srvrun_boot_pto_slot(&f.ctx, 0);
+  CHECK(f.c->boot_tx_bytes - tx == srvrec_hs_bytes(f.c, 0, 2));
+  CHECK(f.c->boot_pto_count == 1);
+}
+
+/* RFC 9002 6.2.4: a probe may "retransmit unacknowledged data" -- a
+ * Handshake packet the client acknowledged is never sent again, neither by
+ * the replay its Handshake datagram triggers (srvrun_hs_probe_pending) nor
+ * by a later Handshake PTO. This fixture's flight is one Handshake datagram
+ * (pn 0); once it is acknowledged (and the Initial keys are gone with the
+ * client's Handshake packet) nothing is in flight and nothing is sent -- an
+ * interop server re-sent such an acknowledged pn 0 54 times. */
+static void test_srvrun_boot_pto_skips_acked_handshake(void) {
+  srvrec_bootfix f;
+  u8             ack[PMTU_MAX];
+  usz            n;
+  u64            tx;
+  srvrec_boot(&f, 3 * 1220, 0, 0);
+  CHECK(f.c->boot_dgram_count >= 1);
+  f.c->boot_pto_count = 3;
+  n                   = srvrec_client_hs_ack(f.c, 0, ack);
+  tx                  = f.c->boot_tx_bytes;
+  srvrun_serve(&f.ctx, wired_mspan_of(ack, n));
+  CHECK(f.c->l.hs_acked == 1);
+  CHECK(f.c->boot_pto_count == 0); /* RFC 9002 6.2.1: reset on an ACK */
+  CHECK(f.c->boot_tx_bytes - tx == srvrec_hs_bytes(f.c, 1, 32));
+  f.c->boot_sent_ms[SRVRUN_BOOT_SP_HS] = 0;
+  f.ctx.now_ms                         = SRVRUN_BOOT_RESEND_CAP_MS;
+  tx                                   = f.c->boot_tx_bytes;
+  srvrun_boot_pto_slot(&f.ctx, 0);
+  CHECK(f.c->boot_tx_bytes - tx == srvrec_hs_bytes(f.c, 1, 2));
+  CHECK(f.c->boot_pto_count == (f.c->boot_dgram_count > 1));
+}
+
+/* RFC 9000 8.1: a probe never exceeds the anti-amplification budget. With
+ * 181 bytes left the ServerHello Initial (>= 1200) cannot go and the
+ * Initial PTO sends nothing (no probe spent); a Handshake PTO sends only
+ * the small Handshake PING that fits. */
+static void test_srvrun_boot_pto_within_antiamp(void) {
+  srvrec_bootfix f;
+  u64            tx;
+  srvrec_boot(&f, 181, 0, 0);
+  f.ctx.now_ms = SRVRUN_BOOT_RESEND_CAP_MS;
+  tx           = f.c->boot_tx_bytes;
+  srvrun_boot_pto_slot(&f.ctx, 0);
+  CHECK(f.c->boot_tx_bytes == tx);
+  CHECK(f.c->boot_pto_count == 0);
+  f.c->boot_sent_ms[SRVRUN_BOOT_SP_INI] = 50;
+  srvrun_boot_pto_slot(&f.ctx, 0);
+  CHECK(f.c->boot_tx_bytes > tx);
+  CHECK(f.c->boot_tx_bytes <= 3 * f.c->boot_rx_bytes);
+  CHECK(f.c->boot_pto_count == 1);
+}
+
+/* A 4-datagram Handshake flight whose first `sent` went out, the Initial
+ * already acknowledged, Handshake last sent at 0, `rx` client bytes
+ * received. Distinct lengths 1000..1003 make a boot_tx_bytes delta name the
+ * datagrams that went (content is irrelevant: cfg->fd -1 only counts). The
+ * real fixture's flight is a single datagram, too few for these cases. */
+static void srvrec_hs_flight(srvrun_conn* c, usz sent, u64 rx) {
+  sr_antiamp_seed_flight(c);
+  for (usz i = 0; i < 4; i++) {
+    c->boot_dgram_len[i] = 1000 + i;
+    c->boot_tx_bytes += i < sent ? 1000 + i : 0;
+  }
+  c->up              = 1;
+  c->boot_ini_len    = 100;
+  c->boot_ini_acked  = 1;
+  c->boot_dgram_sent = sent;
+  c->boot_rx_bytes   = rx;
+  rtt_init(&c->rtt);
+}
+
+/* RFC 9002 6.2.4: "An endpoint SHOULD include new data in packets that are
+ * sent on PTO expiration" -- with datagram 3 still held by the antiamp gate
+ * and budget for it now, the Handshake PTO sends that held tail, not
+ * datagrams 0 and 1 the client may already have. */
+static void test_srvrun_boot_pto_prefers_held_tail(void) {
+  conntable       table[WIRED_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, SRVRUN_BOOT_RESEND_CAP_MS, 0};
+  srvrun_conn*    c   = &st.conns[0];
+  u64             tx;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  srvrec_hs_flight(c, 3, 2 * 1280); /* budget 7680, 3003 spent */
+  tx = c->boot_tx_bytes;
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(c->boot_tx_bytes - tx == 1003);
+  CHECK(c->boot_dgram_sent == 4);
+  CHECK(c->boot_pto_count == 1);
+}
+
+/* RFC 9002 6.2.4: the probe retransmits unacknowledged data only -- with
+ * packets 0 and 2 acknowledged, a Handshake PTO re-sends 1 and 3. */
+static void test_srvrun_boot_pto_skips_partially_acked(void) {
+  conntable       table[WIRED_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, SRVRUN_BOOT_RESEND_CAP_MS, 0};
+  srvrun_conn*    c   = &st.conns[0];
+  u64             tx;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  srvrec_hs_flight(c, 4, 100000);
+  c->l.hs_acked = 0x5;
+  tx            = c->boot_tx_bytes;
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(c->boot_tx_bytes - tx == 1001 + 1003);
+  c->l.hs_acked |= 0x2;
+  ctx.now_ms = 2 * SRVRUN_BOOT_RESEND_CAP_MS;
+  tx         = c->boot_tx_bytes;
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(c->boot_tx_bytes - tx == 1003);
+}
+
+/* RFC 9000 8.1: the bytes of an ACK-only client Initial raise the budget
+ * like any other datagram, so a Handshake datagram the gate held back goes
+ * out on that receipt (srvrun_boot_release_pending), not at the next PTO. */
+static void test_srvrun_boot_ack_only_initial_releases_tail(void) {
+  srvrec_bootfix f;
+  u8             ack[PMTU_MAX];
+  usz            n;
+  srvrec_boot(&f, 3 * 1220, 0, 0);
+  f.c->boot_dgram_sent = 0; /* the Handshake datagram is held back */
+  f.c->boot_tx_bytes   = 3 * f.c->boot_rx_bytes - 100;
+  n                    = srvrec_client_ini_ack(f.c, ack);
+  srvrun_test_reset_send_count();
+  srvrun_serve(&f.ctx, wired_mspan_of(ack, n));
+  CHECK(f.c->boot_ini_acked == 1);
+  CHECK(f.c->boot_dgram_sent == 1);
+  CHECK(srvrun_test_send_count() == 1);
 }
 
 /* One srvrun_pto_slot tick of c at now_ms. */
@@ -1026,31 +1365,6 @@ static void test_srvrun_rec_skip_long_transfer_completes(void) {
   CHECK(slots >= 3); /* the transfer really crossed several skips */
 }
 
-/* RFC 9000 19.3: srvloop_acked_bits folds every ACK frame of a payload
- * into a bitmask of acknowledged packet numbers below 32. Worked by hand:
- * ranges [3,3] and [0,1] -> bits 0,1,3 = 0xb; [30,40] -> bits 30,31 =
- * 0xc0000000; [40,50] -> 0 (nothing below 32). A PING (0x01) ahead of
- * the ACK is walked past. */
-static void test_srvloop_acked_bits(void) {
-  ack_frame f = {0};
-  u8        pl[64];
-  usz       n;
-  pl[0]       = 0x01; /* PING, RFC 9000 19.2 */
-  f.n_ranges  = 2;
-  f.ranges[0] = (ack_range){.hi = 3, .lo = 3};
-  f.ranges[1] = (ack_range){.hi = 1, .lo = 0};
-  n           = ack_encode(pl + 1, sizeof pl - 1, &f);
-  CHECK(n != 0);
-  CHECK(srvloop_acked_bits(wired_span_of(pl, 1 + n)) == 0xbu);
-  f.n_ranges  = 1;
-  f.ranges[0] = (ack_range){.hi = 40, .lo = 30};
-  n           = ack_encode(pl, sizeof pl, &f);
-  CHECK(srvloop_acked_bits(wired_span_of(pl, n)) == 0xc0000000u);
-  f.ranges[0] = (ack_range){.hi = 50, .lo = 40};
-  n           = ack_encode(pl, sizeof pl, &f);
-  CHECK(srvloop_acked_bits(wired_span_of(pl, n)) == 0);
-}
-
 void test_srvrun_rec(void) {
   test_srvrun_rec_time_threshold_latest_rtt();
   test_srvrun_rec_granularity_floor();
@@ -1070,6 +1384,16 @@ void test_srvrun_rec(void) {
   test_srvrun_rec_tick_flushes_ack();
   test_srvrun_boot_pto_no_max_ack_delay();
   test_srvrun_boot_pto_resets_on_initial_discard();
+  test_srvrun_boot_pto_resets_on_hs_ack();
+  test_srvloop_acked_bits();
+  test_srvrun_boot_pto_earliest_space();
+  test_srvrun_boot_pto_initial_probe_no_handshake();
+  test_srvrun_boot_pto_handshake_only_after_initial_acked();
+  test_srvrun_boot_pto_skips_acked_handshake();
+  test_srvrun_boot_pto_within_antiamp();
+  test_srvrun_boot_pto_prefers_held_tail();
+  test_srvrun_boot_pto_skips_partially_acked();
+  test_srvrun_boot_ack_only_initial_releases_tail();
   test_srvrun_pto_restarts_on_send();
   test_srvrun_pto_count_resets_on_ack();
   test_srvrun_pto_probe_sends_new_data();
@@ -1084,5 +1408,4 @@ void test_srvrun_rec(void) {
   test_srvrun_rec_idle_restarts_on_any_eliciting();
   test_srvrun_rec_skip_gap_recovery();
   test_srvrun_rec_skip_long_transfer_completes();
-  test_srvloop_acked_bits();
 }

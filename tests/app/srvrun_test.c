@@ -17228,9 +17228,10 @@ static void test_srvrun_pto_noop_when_nothing_inflight(void) {
  * real socket write). */
 static void sr_make_boot_conn(srvrun_conn* c, u64 sent_ms) {
   bytes_memset(c, 0, sizeof *c);
-  c->up               = 1;
-  c->boot_ini_len     = 100;
-  c->boot_pto_sent_ms = sent_ms;
+  c->up                               = 1;
+  c->boot_ini_len                     = 100;
+  c->boot_sent_ms[SRVRUN_BOOT_SP_INI] = sent_ms;
+  c->boot_sent_ms[SRVRUN_BOOT_SP_HS]  = sent_ms;
   /* RFC 9000 8.1: past the antiamp gate so a resend's srvrun_boot_send_
    * initial call actually goes out -- the same 1280-received-bytes budget
    * this file's sr_antiamp_seed_flight-based tests already use, generous
@@ -17793,7 +17794,7 @@ static void test_srvrun_boot_resend_replays_lost_hs_flight(void) {
 
 /* BOOT RTT SEED (RFC 9002 6.2.2): at the confirm transition the handshake
  * has already measured the path once -- the client's confirming flight
- * answers the boot flight last sent at boot_pto_sent_ms. That sample seeds
+ * answers the boot flight last sent (boot_sent_ms). That sample seeds
  * both RTT estimators so the first post-confirm loss probes on a real RTT
  * instead of the ~1s kInitialRtt fallback. */
 static void test_srvrun_boot_rtt_seeded_at_confirm(void) {
@@ -17828,7 +17829,7 @@ static void test_srvrun_boot_rtt_no_overwrite(void) {
   CHECK(c.srtt_ms == 50);
 }
 
-/* No boot flight was ever sent (boot_pto_sent_ms == 0): nothing to measure
+/* No boot flight was ever sent (boot_sent_ms all 0): nothing to measure
  * against, so nothing is seeded. */
 static void test_srvrun_boot_rtt_no_seed_without_sent(void) {
   srvrun_conn c;
@@ -20369,7 +20370,7 @@ static void test_srvrun_boot_probe_needs_keys(void) {
   srvrun_cfg      cfg = sr_wt_send_cfg();
   srvrun_step_ctx ctx = {&cfg, 0, 0, 77, 0};
   CHECK(srvrun_send_boot_probe(&ctx, c) == 0);
-  CHECK(c->boot_pto_sent_ms == 0);
+  CHECK(c->boot_sent_ms[SRVRUN_BOOT_SP_HS] == 0);
 }
 
 /* WIRE: wired_server_wt_stream_fin, called while the round it must wait on

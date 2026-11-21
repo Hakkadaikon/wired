@@ -16,6 +16,7 @@ static void srvrun_qlog_lost_one(
     const wired_sendsess_lost_slice* l);
 static int srvrun_confirm_edge(const srvrun_conn* c, int was_booting);
 static int srvrun_boot_rtt_unseeded(const srvrun_conn* c);
+static u64 srvrun_boot_last_sent_ms(const srvrun_conn* c);
 
 void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
@@ -134,6 +135,12 @@ void srvrun_rtt_note(srvrun_conn* c, u64 sample_ms) {
   srvrun_rtt_update(c, sample_ms, 0);
 }
 
+/* When the boot flight last sent anything, in either space. */
+static u64 srvrun_boot_last_sent_ms(const srvrun_conn* c) {
+  return u64_max(
+      c->boot_sent_ms[SRVRUN_BOOT_SP_INI], c->boot_sent_ms[SRVRUN_BOOT_SP_HS]);
+}
+
 /* 1 if confirmation landed on the datagram just processed: c was still
  * awaiting confirm before it (was_booting) and is confirmed now. */
 static int srvrun_confirm_edge(const srvrun_conn* c, int was_booting) {
@@ -143,14 +150,14 @@ static int srvrun_confirm_edge(const srvrun_conn* c, int was_booting) {
 /* 1 while no RTT sample exists yet and a boot send timestamp is there to
  * measure against. */
 static int srvrun_boot_rtt_unseeded(const srvrun_conn* c) {
-  return !c->srtt_ms && c->boot_pto_sent_ms != 0;
+  return !c->srtt_ms && srvrun_boot_last_sent_ms(c) != 0;
 }
 
 /* RFC 9002 6.2.2: before the first 1-RTT ACK the PTO deadline falls back to
  * the kInitialRtt-based ~1s default -- but the handshake itself already
  * measured the path once: the client's confirming flight answers the boot
- * flight last sent at boot_pto_sent_ms. Seed both estimators with that one
- * sample at the confirm transition, so a first post-confirm loss probes on
+ * flight last sent (srvrun_boot_last_sent_ms). Seed both estimators with that
+ * one sample at the confirm transition, so a first post-confirm loss probes on
  * the real path RTT instead of waiting out the ~1s floor (the dominant
  * cost per connection under the interop runner's handshakeloss profile). */
 void srvrun_seed_boot_rtt(srvrun_conn* c, int was_booting, u64 now_ms) {
@@ -160,5 +167,5 @@ void srvrun_seed_boot_rtt(srvrun_conn* c, int was_booting, u64 now_ms) {
   if (!srvrun_boot_rtt_unseeded(c)) {
     return;
   }
-  srvrun_rtt_note(c, now_ms - c->boot_pto_sent_ms);
+  srvrun_rtt_note(c, now_ms - srvrun_boot_last_sent_ms(c));
 }

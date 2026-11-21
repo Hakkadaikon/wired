@@ -123,10 +123,11 @@ static int srvrun_boot_hold_early(srvrun_conn* c, wired_mspan dg) {
   return srvrun_boot_zerortt(c, dg) || srvrun_boot_early_onertt(c, dg);
 }
 
-/* dg is a fresh cold-start Initial (srvrun_cold_start), a retransmit of one
- * already accepted but not yet confirmed (srvrun_resend_boot_flight), or
- * early app data held for later replay (srvrun_boot_hold_early) --
- * dispatched to whichever applies. Returns 1 if any handled dg. */
+/* dg is a fresh cold-start Initial (srvrun_cold_start), a client Initial
+ * on one already accepted but not yet confirmed
+ * (srvrun_boot_on_client_initial), or early app data held for later replay
+ * (srvrun_boot_hold_early) -- dispatched to whichever applies. Returns 1 if
+ * any handled dg. */
 int srvrun_serve_boot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (srvrun_is_new(c, dg)) {
@@ -134,8 +135,7 @@ int srvrun_serve_boot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
     return 1;
   }
   if (srvrun_is_boot_retransmit(c, dg)) {
-    srvrun_boot_flip_from_dcid(ctx, c, dg);
-    srvrun_resend_boot_flight(ctx, c);
+    srvrun_boot_on_client_initial(ctx, c, dg);
     return 1;
   }
   return srvrun_boot_hold_early(c, dg);

@@ -641,6 +641,7 @@
 #include "app/http3/server/srvrun/srvrun_reload.c"
 #include "app/http3/server/srvrun/srvrun_req.c"
 #include "app/http3/server/srvrun/srvrun_resend.c"
+#include "app/http3/server/srvrun/srvrun_boot_pto.c"
 #include "app/http3/server/srvrun/srvrun_reset.c"
 #include "app/http3/server/srvrun/srvrun_resp.c"
 #include "app/http3/server/srvrun/srvrun_retry.c"

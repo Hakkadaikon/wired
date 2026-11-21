@@ -521,15 +521,14 @@ typedef struct {
    * bytes sent to it (srvrun_send, Initial + Handshake flight combined). */
   u64 boot_rx_bytes;
   u64 boot_tx_bytes;
-  /** RFC 9002 6.2: monotonic ms this slot's boot flight (Initial +
-   * Handshake) was last sent -- the first send in srvrun_boot_finish, or any
-   * resend (srvrun_resend_boot_flight, or the timer-driven boot PTO itself,
-   * srvrun_boot_pto_slot). Drives the boot-stage PTO deadline the same way
-   * wired_sendsess's own sent_ms drives srvrun_sess_pto_due, but boot has no
-   * wired_sendsess of its own (the flight is a raw cached byte span, not a
-   * slice log) so this one timestamp stands in for it. Meaningless before
-   * boot_ini_len is first set. */
-  u64 boot_pto_sent_ms;
+  /** RFC 9002 A.8 time_of_last_ack_eliciting_packet, per boot space
+   * (SRVRUN_BOOT_SP_INI / SRVRUN_BOOT_SP_HS): monotonic ms that space last
+   * sent an ack-eliciting packet -- the accept flight (srvrun_boot_finish),
+   * a resend (srvrun_resend_boot_flight) or a boot PTO probe
+   * (srvrun_boot_pto_slot). The earliest armed space's time plus the PTO
+   * period is the boot PTO deadline. Meaningless before boot_ini_len is
+   * first set. */
+  u64 boot_sent_ms[2];
   /** RFC 9000 21.6: monotonic ms this slot was claimed (srvrun_open_slot);
    * a boot still unconfirmed SRVRUN_BOOT_DEADLINE_MS later is reaped by the
    * idle sweep regardless of last_ms (srvrun_boot_overdue). */
@@ -843,6 +842,10 @@ typedef struct {
    * addressing our SCID = it has the ServerHello, RFC 9000 7.2); each
    * timer-driven replay then alternates from there. */
   u8 boot_resend_flip;
+  /** RFC 9002 A.7: 1 once a client Initial acknowledged the ServerHello
+   * Initial (srvrun_boot_on_client_initial) -- the Initial space then has
+   * nothing in flight and is neither probed nor resent. */
+  u8 boot_ini_acked;
   /** 1 once an early 1-RTT datagram was held for this still-unconfirmed
    * connection (srvrun_boot_early_onertt, RFC 9001 5.7): the client sends
    * 1-RTT only after finishing its handshake, so a held 1-RTT datagram
@@ -1013,6 +1016,14 @@ _Static_assert(
  * do not consume this budget (srvrun_resend_boot_flight's 0 return), so a
  * silent unbudgeted peer is bounded by the idle sweep, not this count. */
 #define SRVRUN_BOOT_PTO_MAX 120
+
+/* The boot packet number spaces, indexing srvrun_conn.boot_sent_ms. */
+#define SRVRUN_BOOT_SP_INI 0
+#define SRVRUN_BOOT_SP_HS 1
+
+/* RFC 9002 6.2.4: "An endpoint MAY send up to two full-sized datagrams
+ * containing ack-eliciting packets" on one PTO expiration. */
+#define SRVRUN_BOOT_PROBE_DGRAMS 2
 
 /* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
  * ponytail: 16 x XSKSETUP_FRAME_SIZE storage per env; raise if a profile ever

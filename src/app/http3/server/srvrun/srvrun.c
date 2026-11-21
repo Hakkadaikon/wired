@@ -103,7 +103,7 @@ void srvrun_qlog_stream_sent(
 
 srvrun_rxmark srvrun_rx_mark(const wired_srvloop* l) {
   return (srvrun_rxmark){
-      l->app_rx_seen, l->app_rx_pn, l->hs_rx_seen, l->hs_rx_pn};
+      l->app_rx_seen, l->app_rx_pn, l->hs_rx_seen, l->hs_rx_pn, l->hs_acked};
 }
 
 int srvrun_rx_app_adv(const srvrun_rxmark* m, const wired_srvloop* l) {
