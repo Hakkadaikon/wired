@@ -350,9 +350,21 @@
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_open_bidi_exceeding_max_streams_refused`
 - [~] WTH3-058 (§5.3) 広告した Maximum Streams の値を超えることになるストリームをセッションについて受け取った場合、エンドポイントは WT_FLOW_CONTROL_ERROR エラーコードで WebTransport セッションを閉じなければならない。
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_bidi_past_limit_closes`
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_uni_past_limit_closes`
+  - test: `tests/app/srvrun_wtfc_wire_test.c` —
+    `test_srvrun_wtfc_wire_bidi_past_limit_closes`
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_refused_within_limit_owed`
+  - test: `tests/app/srvrun_wtfc_wire_test.c` —
+    `test_srvrun_wtfc_wire_holds_long_lived_bidi`
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_refused_charged_to_named_session`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_refused_stream_reset_and_credited`
-  - evidence: このサーバーは方向ごとに 2^60 本のストリームを広告し(WTH3-051)、自分の WT_MAX_STREAMS でそれを下げることもないので、届くストリームが上限を超えることはなく、受信側で閉じる処理は起こりえません。実際に届くストリームを制限しているのは固定サイズのストリーム表です。それを超えたストリームは H3_REQUEST_REJECTED でリセットし、QUIC のストリームのクレジットを返します。
+  - evidence: 初期値は双方向 24 本(WT の双方向の表全体)、単方向 6 本です(`H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE`/`_UNI_VALUE`)。双方向で上限を超えるストリームは表が満杯なので断り、その数を数えてセッションを閉じます。SETTINGS_WT_INITIAL_MAX_DATA だけを送る相手(proxygen)は、ストリーム数の上限を超えても閉じません。第三者の実装での確認待ちです。
 - [x] WTH3-059 (§5.3, §5.6.3) ストリームを開きたいが、相手が設定したセッション単位のストリーム数の上限のために開けないとき、サーバーは WT_STREAMS_BLOCKED カプセルを送るべきである。
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_open_uni_blocked_sends_streams_blocked`
@@ -397,7 +409,17 @@
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_stream_reply_exceeding_max_data_refused`
 - [~] WTH3-061 (§5.4) WT_MAX_DATA の上限を超える Stream Body のデータを受け取った場合、エンドポイントは WT_FLOW_CONTROL_ERROR エラーコードで WebTransport セッションを閉じなければならない。
-  - evidence: このサーバーは 2^62-1 バイトを広告し(WTH3-051)、それを下げることもないので、受け取るデータが上限を超えることはなく、受信側で閉じる処理は起こりえません。受け取るデータは代わりに QUIC のストリームと接続のクレジットで制限されます。
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_data_past_limit_closes`
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_reset_final_size_counts`
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_data_only_peer`
+  - test: `tests/app/srvrun_wtfc_pend_test.c` —
+    `test_srvrun_wtfc_pend_refused_bytes_count`
+  - test: `tests/app/srvrun_wtfc_pend_test.c` —
+    `test_srvrun_wtfc_pend_rejected_bytes_count`
+  - evidence: 初期値は 1474560 バイト(30 本分の受信の窓 49152 バイト)です。数えるのは各ストリームの最大のオフセット(リセットされたストリームは最終サイズ)からストリームのヘッダーを引いた値です。開く前に断ったストリームは、最終サイズが届いた時点で数えます。第三者の実装での確認待ちです。
 - [x] WTH3-062 (§5.4, §5.6.5) データを送りたいが、セッション単位のフロー制御のために送れないとき、サーバーは WT_DATA_BLOCKED カプセルを送るべきである。
   - test: `tests/app/srvrun_wtflow_test.c` —
     `test_srvrun_wt_data_limited_send_emits_data_blocked_once`
@@ -420,7 +442,23 @@
 ## §5.6 フロー制御のカプセル
 
 - [~] WTH3-078 (§5.6) フロー制御が有効な間、サーバーはデータを消費したりストリームを閉じたりするのに合わせて WT_MAX_DATA と WT_MAX_STREAMS のカプセルを送るべきであり、それらを送る前に WT_DATA_BLOCKED や WT_STREAMS_BLOCKED のカプセルを待ってはならない。
-  - evidence: サーバーは WT_MAX_DATA/WT_MAX_STREAMS を送りません。代わりに、相手が使い切れない事実上無制限の初期上限(2^60 本のストリーム、2^62-1 バイト。WTH3-051)を広告するので(`tests/app/h3settings_control_settings_test.c` — `test_h3settings_control_settings_advertises_wt`)、クレジットを更新して送る必要は生じません。
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_stream_end_raises_limit`
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_consumed_data_raises_limit`
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_long_lived_session`
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_raise_retransmitted_after_loss`
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_refused_raise_sent_on_tick`
+  - test: `tests/app/srvrun_wtfc_wire_test.c` —
+    `test_srvrun_wtfc_wire_stream_end_raises`
+  - test: `tests/app/srvrun_wtfc_test.c` —
+    `test_srvrun_wtfc_rejected_stream_owed`
+  - test: `tests/app/srvrun_wtfc_pend_test.c` —
+    `test_srvrun_wtfc_pend_long_refusals_keep_credit`
+  - evidence: クライアントのストリームが終わるたび(断ったストリームも含む)に WT_MAX_STREAMS を 1 つ上げ、アプリが受け取ったバイト数が窓の半分進むたびに WT_MAX_DATA を「受け取ったバイト数 + 1474560」に上げます。カプセルは CONNECT ストリームの送信スロットに載り、失われると送り直します。スロットが受け付けなかった分は、次のステップか tick で送ります。第三者の実装での確認待ちです。
 
 ## §6 セッションの終了
 
