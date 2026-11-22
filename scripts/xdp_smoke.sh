@@ -58,8 +58,9 @@ ip -n "$NS" link set lo up
 ip netns exec "$NS" ethtool -K "$CLI_IF" tx off >/dev/null
 # The demo certificate names only localhost and 127.0.0.1, so a request to
 # the bare server IPv4 address gets 421. Inside the namespace (ip netns exec
-# binds /etc/netns/$NS/hosts over /etc/hosts), localhost is the server. An
-# IPv6 literal authority is not checked against the certificate.
+# binds /etc/netns/$NS/hosts over /etc/hosts), localhost is the server. The
+# certificate has no IPv6 iPAddress SAN either, so the IPv6 literal request
+# is answered 421 (RFC 9110 7.4): any HTTP/3 reply proves the IPv6 path.
 mkdir -p "/etc/netns/$NS"
 echo "$SRV_IP localhost" >"/etc/netns/$NS/hosts"
 IFINDEX="$(cat "/sys/class/net/$SRV_IF/ifindex")"
@@ -78,7 +79,7 @@ fi
 # visible in the logs. A server CID without the routing byte used to send
 # about one connection in four to an empty XSKMAP slot (srvrun_issue_cid);
 # a first-try failure now is a new finding.
-request() { # <authority> <body text>
+request() { # <authority> <body text> <expected status> [expected body]
   printf '%s' "$2" >"$WORK/body"
   try=1
   until ip netns exec "$NS" timeout 20 "$PROBE" h3req "$1" \
@@ -95,16 +96,16 @@ request() { # <authority> <body text>
   done
   echo "AF_XDP request to $1 answered on try $try"
   cat "$WORK/out"
-  if ! grep -q '^status 200$' "$WORK/out" ||
-    ! grep -q "^$2\$" "$WORK/out"; then
+  if ! grep -q "^status $3\$" "$WORK/out" ||
+    ! grep -q "^${4:-$2}\$" "$WORK/out"; then
     echo "::error::unexpected reply from $1 over the AF_XDP path"
     show_log
     exit 1
   fi
 }
 
-request "localhost:$PORT" 'hello over af_xdp'
-request "[$SRV_IP6]:$PORT" 'hello over af_xdp ipv6'
+request "localhost:$PORT" 'hello over af_xdp' 200
+request "[$SRV_IP6]:$PORT" 'hello over af_xdp ipv6' 421 'Error'
 
 # SIGTERM makes the server print its XDP_STATISTICS before exiting.
 kill -TERM "$SRV_PID"
