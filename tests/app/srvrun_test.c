@@ -260,6 +260,179 @@ static void rfcpin_pump(srvrun_conn* c, i64 fd, u64 now_ms) {
   srvrun_pump_sess(&ctx, 0);
 }
 
+/* Everything the server sent, read back the way a client would: every
+ * opened 1-RTT payload's STREAM frames reassembled per stream id, plus the
+ * RESET_STREAM frames and the union of frame kinds. */
+#define RFCPIN_WIRE_STREAMS 16
+#define RFCPIN_WIRE_CAP 4096
+#define RFCPIN_WIRE_RESETS 16
+typedef struct {
+  u64 id;
+  usz end; /* largest offset + length seen */
+  int fin; /* STREAM frames seen with FIN set */
+  u8  b[RFCPIN_WIRE_CAP];
+} rfcpin_stream;
+
+typedef struct {
+  int           pkts;  /* 1-RTT payloads opened */
+  u32           kinds; /* union of framewalk_kinds */
+  usz           n;     /* streams in s[] */
+  rfcpin_stream s[RFCPIN_WIRE_STREAMS];
+  usz           rst_n;
+  u64           rst_id[RFCPIN_WIRE_RESETS], rst_code[RFCPIN_WIRE_RESETS];
+} rfcpin_wire;
+
+/* w's record of stream id, 0 if the server sent nothing on it. */
+static rfcpin_stream* rfcpin_wire_stream(rfcpin_wire* w, u64 id) {
+  for (usz i = 0; i < w->n; i++) {
+    if (w->s[i].id == id) {
+      return &w->s[i];
+    }
+  }
+  return 0;
+}
+
+static void rfcpin_wire_note_stream(rfcpin_wire* w, const stream_frame* sf) {
+  rfcpin_stream* s = rfcpin_wire_stream(w, sf->stream_id);
+  if (!s) {
+    CHECK(w->n < RFCPIN_WIRE_STREAMS);
+    s     = &w->s[w->n++];
+    *s    = (rfcpin_stream){0};
+    s->id = sf->stream_id;
+  }
+  for (u64 i = 0; i < sf->length && sf->offset + i < RFCPIN_WIRE_CAP; i++) {
+    s->b[sf->offset + i] = sf->data[i];
+  }
+  s->end = (usz)u64_max(s->end, sf->offset + sf->length);
+  s->fin += sf->fin;
+}
+
+static void rfcpin_wire_note_reset(rfcpin_wire* w, const u8* p, usz n) {
+  reset_stream_frame rs;
+  CHECK(reset_stream_decode(p, n, &rs) != 0);
+  CHECK(w->rst_n < RFCPIN_WIRE_RESETS);
+  w->rst_id[w->rst_n]     = rs.stream_id;
+  w->rst_code[w->rst_n++] = rs.error_code;
+}
+
+/* Note one opened payload into w. */
+static void rfcpin_wire_payload(rfcpin_wire* w, const u8* pl, usz pll) {
+  framewalk      it;
+  framewalk_item fr;
+  w->pkts++;
+  w->kinds |= framewalk_kinds(wired_span_of(pl, pll));
+  framewalk_init(&it, pl, pll);
+  while (framewalk_next(&it, &fr)) {
+    stream_frame sf;
+    if (frame_classify(fr.type) == FK_STREAM) {
+      CHECK(frame_get_stream(fr.start, fr.remaining, &sf) != 0);
+      rfcpin_wire_note_stream(w, &sf);
+    }
+    if (frame_classify(fr.type) == FK_RESET_STREAM) {
+      rfcpin_wire_note_reset(w, fr.start, fr.remaining);
+    }
+  }
+}
+
+/* Note datagram pkt[0..n) into w: long header packets coalesced ahead of
+ * it (the confirmation's Handshake ACK, RFC 9000 12.2) are skipped, the
+ * 1-RTT packet that runs to the end must open. */
+static void rfcpin_wire_packet(
+    rfcpin_wire* w, struct lp_fix* f, u8* pkt, usz n) {
+  const u8* pl;
+  usz       pll, off = 0;
+  while (off < n && (pkt[off] & 0x80)) {
+    lhdr h;
+    CHECK(lhdr_parse(wired_span_of(pkt + off, n - off), 0, &h) == 1);
+    off += h.pn_off + (usz)h.length;
+  }
+  CHECK(client_open_onertt(f, pkt + off, n - off, &pl, &pll) == 1);
+  rfcpin_wire_payload(w, pl, pll);
+}
+
+/* Note every datagram waiting on client socket fd into w. */
+static void rfcpin_wire_drain(rfcpin_wire* w, struct lp_fix* f, i64 fd) {
+  u8  pkt[PMTU_MAX];
+  usz n;
+  while ((n = rfcpin_recv(fd, pkt)) != 0) {
+    rfcpin_wire_packet(w, f, pkt, n);
+  }
+}
+
+/* The code of the last RESET_STREAM w saw for stream id, ~0 if none. */
+static u64 rfcpin_wire_reset_code(const rfcpin_wire* w, u64 id) {
+  u64 code = ~0ULL;
+  for (usz i = 0; i < w->rst_n; i++) {
+    code = w->rst_id[i] == id ? w->rst_code[i] : code;
+  }
+  return code;
+}
+
+/* The bytes of s actually recorded: its end, clamped to b[]. */
+static usz rfcpin_stream_len(const rfcpin_stream* s) {
+  return s->end < RFCPIN_WIRE_CAP ? s->end : RFCPIN_WIRE_CAP;
+}
+
+/* HTTP/3 frame types (RFC 9114 7.1) of s's bytes from offset from on, into
+ * types[0..cap); their count. Stops at a frame not yet whole. */
+static usz rfcpin_h3_types(
+    const rfcpin_stream* s, usz from, u64* types, usz cap) {
+  usz      k = 0, end = rfcpin_stream_len(s);
+  h3_frame fr;
+  usz      used;
+  while (k < cap && from < end &&
+         (used = h3_frame_get(wired_span_of(s->b + from, end - from), &fr)) !=
+             0) {
+    types[k++] = fr.type;
+    from += used;
+  }
+  return k;
+}
+
+/* 1 if the SETTINGS frame at the head of control stream bytes s (after its
+ * stream type) carries id, its value in *v. */
+static int rfcpin_setting(const rfcpin_stream* s, u64 id, u64* v) {
+  h3_settings st;
+  CHECK(s->end > 1 && s->b[0] == H3_STREAM_CONTROL);
+  CHECK(h3_settings_get(s->b + 1, rfcpin_stream_len(s) - 1, &st) != 0);
+  for (usz i = 0; i < st.n; i++) {
+    if (st.pairs[i].id == id) {
+      *v = st.pairs[i].value;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* lp_confirm's full handshake, the server having negotiated DATAGRAM
+ * (RFC 9221 3: we_advertised_max_datagram, which makes its SETTINGS offer
+ * WebTransport and HTTP datagrams) when dgram, and having resumed with
+ * 0-RTT accepted (RFC 9001 4.6.1) when early; its confirmation datagram
+ * noted into w (w is reset first). */
+static void rfcpin_confirm(
+    struct lp_fix* f, rfcpin_wire* w, int dgram, int early) {
+  u8         cpkt[1024], out[1500];
+  wired_obuf ob = obuf_of(out, sizeof out);
+  usz        clen;
+  bytes_memset(&f->s, 0, sizeof f->s);
+  bytes_memset(&f->l, 0, sizeof f->l);
+  lp_make_client_hello(f);
+  lp_drive_to_flight(f);
+  f->l.we_advertised_max_datagram = dgram ? 1200 : 0;
+  f->s.sdrv.psk_accepted          = (u8)early;
+  f->s.sdrv.psk_origin_at         = early ? wired_clock_epoch_secs() : 0;
+  f->s.sdrv.early_data_accepted   = (u8)early;
+  lp_make_client_finished(f);
+  clen =
+      client_seal_handshake(f, f->cli_fin, f->cli_fin_len, cpkt, sizeof cpkt);
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(cpkt, clen),
+          &ob) == 1);
+  bytes_memset(w, 0, sizeof *w);
+  rfcpin_wire_packet(w, f, out, ob.len);
+}
+
 /* BASELINE: no shutdown requested
  -> a fresh Initial is accepted as usual
  * (srvrun_is_new says yes on a not-yet-up slot). */
@@ -26266,11 +26439,22 @@ static void sr_sl_on_drain(void* app_ctx, wired_wt_session* s) {
   g_sl_drained = s;
 }
 
-static srvrun_conn* sr_sl_fixture(void) {
-  u8           obuf[1024];
-  wired_obuf   ob    = obuf_of(obuf, sizeof obuf);
-  srvrun_conn* conns = sr_test_conns();
+/* The sealed confirmation packet sr_sl_fixture's handshake sent (its
+ * SETTINGS on control stream 3), for tests that read the server's whole
+ * wire output from the first 1-RTT packet on. */
+static u8  g_sl_conf[1024];
+static usz g_sl_conf_len;
+
+/* sr_sl_fixture on conns[0] of the zeroed table conns. */
+static srvrun_conn* sr_sl_fixture_on(srvrun_conn* conns) {
+  wired_obuf ob = obuf_of(g_sl_conf, sizeof g_sl_conf);
   sr_make_confirmed_conn(&conns[0], &g_sl_f, &ob);
+  g_sl_conf_len = ob.len;
+  /* RFC 9000 18.2: the stream credit a real client grants the server's
+   * uni streams and its answers (lp_client_tp leaves both at 0). */
+  conns[0].s.sdrv.peer_initial_max_stream_data_uni         = 1u << 24;
+  conns[0].s.sdrv.peer_initial_max_stream_data_bidi_remote = 1u << 24;
+  conns[0].l.resp_external     = 1; /* srvrun answers (srvrun_boot_wire) */
   g_sl_cfg                     = (srvrun_cfg){0};
   g_sl_cfg.fd                  = -1;
   g_sl_cfg.env                 = &g_srvrun_env;
@@ -26285,6 +26469,10 @@ static srvrun_conn* sr_sl_fixture(void) {
   g_sr_wt_handler_calls = 0;
   g_srvrun_env.wt_on_session_draining = sr_sl_on_drain;
   return &conns[0];
+}
+
+static srvrun_conn* sr_sl_fixture(void) {
+  return sr_sl_fixture_on(sr_test_conns());
 }
 
 /* Seal pl as the client's next 1-RTT packet and run one full server step. */
@@ -26343,6 +26531,171 @@ static void sr_sl_ack_from(srvrun_conn* c, u64 lo) {
 /* 1 iff a request reassembly slot is claimed for stream id. */
 static int sr_sl_has_slot(const srvrun_conn* c, u64 id) {
   return srvrun_req_slot_of(c, id) != 0;
+}
+
+/* ===== rfch3_*: HTTP/3 request builders, a capturing application
+ * handler and the wire-reading fixture shared by the srvrun_rfc9114,
+ * srvrun_wth3, srvrun_rfc9204 and srvrun_rfc9218 server-path tests. */
+
+/* Append one HTTP/3 frame (RFC 9114 7.1) of type t to out[*len..cap). */
+static void rfch3_frame(u8* out, usz cap, usz* len, u64 t, wired_span p) {
+  wired_obuf tb = obuf_of(out + *len, cap - *len);
+  CHECK(h3_frame_put(&tb, t, p) != 0);
+  *len += tb.len;
+}
+
+/* Append field line f (RFC 9204 4.5.6, literal name) to fob. */
+static void rfch3_literal(wired_obuf* fob, const char* name, const char* v) {
+  qpack_field f = {
+      wired_span_of((const u8*)name, wired_cstr_len(name)),
+      wired_span_of((const u8*)v, wired_cstr_len(v))};
+  usz n = qpack_literal_name_encode(
+      wired_mspan_of(fob->p + fob->len, fob->cap - fob->len), 0, &f);
+  CHECK(n != 0);
+  fob->len += n;
+}
+
+/* A request field section for method on "/" (RFC 9114 4.3.1) into fob,
+ * the n literal lines nv[0..2n) (name, value pairs) after the pseudo
+ * headers. */
+static void rfch3_fields(
+    wired_obuf* fob, const char* method, const char* const* nv, usz n) {
+  h3req_pseudo_in pin = {
+      wired_span_of((const u8*)method, wired_cstr_len(method)),
+      wired_span_of((const u8*)"https", 5), SR_AUTH,
+      wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"", 0)};
+  CHECK(h3req_enc_pseudo(&pin, fob) == 1);
+  for (usz i = 0; i < n; i++) {
+    rfch3_literal(fob, nv[2 * i], nv[2 * i + 1]);
+  }
+}
+
+/* What the application handler saw of each request it was called with. */
+#define RFCH3_HDRS 8
+typedef struct {
+  int calls;
+  usz n;                     /* the last request's hdr_count */
+  u8  name[RFCH3_HDRS][32];  /* its first RFCH3_HDRS header names */
+  u8  value[RFCH3_HDRS][32]; /* ... and values, NUL-terminated */
+  usz vlen[RFCH3_HDRS];      /* ... and the values' full lengths */
+  int probe_found;           /* wired_http_req_header(probe) said 1 */
+  usz body_len;              /* the last request's buffered body */
+} rfch3_seen;
+
+static rfch3_seen  g_rfch3;
+static const char* g_rfch3_probe = "";
+
+static void rfch3_copy(u8* dst, const u8* src, usz n) {
+  usz k = n < 31 ? n : 31;
+  bytes_memcpy(dst, src, k);
+  dst[k] = 0;
+}
+
+static int rfch3_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    u64                         offset,
+    wired_obuf*                 body_out,
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
+  wired_span v;
+  (void)hctx;
+  (void)offset;
+  (void)ct;
+  (void)more;
+  (void)total_size;
+  g_rfch3.calls++;
+  g_rfch3.n        = req->hdr_count;
+  g_rfch3.body_len = req->body_len;
+  for (usz i = 0; i < req->hdr_count && i < RFCH3_HDRS; i++) {
+    const wired_h3reqdrive_hdr* h = &req->hdrs[i];
+    rfch3_copy(g_rfch3.name[i], req->hdr_base + h->name_off, h->name_len);
+    rfch3_copy(g_rfch3.value[i], req->hdr_base + h->value_off, h->value_len);
+    g_rfch3.vlen[i] = h->value_len;
+  }
+  g_rfch3.probe_found = wired_http_req_header(
+      req,
+      wired_span_of((const u8*)g_rfch3_probe, wired_cstr_len(g_rfch3_probe)),
+      &v);
+  body_out->len = 0;
+  return 1;
+}
+
+/* 1 if the handler saw header i as name: value. */
+static int rfch3_hdr_is(usz i, const char* name, const char* value) {
+  return wired_cstr_eq((const char*)g_rfch3.name[i], name) &&
+         wired_cstr_eq((const char*)g_rfch3.value[i], value);
+}
+
+/* sr_sl_fixture_on the shared env's table (so a WebTransport session
+ * resolves to its connection) with rfch3_handler as the application,
+ * sending through a loopback socket pair (*n) so what the server sends can
+ * be read back. */
+static srvrun_conn* rfch3_fixture(sr_net* n) {
+  srvrun_conn* c;
+  sr_reset_global_table();
+  c                = sr_sl_fixture_on(g_srvrun_state.conns);
+  g_sl_cfg.handler = rfch3_handler;
+  g_rfch3          = (rfch3_seen){0};
+  g_rfch3_probe    = "";
+  sr_net_open(n, c);
+  return c;
+}
+
+/* Everything the server sent since sr_sl_fixture, the confirmation
+ * included, noted into w (w is reset first). */
+static void rfch3_wire(rfcpin_wire* w, const sr_net* n) {
+  u8 conf[sizeof g_sl_conf];
+  bytes_memset(w, 0, sizeof *w);
+  bytes_memcpy(conf, g_sl_conf, g_sl_conf_len);
+  rfcpin_wire_packet(w, &g_sl_f, conf, g_sl_conf_len);
+  rfcpin_wire_drain(w, &g_sl_f, n->afd);
+}
+
+/* One STREAM frame on id at off carrying d[0..n), as one client packet. */
+static void rfch3_send_stream(
+    srvrun_conn* c, u64 id, u64 off, const u8* d, usz n, int fin) {
+  u8           pl[1400];
+  wired_obuf   sob = obuf_of(pl, sizeof pl);
+  stream_frame sf  = {id, off, n, d, (u8)fin};
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  sr_sl_step(c, pl, sob.len);
+}
+
+/* The client control stream (id 2) from offset 0: type 0x00 and a
+ * SETTINGS frame carrying the pairs sp[0..2n), then the frames in tail. */
+static usz rfch3_ctrl(u8* out, usz cap, const u64* sp, usz n, wired_span tail) {
+  u8  pairs[128];
+  usz pn = 0, len = 1;
+  for (usz i = 0; i < 2 * n; i++) {
+    pn += varint_encode(pairs + pn, sp[i]);
+  }
+  out[0] = H3_STREAM_CONTROL;
+  rfch3_frame(out, cap, &len, H3_FRAME_SETTINGS, wired_span_of(pairs, pn));
+  bytes_memcpy(out + len, tail.p, tail.n);
+  return len + tail.n;
+}
+
+/* A whole connection on the server path, everything sent noted into w:
+ * the confirmation (SETTINGS on control stream 3), the QPACK encoder and
+ * decoder streams opening on the first step, a GET answered and
+ * acknowledged, a GOAWAY, and the server's own CONNECTION_CLOSE
+ * (H3_NO_ERROR). */
+static void rfch3_life(rfcpin_wire* w) {
+  sr_net       n;
+  srvrun_conn* c  = rfch3_fixture(&n);
+  u64          lo = c->l.tx_pn;
+  u8           out[256];
+  wired_obuf   gob = obuf_of(out, sizeof out);
+  sr_sl_send_headers(c, 0, "GET", 1);
+  sr_sl_ack_from(c, lo);
+  CHECK(g_rfch3.calls == 1 && c->resp[0].in_use == 0);
+  CHECK(srvrun_send_goaway(&g_sl_cfg, c, &gob) == 1);
+  srvrun_send_app_close(
+      &g_sl_cfg, c, H3_NO_ERROR, wired_span_of((const u8*)"bye", 3));
+  rfch3_wire(w, &n);
+  sr_net_close(&n);
 }
 
 /* An established CONNECT stream (no FIN) whose 200 was acknowledged and
@@ -26859,6 +27212,16 @@ static void test_srvrun_on_body_skips_connect(void) {
  * flood closes at SRVRUN_MAX_NOPROG_PER_WINDOW + 1 with the RFC 9114 8.1
  * application error H3_EXCESSIVE_LOAD. */
 
+/* sr_sl_fixture whose client grants the server's uni streams no credit
+ * (initial_max_stream_data_uni 0), so the QPACK streams opening on the
+ * first step stay silent: no server data packet, and no packet an owed ACK
+ * could ride, beyond what the test itself provokes. */
+static srvrun_conn* sr_sl_fixture_uni_silent(void) {
+  srvrun_conn* c                             = sr_sl_fixture();
+  c->s.sdrv.peer_initial_max_stream_data_uni = 0;
+  return c;
+}
+
 static void sr_np_repeat(srvrun_conn* c, const u8* pl, usz n, usz times) {
   for (usz i = 0; i < times; i++) {
     sr_sl_step(c, pl, n);
@@ -26940,7 +27303,7 @@ static usz sr_np_churn(srvrun_conn* c, u64 lo, u64 seq, u8* pl, usz cap) {
 }
 
 static void test_srvrun_noprog_cid_churn_closes(void) {
-  srvrun_conn*     c = sr_sl_fixture();
+  srvrun_conn*     c = sr_sl_fixture_uni_silent();
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], pl[128];
   u64              lo = c->l.tx_pn - 1;
@@ -27008,7 +27371,7 @@ static void test_srvrun_noprog_stale_ack_closes(void) {
  * acknowledged, but none of them carried application data. */
 static void test_srvrun_noprog_ping_ack_flood_closes(void) {
   u8           pl[64];
-  srvrun_conn* c  = sr_sl_fixture();
+  srvrun_conn* c  = sr_sl_fixture_uni_silent();
   u64          lo = c->l.tx_pn - 1;
   for (usz i = 0; i < SRVRUN_MAX_NOPROG_PER_WINDOW; i++) {
     pl[0] = 0x01; /* PING */
@@ -27024,7 +27387,7 @@ static void test_srvrun_noprog_ping_ack_flood_closes(void) {
 /* RETIRE_CONNECTION_ID of the spare ID in one packet, an ACK of the
  * NEW_CONNECTION_ID it drew in the next: the halves never share a packet. */
 static void test_srvrun_noprog_retire_ack_split_closes(void) {
-  srvrun_conn*     c = sr_sl_fixture();
+  srvrun_conn*     c = sr_sl_fixture_uni_silent();
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], pl[64];
   u64              lo = c->l.tx_pn - 1;
@@ -27093,7 +27456,7 @@ static void test_srvrun_noprog_upload_lost_burst_stays_open(void) {
  * ACK-only and each acknowledges new application data. */
 static void test_srvrun_noprog_bulk_download_acks_stay_open(void) {
   u8           pl[64];
-  srvrun_conn* c = sr_sl_fixture();
+  srvrun_conn* c = sr_sl_fixture_uni_silent();
   for (usz i = 0; i <= SRVRUN_MAX_NOPROG_PER_WINDOW; i++) {
     u64 pn = sr_np_send_data(c);
     sr_sl_step(c, pl, sr_np_ack(pl, sizeof pl, pn, pn));

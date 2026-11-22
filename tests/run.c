@@ -1299,6 +1299,11 @@
 #include "app/srvrun_rfc8899_test.c"
 #include "app/srvrun_rfc9221_test.c"
 #include "app/srvrun_rfc9000_test.c"
+#include "app/srvrun_rfc9114_test.c"
+#include "app/srvrun_wth3_test.c"
+#include "app/srvrun_rfc9297_test.c"
+#include "app/srvrun_rfc9204_test.c"
+#include "app/srvrun_rfc9218_test.c"
 #include "app/sigmask_test.c"
 #include "app/certreload_test.c"
 #include "app/srvkeys_test.c"
@@ -1827,6 +1832,11 @@ int main(void) {
   test_srvrun_rfc8899();
   test_srvrun_rfc9221();
   test_srvrun_rfc9000();
+  test_srvrun_rfc9114();
+  test_srvrun_wth3();
+  test_srvrun_rfc9297();
+  test_srvrun_rfc9204();
+  test_srvrun_rfc9218();
   test_sigmask();
   test_certreload();
   test_srvkeys();

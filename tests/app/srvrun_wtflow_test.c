@@ -509,7 +509,7 @@ static void test_srvrun_dgring_best_matches_full_walk(void) {
  * instead of costing a packet of its own. */
 static void test_srvrun_ack_rides_max_stream_data(void) {
   static const u8 pl[] = {0x0a, 6, 1, 0x21}; /* client uni stream 6, no FIN */
-  srvrun_conn*    c    = sr_sl_fixture();
+  srvrun_conn*    c    = sr_sl_fixture_uni_silent();
   u8              ack[SRVRUN_ACK_ROOM];
   u64             pn;
   sr_sl_step(c, pl, sizeof pl);
@@ -527,7 +527,7 @@ static void test_srvrun_ack_rides_max_stream_data(void) {
 static void test_srvrun_slice_leaves_room_for_pending_ack(void) {
   static const u8   pl[] = {0x0a, 6, 1, 0x21}; /* client uni stream 6 */
   static u8         body[8192];
-  srvrun_conn*      c = sr_sl_fixture();
+  srvrun_conn*      c = sr_sl_fixture_uni_silent();
   u8                ack[SRVRUN_ACK_ROOM];
   wired_sendq_slice sl;
   usz               mps = srvrun_mps(c), al;
