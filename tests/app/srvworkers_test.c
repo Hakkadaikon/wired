@@ -472,6 +472,111 @@ static void test_srvworkers_run_sigterm_drains_and_exits(void) {
   srvworkers_test_set_child_fn(0);
 }
 
+/* Realtime signal a worker sends its supervisor once it is ready
+ * (realtime signal 36: realtime signals queue, so two senders are two
+ * wakeups). */
+#define SW_READY_SIG 36
+
+static const u64 sw_ready_set = 1ull << (SW_READY_SIG - 1);
+
+/* Child body that installs its SIGTERM handler, then tells the supervisor
+ * it is ready, and serves until SIGTERM (exit 0) or ~10 s pass without one
+ * (exit 9), so a worker the supervisor's death never reached fails. */
+static void sw_child_until_term(
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs,
+    int                  worker_index) {
+  (void)port;
+  (void)id;
+  (void)h;
+  (void)obs;
+  (void)worker_index;
+  wired_sigterm_install(sw_on_term);
+  wired_arch_kill(wired_arch_getppid(), SW_READY_SIG);
+  for (int i = 0; i < 1000 && !sw_term_seen; i++) {
+    wired_arch_poll(0, 0, 10);
+  }
+  wired_arch_exit_group(sw_term_seen ? 0 : 9);
+}
+
+/* The stand-in supervisor: fork both workers through srvworkers_fork_all,
+ * wait (at most 30 s each) for both readiness signals -- sent after each
+ * worker passed srvworkers_child_start's PR_SET_PDEATHSIG arm and installed
+ * its handler -- then stop itself for the test to SIGKILL. Never returns. */
+static void sw_stand_in_supervisor(void) {
+  static const i64     ts[2] = {30, 0};
+  wired_srvworkers_opt opt   = {2, 0, {0}};
+  srvworkers_table     t     = {0};
+  wired_srvboot_id     id    = {0};
+  wired_srvrun_handler h     = {0};
+  wired_srvrun_obs     obs   = {0};
+  wired_arch_rt_sigprocmask(0 /* SIG_BLOCK */, &sw_ready_set, 0, 8);
+  srvworkers_fork_all(&t, 0, &id, h, obs, &opt);
+  for (int i = 0; i < 2; i++) {
+    if (wired_arch_rt_sigtimedwait(&sw_ready_set, 0, ts, 8) != SW_READY_SIG) {
+      wired_arch_exit_group(1);
+    }
+  }
+  wired_arch_kill(wired_arch_getpid(), 19 /* SIGSTOP */);
+  wired_arch_exit_group(0);
+}
+
+/* A worker that drained on SIGTERM (exit 0) or died of it (default action,
+ * low 7 status bits = 15). */
+static int sw_stopped_by_term(i64 status) {
+  return (status & 0xffff) == 0 || (status & 0x7f) == SIGTERM;
+}
+
+/* Reap every child (orphaned workers included, this process being their
+ * subreaper) until none is left, for at most ~60 s -- each worker ends by
+ * itself within ~10 s. Returns how many ended by SIGTERM; *n gets the count
+ * reaped. */
+static int sw_reap_orphans(int* n) {
+  i64 status = 0, pid = 0;
+  int ok = 0;
+  *n     = 0;
+  for (int i = 0; i < 6000 && pid >= 0; i++) {
+    pid = wired_arch_wait4(-1, &status, 1 /* WNOHANG */, 0);
+    *n += pid > 0;
+    ok += pid > 0 && sw_stopped_by_term(status);
+    wired_arch_poll(0, 0, pid > 0 ? 0 : 10);
+  }
+  return ok;
+}
+
+/* TEST: SIGKILL to the supervisor (no forward possible) still stops every
+ * worker: each armed PR_SET_PDEATHSIG(SIGTERM) in srvworkers_child_start.
+ * The supervisor stops itself only after both workers reported ready, so
+ * the kill lands after both arms. This process is made a child subreaper
+ * (PR_SET_CHILD_SUBREAPER, 36) so the orphaned workers are reparented to it
+ * and their exit status can be reaped here. */
+static void test_srvworkers_supervisor_sigkill_stops_workers(void) {
+  i64 sup, status = 0;
+  int reaped = 0, by_term;
+
+  sw_term_seen = 0;
+  if (wired_arch_prctl(36 /* PR_SET_CHILD_SUBREAPER */, 1) != 0) {
+    CHECK(0);
+    return;
+  }
+  srvworkers_test_set_child_fn(sw_child_until_term);
+  sup = wired_arch_fork();
+  if (sup == 0) {
+    sw_stand_in_supervisor();
+  }
+  CHECK(wired_arch_wait4(sup, &status, 2 /* WUNTRACED */, 0) == sup);
+  CHECK((status & 0xff) == 0x7f); /* WIFSTOPPED: both workers ready */
+  wired_arch_kill(sup, 9 /* SIGKILL */);
+  wired_arch_wait4(sup, &status, 0, 0);
+  by_term = sw_reap_orphans(&reaped);
+  CHECK(reaped == 2);
+  CHECK(by_term == 2);
+  wired_arch_prctl(36 /* PR_SET_CHILD_SUBREAPER */, 0);
+  srvworkers_test_set_child_fn(0);
+}
+
 void test_srvworkers(void) {
   test_srvworkers_slot_for_pid_finds_match();
   test_srvworkers_slot_for_pid_empty_table();
@@ -493,4 +598,5 @@ void test_srvworkers(void) {
   test_srvworkers_child_start_resets_sigterm();
   test_srvworkers_run_returns_when_all_exit();
   test_srvworkers_run_sigterm_drains_and_exits();
+  test_srvworkers_supervisor_sigkill_stops_workers();
 }
