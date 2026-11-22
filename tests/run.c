@@ -1161,6 +1161,7 @@
 #include "transport/aead_suite_test.c"
 #include "transport/hp_suite_test.c"
 #include "tls/keyschedule_test.c"
+#include "tls/keyschedule_rfc8448_test.c"
 #include "transport/rxloop_test.c"
 #include "transport/lossdelay_test.c"
 #include "transport/ackrange_test.c"
@@ -1638,6 +1639,7 @@ int main(void) {
   test_aead_suite();
   test_hp_suite();
   test_keyschedule();
+  test_keyschedule_rfc8448();
   test_rxloop();
   test_lossdelay();
   test_ackrange();

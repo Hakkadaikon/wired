@@ -68,11 +68,10 @@ static void test_binder_deterministic(void) {
   }
 }
 
-/* Self-consistency sub-vector (RFC 8448 full trace was not retrievable in
- * this environment -- no network access from the sandbox; per this repo's
- * rule against faking a golden match, cross-check binder_key against the
- * same already-vetted HKDF primitives composed independently in the test,
- * rather than pinning an unverified external hex string). hkdf_extract
+/* Self-consistency sub-vector (the RFC 8448 4 binder itself is pinned in
+ * keyschedule_rfc8448_test.c's test_rfc8448_resumed_early): cross-check
+ * binder_key against the same already-vetted HKDF primitives composed
+ * independently in the test. hkdf_extract
  * and hkdf_expand_label are themselves pinned against RFC 5869 Appendix
  * A.1 in tests/crypto/hkdf_test.c; this proves the binder uses exactly
  * early_secret=HKDF-Extract(0,psk),
