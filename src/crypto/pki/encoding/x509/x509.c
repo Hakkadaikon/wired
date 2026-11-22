@@ -7,7 +7,7 @@
 
 #include "crypto/pki/encoding/x509/x509_impl.h"
 
-static int alg_oid(wired_span alg, wired_span* oid);
+static int alg_oid(wired_span alg, x509* out);
 static int outer_next(derseq* c, wired_span* whole, der_tlv* e);
 static int take_tbs(derseq* c, x509* out);
 static int take_alg(derseq* c, x509* out);
@@ -16,12 +16,17 @@ static int take_fields(wired_span seq, x509* out);
 static int skip_tagged_if_present(derseq* c, u8 want_tag);
 static int skip_unique_ids(derseq* c);
 
-/* RFC 5280 4.1.1.2. signatureAlgorithm ::= SEQUENCE { algorithm OID, ... }.
- * Extract the OID value from the AlgorithmIdentifier blob. */
-static int alg_oid(wired_span alg, wired_span* oid) {
+/* RFC 5280 4.1.1.2. signatureAlgorithm ::= SEQUENCE { algorithm OID,
+ * parameters ANY OPTIONAL }. View the OID value and the parameter octets
+ * that follow it. */
+static int alg_oid(wired_span alg, x509* out) {
   derseq c;
   derseq_init(&c, alg);
-  return derseq_next_tagged(&c, DER_OID, oid);
+  if (!derseq_next_tagged(&c, DER_OID, &out->sig_alg_oid)) {
+    return 0;
+  }
+  out->sig_alg_params = wired_span_of(c.p + c.off, c.len - c.off);
+  return 1;
 }
 
 /* Read one element of the outer SEQUENCE, keeping its header-included span
@@ -57,7 +62,7 @@ static int take_alg(derseq* c, x509* out) {
   if (e.tag != DER_SEQUENCE) {
     return 0;
   }
-  return alg_oid(e.val, &out->sig_alg_oid);
+  return alg_oid(e.val, out);
 }
 
 /* RFC 5280 4.1.1.3. signatureValue: a BIT STRING. */

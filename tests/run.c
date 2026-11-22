@@ -163,6 +163,7 @@
 #include "crypto/symmetric/hash/hash/sha512_put.c"
 #include "crypto/symmetric/hash/hash/sha384.c"
 #include "crypto/pki/encoding/x509/sigalgoid.c"
+#include "crypto/pki/encoding/x509/sigalgoid_pss.c"
 #include "app/qpack/qpack/base.c"
 #include "app/qpack/qpack/fieldline.c"
 #include "app/qpack/qpack/insertcount.c"

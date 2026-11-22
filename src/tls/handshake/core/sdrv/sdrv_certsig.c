@@ -7,19 +7,24 @@
  * does. Here it only judges -- 4.4.2.2 lets the server send its one chain
  * anyway -- and records the verdict for a log and for chain selection. */
 
-/* The SignatureScheme of a certificate signature, by x509 key kind and
- * digest (X509_SIG_*, X509_HASH_*); 0 where none exists (SHA-224). */
-static const u16 SDRV_CERT_SCHEME[4][6] = {
+/* The SignatureScheme of a certificate signature in the server's own chain
+ * (configured, not validated here), by x509 key kind and digest (X509_SIG_*,
+ * X509_HASH_*); 0 where none exists (SHA-224). RSASSA-PSS maps to
+ * rsa_pss_rsae_* (RFC 8446 4.2.3): the issuer key is assumed to be
+ * rsaEncryption, the only kind chain validation accepts for PSS. */
+static const u16 SDRV_CERT_SCHEME[5][6] = {
     [X509_SIG_ECDSA]     = {0, 0x0403, 0x0503, 0x0603, 0},
     [X509_SIG_RSA_PKCS1] = {0, 0x0401, 0x0501, 0x0601, 0},
     [X509_SIG_ED25519]   = {[X509_HASH_NONE] = 0x0807},
+    [X509_SIG_RSA_PSS]   = {0, 0x0804, 0x0805, 0x0806, 0},
 };
 
 /* The scheme der's issuer signed it with, or 0 if unparsed or unknown. */
 static u16 sdrv_cert_scheme(wired_span der) {
   x509        x;
   x509_sigalg a;
-  if (!x509_parse(der, &x) || !x509_sigalg_lookup(x.sig_alg_oid, &a)) {
+  if (!x509_parse(der, &x) ||
+      !x509_sigalg_lookup(x.sig_alg_oid, x.sig_alg_params, &a)) {
     return 0;
   }
   return SDRV_CERT_SCHEME[a.key_kind][a.hash_kind];

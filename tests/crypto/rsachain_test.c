@@ -2,6 +2,7 @@
 #include "crypto/pki/encoding/x509/x509.h"
 #include "crypto/pki/trust/castore/castore.h"
 #include "crypto/pki/trust/castore/pathvalidate.h"
+#include "psschain_golden.h"
 #include "rsachain_golden.h"
 #include "test.h"
 
@@ -80,7 +81,21 @@ static void test_gentime_validity(void) {
   CHECK(x509_validity_ok(c.tbs, 20610101000000ULL) == 0);
 }
 
+/* RFC 8446 9.1: a whole chain whose leaf is signed with RSASSA-PSS
+ * (SHA-256 and SHA-384) under an rsaEncryption root validates. */
+static void test_rsachain_pss(void) {
+  CHECK(
+      rct_validate(
+          psschain_root_der, sizeof(psschain_root_der), psschain_s256_der,
+          sizeof(psschain_s256_der)) == 1);
+  CHECK(
+      rct_validate(
+          psschain_root_der, sizeof(psschain_root_der), psschain_s384_der,
+          sizeof(psschain_s384_der)) == 1);
+}
+
 void test_rsachain(void) {
+  test_rsachain_pss();
   test_rsachain_sha256();
   test_rsachain_sha384();
   test_rsachain_4096();

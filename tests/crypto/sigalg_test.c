@@ -26,9 +26,11 @@ static void test_sigalg_matches(void) {
   CHECK(tbscert_parse(wired_span_of(x509_golden + 4, 305), &t) == 1);
   CHECK(
       tbscert_sigalg_matches(
-          &t, wired_span_of(
-                  x509_golden_oid_ecdsa_sha256,
-                  sizeof(x509_golden_oid_ecdsa_sha256))) == 1);
+          &t,
+          wired_span_of(
+              x509_golden_oid_ecdsa_sha256,
+              sizeof(x509_golden_oid_ecdsa_sha256)),
+          (wired_span){0}) == 1);
 }
 
 /* RFC 5280 4.1.1.2. A different outer OID is a mismatch. */
@@ -37,9 +39,10 @@ static void test_sigalg_mismatch(void) {
   CHECK(tbscert_parse(wired_span_of(x509_golden + 4, 305), &t) == 1);
   CHECK(
       tbscert_sigalg_matches(
-          &t, wired_span_of(
-                  x509_golden_oid_ec_pubkey,
-                  sizeof(x509_golden_oid_ec_pubkey))) == 0);
+          &t,
+          wired_span_of(
+              x509_golden_oid_ec_pubkey, sizeof(x509_golden_oid_ec_pubkey)),
+          (wired_span){0}) == 0);
 }
 
 /* RFC 5758 2. AlgorithmIdentifier VALUE bytes (SEQUENCE header stripped) for
@@ -90,12 +93,31 @@ static void test_sigalg_no_oid_mismatch(void) {
   t.sig_alg = wired_span_of(sao_body_withnull + 10, 2);
   CHECK(
       tbscert_sigalg_matches(
-          &t, wired_span_of(
-                  x509_golden_oid_ecdsa_sha256,
-                  sizeof(x509_golden_oid_ecdsa_sha256))) == 0);
+          &t,
+          wired_span_of(
+              x509_golden_oid_ecdsa_sha256,
+              sizeof(x509_golden_oid_ecdsa_sha256)),
+          (wired_span){0}) == 0);
+}
+
+/* RFC 5280 4.1.1.2: the outer signatureAlgorithm must be the SAME
+ * algorithm identifier as the tbs one -- parameters included. The golden's
+ * tbs carries no parameters, so an outer NULL is a mismatch. */
+static void test_sigalg_params_mismatch(void) {
+  static const u8 null[] = {0x05, 0x00};
+  tbscert         t;
+  CHECK(tbscert_parse(wired_span_of(x509_golden + 4, 305), &t) == 1);
+  CHECK(
+      tbscert_sigalg_matches(
+          &t,
+          wired_span_of(
+              x509_golden_oid_ecdsa_sha256,
+              sizeof(x509_golden_oid_ecdsa_sha256)),
+          wired_span_of(null, 2)) == 0);
 }
 
 void test_sigalg(void) {
+  test_sigalg_params_mismatch();
   test_sigalg_no_oid_mismatch();
   test_sigalg_oid();
   test_sigalg_matches();

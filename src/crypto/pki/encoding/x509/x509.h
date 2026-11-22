@@ -11,7 +11,10 @@
 typedef struct {
   wired_span tbs;         /* tbsCertificate, header included (signed bytes) */
   wired_span sig_alg_oid; /* OID value inside signatureAlgorithm */
-  wired_span sig;         /* signatureValue BIT STRING value */
+  /* The signatureAlgorithm parameters: the octets after the OID TLV (empty
+   * when absent). */
+  wired_span sig_alg_params;
+  wired_span sig; /* signatureValue BIT STRING value */
 } x509;
 
 /* Parse the top-level certificate. Returns 1 ok, 0 on malformed input. */

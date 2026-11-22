@@ -10,6 +10,7 @@
 #include "ed25519chain_golden.h"
 #include "p384chain_golden.h"
 #include "p521chain_golden.h"
+#include "psschain_golden.h"
 #include "rsachain_golden.h"
 #include "spkialg_golden.h"
 #include "test.h"
@@ -241,7 +242,58 @@ static void test_chainverify_ed25519_tampered(void) {
           wired_span_of(leaf, sizeof(leaf)), EDCHAIN(root)) == 0);
 }
 
+#define PSSCHAIN(n) \
+  wired_span_of(psschain_##n##_der, sizeof(psschain_##n##_der))
+
+/* RFC 8446 9.1 / RFC 4055 3.1: RSASSA-PSS SHA-256, SHA-384 and SHA-512
+ * certificate signatures verify under an rsaEncryption issuer key. */
+static void test_chainverify_pss_issuer(void) {
+  CHECK(castore_verify_signed_by(PSSCHAIN(s256), PSSCHAIN(root)) == 1);
+  CHECK(castore_verify_signed_by(PSSCHAIN(s384), PSSCHAIN(root)) == 1);
+  CHECK(castore_verify_signed_by(PSSCHAIN(s512), PSSCHAIN(root)) == 1);
+}
+
+/* RFC 5280 4.1.1.2: the outer signatureAlgorithm rewritten to a valid
+ * SHA-384/48 parameter set (hash and MGF1 hash OID last arcs at [418] and
+ * [448], saltLength at [455]) no longer equals the tbs one; and one tbs
+ * byte changed ('r' -> 's' at [100]) breaks the signature. */
+static void test_chainverify_pss_tampered(void) {
+  u8 leaf[sizeof(psschain_s256_der)];
+  bytes_memcpy(leaf, psschain_s256_der, sizeof(leaf));
+  CHECK(leaf[418] == 0x01 && leaf[448] == 0x01 && leaf[455] == 0x20);
+  CHECK(leaf[100] == 0x72);
+  leaf[418] = 0x02;
+  leaf[448] = 0x02;
+  leaf[455] = 0x30;
+  CHECK(
+      castore_verify_signed_by(
+          wired_span_of(leaf, sizeof(leaf)), PSSCHAIN(root)) == 0);
+  CHECK(
+      castore_verify_signed_by(
+          chv_mut(leaf, psschain_s256_der, sizeof(leaf), 100, 0x73),
+          PSSCHAIN(root)) == 0);
+}
+
+/* Valid OpenSSL signatures whose params break the policy (salt 20 with
+ * SHA-256, MGF1-SHA-1 under SHA-256, the SHA-1 defaults), a flipped
+ * signature bit, and a non-RSA issuer key are all rejected. */
+static void test_chainverify_pss_rejects(void) {
+  u8 leaf[sizeof(psschain_s256_der)];
+  CHECK(castore_verify_signed_by(PSSCHAIN(salt20), PSSCHAIN(root)) == 0);
+  CHECK(castore_verify_signed_by(PSSCHAIN(mgf1sha1), PSSCHAIN(root)) == 0);
+  CHECK(castore_verify_signed_by(PSSCHAIN(sha1), PSSCHAIN(root)) == 0);
+  CHECK(castore_verify_signed_by(PSSCHAIN(s256), chv_root_span()) == 0);
+  bytes_memcpy(leaf, psschain_s256_der, sizeof(leaf));
+  leaf[sizeof(leaf) - 1] ^= 0x01;
+  CHECK(
+      castore_verify_signed_by(
+          wired_span_of(leaf, sizeof(leaf)), PSSCHAIN(root)) == 0);
+}
+
 void test_chainverify(void) {
+  test_chainverify_pss_issuer();
+  test_chainverify_pss_rejects();
+  test_chainverify_pss_tampered();
   test_chainverify_ed25519_issuer();
   test_chainverify_ed25519_wrong_issuer();
   test_chainverify_ed25519_tampered();

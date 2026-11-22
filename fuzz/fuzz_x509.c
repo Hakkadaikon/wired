@@ -5,14 +5,19 @@
  *
  * A certificate parser's job is to safely reject arbitrary bytes, so no
  * structured seed is needed: raw DER bytes drive both x509_parse and,
- * on success, the tbsCertificate sub-parsers and extension lookup. */
+ * on success, the signatureAlgorithm allowlist (RFC 4055 RSASSA-PSS
+ * parameters included), the tbsCertificate sub-parsers, the inner/outer
+ * signatureAlgorithm comparison and extension lookup. */
 #include <stddef.h>
 #include <stdint.h>
 
 #include "crypto/pki/cert/tbscert/fields.c"
+#include "crypto/pki/cert/tbscert/sigalg.c"
 #include "crypto/pki/encoding/asn1/der.c"
 #include "crypto/pki/encoding/asn1/derseq.c"
 #include "crypto/pki/encoding/asn1/derval.c"
+#include "crypto/pki/encoding/x509/sigalgoid.c"
+#include "crypto/pki/encoding/x509/sigalgoid_pss.c"
 #include "crypto/pki/encoding/x509/x509.c"
 #include "crypto/pki/encoding/x509/x509_ext.c"
 #include "crypto/pki/encoding/x509/x509_ext_crit.c"
@@ -25,10 +30,16 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     return 0;
   }
 
+  /* Peer-controlled signatureAlgorithm (and RSASSA-PSS-params) bytes. */
+  x509_sigalg a;
+  x509_sigalg_lookup(x.sig_alg_oid, x.sig_alg_params, &a);
+
   /* tbsCertificate is well-formed enough to have been sliced out above;
    * fuzz its own structured sub-parsers on the same bytes. */
   tbscert tbs;
-  tbscert_parse(x.tbs, &tbs);
+  if (tbscert_parse(x.tbs, &tbs)) {
+    tbscert_sigalg_matches(&tbs, x.sig_alg_oid, x.sig_alg_params);
+  }
 
   derseq c;
   x509_tbs_cursor(x.tbs, &c);

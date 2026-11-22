@@ -192,4 +192,22 @@ static inline int ascii_dns_eq(wired_span a, wired_span b) {
   return diff == 0;
 }
 
+/**
+ * Byte-exact span equality (public data; not constant-time in the length).
+ *
+ * @param a first span
+ * @param b second span
+ * @return 1 if a and b have the same length and octets, 0 otherwise.
+ */
+static inline int bytes_span_eq(wired_span a, wired_span b) {
+  u8 diff = 0;
+  if (a.n != b.n) {
+    return 0;
+  }
+  for (usz i = 0; i < a.n; i++) {
+    diff |= (u8)(a.p[i] ^ b.p[i]);
+  }
+  return diff == 0;
+}
+
 #endif

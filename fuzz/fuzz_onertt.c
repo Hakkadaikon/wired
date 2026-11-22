@@ -60,6 +60,7 @@
 #include "crypto/pki/encoding/x509/san_ipv4.c"
 #include "crypto/pki/encoding/x509/san_x509.c"
 #include "crypto/pki/encoding/x509/sigalgoid.c"
+#include "crypto/pki/encoding/x509/sigalgoid_pss.c"
 #include "crypto/pki/encoding/x509/validity.c"
 #include "crypto/pki/encoding/x509/x509.c"
 #include "crypto/pki/encoding/x509/x509_ext.c"
