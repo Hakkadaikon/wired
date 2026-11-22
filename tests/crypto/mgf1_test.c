@@ -1,4 +1,9 @@
+#include "crypto/asymmetric/rsa/mgf1.h"
+
+#include "crypto/symmetric/hash/hash/sha256.h"
 #include "test.h"
+
+static const rsa_digest mgf1_d256 = {wired_sha256, 32};
 
 /* MGF1-SHA256 known-answer vector for seed = 0x00..0x13, mask length 50
  * (spanning two SHA-256 blocks). Computed from RFC 8017 B.2.1 with an
@@ -17,7 +22,7 @@ static const u8 mgf1_mask[50] = {
 
 static void test_mgf1_kat(void) {
   u8 got[50];
-  mgf1_sha256((wired_span){mgf1_seed, 20}, (wired_mspan){got, 50});
+  rsa_mgf1(mgf1_d256, (wired_span){mgf1_seed, 20}, (wired_mspan){got, 50});
   int eq = 1;
   for (usz i = 0; i < 50; i++) {
     if (got[i] != mgf1_mask[i]) {
@@ -30,11 +35,20 @@ static void test_mgf1_kat(void) {
 /* A one-byte mask is the first byte of the first block. */
 static void test_mgf1_short(void) {
   u8 got[1];
-  mgf1_sha256((wired_span){mgf1_seed, 20}, (wired_mspan){got, 1});
+  rsa_mgf1(mgf1_d256, (wired_span){mgf1_seed, 20}, (wired_mspan){got, 1});
   CHECK(got[0] == mgf1_mask[0]);
+}
+
+/* A seed longer than the 64-octet maximum digest is refused. */
+static void test_mgf1_long_seed(void) {
+  static const u8 seed[65] = {0};
+  u8              got[1];
+  CHECK(
+      rsa_mgf1(mgf1_d256, (wired_span){seed, 65}, (wired_mspan){got, 1}) == 0);
 }
 
 void test_mgf1(void) {
   test_mgf1_kat();
   test_mgf1_short();
+  test_mgf1_long_seed();
 }

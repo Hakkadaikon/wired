@@ -1,3 +1,10 @@
+#include "common/bytes/util/bytes.h"
+#include "crypto/asymmetric/rsa/pss.h"
+#include "crypto/asymmetric/rsa/rsa_pss_verify.h"
+#include "crypto/symmetric/hash/hash/sha256.h"
+#include "crypto/symmetric/hash/hash/sha384.h"
+#include "crypto/symmetric/hash/hash/sha512.h"
+#include "psschain_golden.h"
 #include "test.h"
 
 /* 2048-bit RSA-PSS / SHA-256 / MGF1-SHA-256 / saltLen=32 vector. Key generated
@@ -107,14 +114,16 @@ static void test_rsa_pss_sizes(void) {
       0);
   /* emsa_pss_verify guards its own EM buffers: > 512 octets or a non-SHA-256
    * digest is rejected */
-  static const u8 pssv_big[513] = {0};
+  static const u8          pssv_big[513] = {0};
+  static const rsa_pss_cfg s256          = {{wired_sha256, 32}, 32};
   CHECK(
       emsa_pss_verify(
-          (wired_span){pssv_big, 513}, 8 * 513 - 1,
-          (wired_span){pss_hash, 32}) == 0);
+          (wired_span){pssv_big, 513}, 8 * 513 - 1, (wired_span){pss_hash, 32},
+          &s256) == 0);
   CHECK(
       emsa_pss_verify(
-          (wired_span){pss_sig, 256}, 2047, (wired_span){pss_hash, 20}) == 0);
+          (wired_span){pss_sig, 256}, 2047, (wired_span){pss_hash, 20},
+          &s256) == 0);
 }
 
 /* RFC 8017 8.1.2: modBits of a modulus with leading zero octets and a short
@@ -125,7 +134,72 @@ static void test_rsa_pss_modbits(void) {
   CHECK(rsa_modbits(n0, 2) == 0);
 }
 
+/* The RSA-2048 root of psschain_golden.h. */
+static const rsa_pub pss_root_pub = {{psschain_n, 256}, {pvt_e, 3}};
+
+/* Verify sig over msg under pss_root_pub with digest h and salt length. */
+static int pss_vec(const char* msg, rsa_digest h, usz salt, const u8* sig) {
+  u8          d[65];
+  rsa_pss_cfg cfg = {h, salt};
+  h.fn((const u8*)msg, wired_cstr_len(msg), d);
+  return rsa_pss_verify_cfg(
+      &pss_root_pub, (wired_span){sig, 256}, (wired_span){d, h.len}, &cfg);
+}
+
+static const rsa_digest pss_d256 = {wired_sha256, 32};
+static const rsa_digest pss_d384 = {sha384, 48};
+static const rsa_digest pss_d512 = {sha512, 64};
+
+/* RFC 8017 8.1.2 with SHA-384 / MGF1-SHA-384 / salt 48, SHA-512 /
+ * MGF1-SHA-512 / salt 64, and SHA-256 with a non-hLen salt of 20. */
+static void test_rsa_pss_other_hashes(void) {
+  CHECK(pss_vec("wired rsa-pss h384 vector", pss_d384, 48, psschain_sig384));
+  CHECK(pss_vec("wired rsa-pss h512 vector", pss_d512, 64, psschain_sig512));
+  CHECK(pss_vec(
+      "wired rsa-pss h256s20 vector", pss_d256, 20, psschain_sig256s20));
+}
+
+/* The same signatures under the wrong salt length, digest or message. */
+static void test_rsa_pss_other_mismatch(void) {
+  CHECK(!pss_vec("wired rsa-pss h384 vector", pss_d384, 32, psschain_sig384));
+  CHECK(!pss_vec("wired rsa-pss h384 vector", pss_d512, 48, psschain_sig384));
+  CHECK(!pss_vec("wired rsa-pss h512 vector", pss_d512, 0, psschain_sig512));
+  CHECK(!pss_vec("wired rsa-pss h384 vectoR", pss_d384, 48, psschain_sig384));
+  CHECK(!pss_vec(
+      "wired rsa-pss h256s20 vector", pss_d256, 32, psschain_sig256s20));
+}
+
+/* RFC 8017 9.1.2 step 3: emLen < hLen + sLen + 2 is inconsistent; a digest
+ * longer than 64 octets is not supported. */
+static void test_rsa_pss_cfg_bounds(void) {
+  static const rsa_digest d65 = {sha512, 65};
+  CHECK(!pss_vec(
+      "wired rsa-pss h512 vector", pss_d512, 256 - 64 - 1, psschain_sig512));
+  CHECK(!pss_vec("wired rsa-pss h512 vector", d65, 64, psschain_sig512));
+}
+
+/* RFC 8017 8.1.2 step 2c / 9.1.2: with modBits = 2049 (emLen = k - 1) a
+ * valid signature verifies, but one whose m = s^e mod n needs k octets is
+ * "integer too large" -- even though its low emLen octets are a valid EM. */
+static void test_rsa_pss_em_too_large(void) {
+  static const rsa_pub pub   = {{psschain_n2049, 257}, {pvt_e, 3}};
+  static const char    msg[] = "wired rsa-pss 2049 vector";
+  u8                   d[32];
+  wired_sha256((const u8*)msg, sizeof(msg) - 1, d);
+  CHECK(
+      rsa_pss_verify(
+          &pub, (wired_span){psschain_sig2049, 257}, (wired_span){d, 32}) == 1);
+  CHECK(
+      rsa_pss_verify(
+          &pub, (wired_span){psschain_sig2049big, 257}, (wired_span){d, 32}) ==
+      0);
+}
+
 void test_rsa_pss(void) {
+  test_rsa_pss_em_too_large();
+  test_rsa_pss_other_hashes();
+  test_rsa_pss_other_mismatch();
+  test_rsa_pss_cfg_bounds();
   test_rsa_pss_valid();
   test_rsa_pss_tampered_sig();
   test_rsa_pss_wrong_hash();

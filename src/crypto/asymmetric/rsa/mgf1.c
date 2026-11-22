@@ -1,31 +1,34 @@
 #include "crypto/asymmetric/rsa/mgf1.h"
 
 #include "common/bytes/util/be.h"
-#include "crypto/symmetric/hash/hash/sha256.h"
+#include "common/bytes/util/bytes.h"
+#include "common/bytes/util/num.h"
 
-/* SHA-256(seed || counter_be32) -> 32-byte block. */
-static void mgf1_block(wired_span seed, u32 counter, u8 out[32]) {
-  u8 c[4];
-  be_put_be32(c, counter);
-  sha256_ctx s;
-  sha256_init(&s);
-  sha256_update(&s, seed.p, seed.n);
-  sha256_update(&s, c, 4);
-  sha256_final(&s, out);
+/* Hash(seed || counter_be32) -> one h.len-octet block. seed.n is checked by
+ * the caller to fit. */
+static void mgf1_block(rsa_digest h, wired_span seed, u32 counter, u8* out) {
+  u8 in[RSA_DIGEST_MAX + 4];
+  bytes_memcpy(in, seed.p, seed.n);
+  be_put_be32(in + seed.n, counter);
+  h.fn(in, seed.n + 4, out);
 }
 
-static usz min_usz(usz a, usz b) { return a < b ? a : b; }
+/* h.len in [1, RSA_DIGEST_MAX] (0 wraps above it) and the seed fits. */
+static int mgf1_sizes_ok(rsa_digest h, wired_span seed) {
+  return seed.n <= RSA_DIGEST_MAX && h.len - 1 < RSA_DIGEST_MAX;
+}
 
 /* RFC 8017 B.2.1. */
-void mgf1_sha256(wired_span seed, wired_mspan mask) {
-  u8  t[32];
-  usz off = 0;
-  for (u32 counter = 0; off < mask.n; counter++) {
-    mgf1_block(seed, counter, t);
-    usz n = min_usz(mask.n - off, 32);
-    for (usz i = 0; i < n; i++) {
-      mask.p[off + i] = t[i];
-    }
+int rsa_mgf1(rsa_digest h, wired_span seed, wired_mspan mask) {
+  u8 t[RSA_DIGEST_MAX];
+  if (!mgf1_sizes_ok(h, seed)) {
+    return 0;
+  }
+  for (usz off = 0, counter = 0; off < mask.n; counter++) {
+    mgf1_block(h, seed, (u32)counter, t);
+    usz n = (usz)u64_min(mask.n - off, h.len);
+    bytes_memcpy(mask.p + off, t, n);
     off += n;
   }
+  return 1;
 }
