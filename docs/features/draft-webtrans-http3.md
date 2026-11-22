@@ -10,7 +10,7 @@
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 74/81、間接 7、未テスト 0。**
+**カバレッジ: テスト済み 77/81、間接 4、未テスト 0。**
 
 ## §3.1 WebTransport に対応した HTTP/3 接続の確立
 
@@ -123,8 +123,12 @@
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_close_session_capsule_received`
   - vuln: V-0496
-- [~] WTH3-075 (§3.2) サーバーは、セッションを受け入れる 2xx レスポンスを送るまで CONNECT ストリームで受け取ったバイトをカプセルとして処理してはならず、セッションを拒否した場合はそれらを破棄しなければならない。
-  - evidence: カプセルの受信カーソルは、`srvrun_start_wt` がセッションを確立したときにだけ有効になり(`srvrun_wt_capsule_arm`)、リクエストの HEADERS の直後から始まります(`tests/app/srvrun_test.c` — `test_srvrun_wt_capsule_start_skips_connect_headers`)。2xx より前、または拒否した CONNECT でカプセルを送るテストはありません。
+- [x] WTH3-075 (§3.2) サーバーは、セッションを受け入れる 2xx レスポンスを送るまで CONNECT ストリームで受け取ったバイトをカプセルとして処理してはならず、セッションを拒否した場合はそれらを破棄しなければならない。
+  - test: `tests/app/srvrun_wth3_test.c` —
+    `test_srvrun_wth3_capsule_before_2xx_waits`
+  - test: `tests/app/srvrun_wth3_test.c` —
+    `test_srvrun_wth3_capsule_on_rejected_discarded`
+  - gap: 2xx の前に受け取ったカプセルは、セッションを受け入れたステップでは処理されず、次の受信のときに処理されます。`srvrun_wt_rx_capsules` は `srvrun_on_step` で動き、保留した CONNECT は後の `srvrun_sess_on_step` で受け入れるためです。遅れはクライアントの次のパケットまでで、通常は 200 への ACK が max_ack_delay 以内に届きます。クライアントがそれ以上パケットを送らなければ、カプセルは処理されないままです。
 
 ## §3.3 アプリケーションプロトコルのネゴシエーション
 
@@ -145,8 +149,9 @@
 
 ## §3.4 優先度付け
 
-- [~] WTH3-026 (§3.4) WebTransport の CONNECT リクエストとレスポンスは Priority ヘッダーフィールドを含んでもよく、クライアントは PRIORITY_UPDATE フレームを送って優先度を変えてもよい。
-  - evidence: PRIORITY_UPDATE フレームのコーデック(`tests/app/priupdate_test.c`)は任意の element_id を扱えるので、CONNECT ストリームの ID も扱えます。確立済みの WebTransport の CONNECT ストリームに対して PRIORITY_UPDATE を送るテストはありません。サーバー側では、アプリケーションが `wired_server_wt_stream_priority` で WebTransport のストリームごとに RFC 9218 の urgency を設定でき、送信ポンプは urgency の値が小さいものから送ります(`tests/app/srvrun_test.c` — `test_srvrun_wt_priority_lower_urgency_first`、`test_srvrun_wt_priority_blocked_urgent_does_not_starve`)。`wired_server_wt_stream_schedule` は、2 つ目のクラスキーとフローごとの順序を加えます(`test_srvrun_wt_sched_better_class_first`、`test_srvrun_wt_sched_one_slice_per_pass`)。
+- [x] WTH3-026 (§3.4) WebTransport の CONNECT リクエストとレスポンスは Priority ヘッダーフィールドを含んでもよく、クライアントは PRIORITY_UPDATE フレームを送って優先度を変えてもよい。
+  - test: `tests/app/srvrun_wth3_test.c` —
+    `test_srvrun_wth3_priority_update_on_connect`
 
 ## §4 WebTransport の機能 / セッション ID
 
@@ -261,8 +266,9 @@
 
 ## §4.7 HTTP/3 の GOAWAY フレームとの関係
 
-- [~] WTH3-047 (§4.7) GOAWAY を送ったとき、サーバーは GOAWAY のストリーム ID 以上のストリームで、新しい WebTransport セッションのための CONNECT リクエストを受け入れてはならない。
-  - evidence: `srvrun_start_resp` は、送った GOAWAY の ID 以上のリクエストストリームを、メソッドの振り分けより前に H3_REQUEST_REJECTED で拒否します。そのため WebTransport の CONNECT も同じ経路を通ります(`tests/app/srvrun_test.c` — `test_srvrun_goaway_id_past_largest_accepted`、GET で駆動)。GOAWAY を超える CONNECT を送るテストはありません。
+- [x] WTH3-047 (§4.7) GOAWAY を送ったとき、サーバーは GOAWAY のストリーム ID 以上のストリームで、新しい WebTransport セッションのための CONNECT リクエストを受け入れてはならない。
+  - test: `tests/app/srvrun_wth3_test.c` —
+    `test_srvrun_wth3_connect_past_goaway_rejected`
 - [x] WTH3-048 (§4.7) HTTP/3 の GOAWAY フレームは、すべての WebTransport セッションの終了処理を始めるようにアプリケーションへ伝える合図でもある。1 つのセッションだけを終了するには、どちらのエンドポイントも WT_DRAIN_SESSION カプセルを送れる。
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_send_wt_drain_seals_capsule_on_connect_stream`
