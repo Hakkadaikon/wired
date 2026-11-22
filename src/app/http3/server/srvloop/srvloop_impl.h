@@ -81,6 +81,7 @@ int  srvloop_req_closed_has(const wired_srvloop* l, u64 stream_id);
 int  srvloop_stream_slot_claim(wired_srvloop* l, u64 stream_id);
 int  srvloop_wt_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id);
 void srvloop_wt_closed_mark(wired_srvloop* l, u64 stream_id);
+void srvloop_wt_refuse_full(wired_srvloop* l, u64 stream_id, u64 sid, usz hdr);
 int  srvloop_has_close(wired_span pl, u64* code);
 void srvloop_collect_acks(wired_srvloop* l, wired_span pl);
 void srvloop_note_ack_owed(

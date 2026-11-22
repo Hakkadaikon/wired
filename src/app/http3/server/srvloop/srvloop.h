@@ -19,6 +19,13 @@
  * @return 1 if the final size is known, else 0. */
 int wired_srvloop_rx_final_known(const wired_srvloop* l, u64 stream_id);
 
+/** RFC 9000 4.5: how far the peer's data on stream_id reaches -- its final
+ * size once a FIN or RESET_STREAM fixed it, else the highest offset seen.
+ * @param l the loop
+ * @param stream_id the stream to ask about
+ * @return that offset, 0 when the stream has no accounting entry. */
+u64 wired_srvloop_rx_extent(const wired_srvloop* l, u64 stream_id);
+
 /** draft-ietf-webtrans-http3-15 4.3: free the wt_streams[] slot reassembling
  * stream_id once its FIN has been fully delivered to the app, mirroring
  * wired_srvloop_slot_release for the WT bidi table. Also raises the table's

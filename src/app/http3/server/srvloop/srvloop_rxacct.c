@@ -111,3 +111,12 @@ int wired_srvloop_rx_final_known(const wired_srvloop* l, u64 stream_id) {
   }
   return wired_srvloop_closed_has(&l->rxacct_done[stream_id & 3], stream_id);
 }
+
+u64 wired_srvloop_rx_extent(const wired_srvloop* l, u64 stream_id) {
+  int i = rxacct_find(l, stream_id);
+  if (i < 0) {
+    return 0;
+  }
+  /* final_size stays 0 until known (finalsize_init) */
+  return u64_max(l->rxacct[i].fs.highest, l->rxacct[i].fs.final_size);
+}

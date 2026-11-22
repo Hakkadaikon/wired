@@ -74,6 +74,7 @@ void srvloop_init_req(wired_srvloop* l) {
   l->req_body_released   = 0;
   l->wt_refused_n        = 0;
   l->wt_refused_overflow = 0;
+  l->wt_full.n           = 0;
 }
 
 /* ACK/ECN feedback and the received-codepoint counters. */

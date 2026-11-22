@@ -5,6 +5,7 @@ static int  is_server_bidi_stream(u64 stream_id);
 static void wt_sig_absorb(u8* sig, u8* have, const stream_frame* sf);
 static usz  wt_sig_parse(const u8* sig, u8 have);
 static void wt_drop_overtaken(wired_srvloop* l, u64 stream_id);
+static u64  wt_frame_session(const stream_frame* sf, usz* hdr);
 static int  wt_slot_for_signal(wired_srvloop* l, const stream_frame* sf);
 
 /* RFC 9220 3 / draft-ietf-webtrans-http3 3: an Extended CONNECT's request
@@ -192,6 +193,16 @@ static void wt_drop_overtaken(wired_srvloop* l, u64 stream_id) {
   }
 }
 
+/* draft-ietf-webtrans-http3-16 4.3: the Session ID the leading signal frame
+ * sf names (its second varint), ~0 when sf ends inside the signal; *hdr
+ * gets the signal's length when it parses. */
+static u64 wt_frame_session(const stream_frame* sf, usz* hdr) {
+  wired_span s = wired_span_of(sf->data, (usz)sf->length);
+  u64        type, sid;
+  *hdr = 0;
+  return varint_take(s, hdr, &type) && varint_take(s, hdr, &sid) ? sid : ~0ULL;
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: claim the wt_streams slot for a
  * newly-signalled stream, marking its leading signal pending so
  * srvloop_wt_sig_resolve settles sig_len from the accumulated leading bytes
@@ -200,8 +211,10 @@ static void wt_drop_overtaken(wired_srvloop* l, u64 stream_id) {
  * Either way no request slot stays held for it (wt_drop_overtaken). */
 static int wt_slot_for_signal(wired_srvloop* l, const stream_frame* sf) {
   int i = wired_srvloop_wt_slot_claim(l, sf->stream_id);
+  usz hdr;
   if (i < 0) {
-    wired_srvloop_wt_refuse(l, sf->stream_id);
+    u64 sid = wt_frame_session(sf, &hdr);
+    srvloop_wt_refuse_full(l, sf->stream_id, sid, hdr);
   } else {
     l->wt_streams[i].sig_pending = 1;
   }

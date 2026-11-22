@@ -69,6 +69,26 @@ int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id) {
   return wired_srvloop_wt_slot_claim(l, stream_id);
 }
 
+/* 1 iff a full-table refusal of stream_id is new and has room to queue. */
+static int wt_full_fresh(const wired_srvloop* l, u64 stream_id) {
+  return !wt_slot_is_stale(l, stream_id) &&
+         l->wt_full.n < WIRED_SRVLOOP_MAX_STREAMS;
+}
+
+/* wired_srvloop_wt_refuse for a client WT bidi stream that found the table
+ * full, queued once per stream (a duplicate signal frame is stale) with the
+ * Session ID sid and signal length hdr its first frame carried, for srvrun's
+ * session flow control. */
+void srvloop_wt_refuse_full(wired_srvloop* l, u64 stream_id, u64 sid, usz hdr) {
+  wired_srvloop_wt_full* q = &l->wt_full;
+  if (wt_full_fresh(l, stream_id)) {
+    q->id[q->n]    = stream_id;
+    q->hdr[q->n]   = (u8)hdr;
+    q->sid[q->n++] = sid;
+  }
+  wired_srvloop_wt_refuse(l, stream_id);
+}
+
 void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id) {
   if (wt_slot_is_stale(l, stream_id)) {
     return;

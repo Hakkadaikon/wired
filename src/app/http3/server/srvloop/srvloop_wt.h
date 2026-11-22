@@ -500,22 +500,6 @@ typedef struct {
   usz len;                                /**< bytes valid in buf */
 } wired_srvloop_rx_datagram;
 
-/** RFC 9000 19.4/19.5: peer RESET_STREAM/STOP_SENDING frames one step can
- * queue. Every stream slot this loop tracks (request, WT bidi, WT uni) can
- * draw at most one RESET_STREAM and one STOP_SENDING, so two per slot holds
- * a peer tearing down everything in one packet; more than that is a flood
- * (the caller closes with H3_EXCESSIVE_LOAD on overflow). */
-#define WIRED_SRVLOOP_RESET_Q                                           \
-  ((usz)2 * (WIRED_SRVLOOP_MAX_STREAMS + WIRED_SRVLOOP_MAX_WT_STREAMS + \
-             WIRED_SRVLOOP_MAX_WT_UNI_STREAMS))
-
-/** One peer RESET_STREAM (is_stop 0) or STOP_SENDING (is_stop 1). */
-typedef struct {
-  u64 stream_id;  /**< stream id the frame named */
-  u64 error_code; /**< its wire application error code */
-  int is_stop;    /**< 1 for STOP_SENDING, 0 for RESET_STREAM */
-} wired_srvloop_reset;
-
 #include "app/http3/server/srvloop/srvloop_rxacct.h" /* needs the caps */
 #include "app/http3/server/srvloop/srvloop_wt_watch.h"
 
@@ -1014,6 +998,8 @@ typedef struct {
   u64 wt_refused[WIRED_SRVLOOP_MAX_STREAMS];
   /** Count of queued ids in wt_refused. */
   usz wt_refused_n;
+  /** Client WT bidi streams refused for a full table (see its type). */
+  wired_srvloop_wt_full wt_full;
   /** RFC 9000 4.6: 1 once the peer opened past MAX_STREAMS -- a refusal
    * found wt_refused full (see wt_refused), or a frame named a client
    * stream at or past peer_stream_limit (its payload is then dropped). The
