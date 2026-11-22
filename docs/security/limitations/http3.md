@@ -298,15 +298,7 @@ RFC 9110 4.1 は少なくとも 8000 オクテットの URI を受け付ける�
 
 参照: これらのマクロ
 
-### 2.13 authority が IPv6 リテラルのリクエストには 421 を返さない
-
-影響: authority に IPv6 リテラルを書く https のリクエスト。
-
-https のリクエストでは authority のホストを接続のリーフ証明書の SAN と照合し、一致しなければ 421 で応答する(RFC 9110 7.4)。ホストが `[` で始まる IPv6 リテラルのときは照合しない。SAN の iPAddress と照合できるのは IPv4 のアドレスだけである。
-
-参照: `srvrun_origin_skip`(shortcut)、`srvrun_origin_status`
-
-### 2.14 SDK が作るレスポンスの大きさの検査は SDK 自身の行を数えない
+### 2.13 SDK が作るレスポンスの大きさの検査は SDK 自身の行を数えない
 
 影響: 小さい SETTINGS_MAX_FIELD_SECTION_SIZE を広告する相手。
 
@@ -316,7 +308,7 @@ SDK 自身が付ける行は数えない。content-type と、capsule-protocol�
 
 参照: `srvrun_wt_status_build`(shortcut)
 
-### 2.15 Structured Fields の Byte Sequence は復号しない
+### 2.14 Structured Fields の Byte Sequence は復号しない
 
 影響: なし。SDK が読むメンバーに Byte Sequence はない。
 
@@ -324,7 +316,7 @@ Dictionary の中の Byte Sequence(RFC 8941 4.2.7)は、文字が base64 のア�
 
 参照: `sfd_b64`(shortcut)
 
-### 2.16 大きいレスポンスのバッファーは先着順で、優先度を見ない
+### 2.15 大きいレスポンスのバッファーは先着順で、優先度を見ない
 
 影響: 1 つの接続で大きいレスポンスを同時に返し、優先度を付けるクライアント。
 
