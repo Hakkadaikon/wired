@@ -21,7 +21,10 @@ void srvrun_rst_retry_slot(const srvrun_step_ctx* ctx, int slot) {
  * latches (srvrun_wt_app_pending's own doc): a poll-timeout tick, not only
  * a packet the peer happens to send, must also flush them, since the app
  * can call wired_server_wt_close_session/wt_drain_session/wt_stream_reset
- * from a tick/on_step hook with no packet of that peer's own in flight. */
+ * from a tick/on_step hook with no packet of that peer's own in flight. A
+ * session flow-control raise the CONNECT stream's send slot refused goes
+ * out here too (srvrun_wtfc_flush): its client may wait for credit without
+ * sending anything. */
 void srvrun_wt_app_pending_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (!c->up) {
@@ -30,6 +33,7 @@ void srvrun_wt_app_pending_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_flush_wt_drain(c);
   srvrun_drain_wt_close_pending(ctx->cfg, c);
   srvrun_drain_wt_stream_reset(ctx->cfg, c);
+  srvrun_wtfc_flush(c);
 }
 
 /* Flush one slot's queued broadcast DATAGRAM (if any) on a poll-loop tick --

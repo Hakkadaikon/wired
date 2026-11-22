@@ -24,6 +24,7 @@ static int wt_delivered_fin(u8 fin, u64 frontier_abs, u64 fin_off);
 void srvrun_wt_uni_slot_free(
     srvrun_conn* c, wired_srvloop_wt_uni_stream_slot* slot) {
   c->wt_uni_credit_owed++;
+  srvrun_wtfc_release_uni(c, slot);
   wired_srvloop_wt_uni_slot_release(&c->l, slot->stream_id);
 }
 
@@ -70,12 +71,14 @@ void srvrun_offer_wt_slot(
   cfg->env->wt_usage.streams++;
   if (!wired_wt_session_offer_stream(
           srvrun_wt_slot(c, sidx), slot->stream_id)) {
+    srvrun_wtfc_reject(cfg, c, sidx, 1, slot->stream_id, slot->sig_len);
     srvrun_reject_wt_slot(cfg, c, slot->stream_id);
     srvrun_wt_bidi_slot_free(c, slot);
     return;
   }
   slot->offered         = 1;
   slot->wt_session_slot = sidx;
+  srvrun_wtfc_offer(cfg, c, sidx, 1);
 }
 
 /* A reassembled-but-not-yet-associated slot: in_use (claimed by a WT-bidi
@@ -193,6 +196,7 @@ void srvrun_reap_wt_slot(srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
     return;
   }
   c->wt_rx_reaped_total += slot->delivered_len;
+  srvrun_wtfc_release_bidi(c, slot);
   wired_srvloop_wt_slot_release(&c->l, slot->stream_id);
   c->wt_bidi_credit_owed += !(slot->stream_id & 1);
 }

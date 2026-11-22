@@ -77,12 +77,14 @@ static void srvrun_offer_wt_uni_slot(
   cfg->env->wt_usage.streams++;
   if (!wired_wt_session_offer_stream(
           srvrun_wt_slot(c, sidx), slot->stream_id)) {
+    srvrun_wtfc_reject(cfg, c, sidx, 0, slot->stream_id, slot->type_len);
     srvrun_reject_wt_slot(cfg, c, slot->stream_id);
     srvrun_wt_uni_slot_free(c, slot);
     return;
   }
   slot->offered         = 1;
   slot->wt_session_slot = sidx;
+  srvrun_wtfc_offer(cfg, c, sidx, 0);
 }
 
 /* A reassembled-but-not-yet-associated uni slot, mirroring
@@ -101,6 +103,7 @@ static void srvrun_reap_wt_uni_slot(
     return;
   }
   c->wt_rx_reaped_total += slot->delivered_len;
+  srvrun_wtfc_release_uni(c, slot);
   wired_srvloop_wt_uni_slot_release(&c->l, slot->stream_id);
   c->wt_uni_credit_owed++;
 }

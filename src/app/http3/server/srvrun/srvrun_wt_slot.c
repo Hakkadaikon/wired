@@ -205,6 +205,7 @@ int srvrun_wt_stream_owner(const srvrun_conn* c, int offered, int owner) {
 void srvrun_wt_bidi_slot_free(
     srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
   c->wt_bidi_credit_owed += !(slot->stream_id & 1);
+  srvrun_wtfc_release_bidi(c, slot);
   /* records the id as closed, so a late frame cannot reopen it */
   wired_srvloop_wt_slot_release(&c->l, slot->stream_id);
 }

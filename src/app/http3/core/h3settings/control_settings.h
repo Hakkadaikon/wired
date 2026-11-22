@@ -25,6 +25,32 @@
  * admits can be stored (RFC 9204 3.2.2). */
 #define DEFAULT_QPACK_MAX_TABLE_CAP QPACK_DYN_MAX_CAPACITY
 
+/** draft-ietf-webtrans-http3-16 5.5.2: the value of
+ * SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI -- the client bidi streams one
+ * session may open before a
+ * WT_MAX_STREAMS raise (srvrun sends one per stream that ends, 5.6). The
+ * whole WT bidi reassembly table (WIRED_SRVLOOP_MAX_WT_STREAMS, 24): a MoQT
+ * client keeps its request streams open for the session's life. */
+#define H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE 24
+
+/** draft-ietf-webtrans-http3-16 5.5.1: the value of
+ * SETTINGS_WT_INITIAL_MAX_STREAMS_UNI. The WT uni reassembly table
+ * (WIRED_SRVLOOP_MAX_WT_UNI_STREAMS, 9) less the three uni streams an HTTP/3
+ * client holds for control and QPACK. */
+#define H3SETTINGS_WT_INIT_STREAMS_UNI_VALUE 6
+
+/** draft-ietf-webtrans-http3-16 5.5.3: the SETTINGS_WT_INITIAL_MAX_DATA
+ * value, one receive window (WIRED_SRVLOOP_WT_BUF_CAP, 49152) for each
+ * stream the two limits above let a session hold open: 30 * 49152. srvrun
+ * raises it to the bytes consumed plus this much as the app takes data.
+ *
+ * All three are non-zero, so flow control is enabled (5.1: this server
+ * pools up to SRVRUN_MAX_WT_SESSIONS sessions on one connection, which MUST
+ * enable it); srvrun raises WT_MAX_STREAMS / WT_MAX_DATA by capsule on the
+ * CONNECT stream's send slot, which retransmits lost bytes (RFC 9000
+ * 13.3). */
+#define H3SETTINGS_WT_INIT_DATA_VALUE 1474560
+
 /** Bytes one server control stream's type + SETTINGS frame can take
  * (h3settings_control_stream); every caller sizes its buffer with this.
  * Worst case 82: type 1 + frame type 1 + length 2 + pairs 78 -- the three

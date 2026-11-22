@@ -100,31 +100,21 @@ static u64 hcs_value(const h3_settings* s, u64 id) {
   return 0;
 }
 
-/* draft-ietf-webtrans-http3-15 5.6.2: WT_MAX_STREAMS / WT_MAX_DATA count
- * closed streams and sent bytes cumulatively, and this server never sends
- * a raise -- so a compliant client honoring only the advertised initial
- * limits must still be able to keep a long-lived session going: well past
- * 100 sequential streams each way and 1 MiB of data. */
-static void hcs_wt_limits_never_exhaust(void) {
-  u8               buf[H3SETTINGS_CONTROL_STREAM_MAX];
-  usz              n = 0, consumed = 0;
-  h3_settings      s;
-  wired_wt_session ws;
+/* draft-ietf-webtrans-http3-16 5.5.1-5.5.3: the initial session limits are
+ * what the server's reassembly tables hold -- 24 bidi, 6 uni, and one
+ * 49152-byte window per stream (30 * 49152) -- not the 2^60 / 2^62-1
+ * maxima a client could overrun the tables under (srvrun raises them by
+ * capsule instead, srvrun_wtfc_test.c). */
+static void hcs_wt_limits_advertised(void) {
+  u8          buf[H3SETTINGS_CONTROL_STREAM_MAX];
+  usz         n = 0, consumed = 0;
+  h3_settings s;
   CHECK(h3settings_control_stream(1, buf, sizeof(buf), &n) == 1);
   h3_stream_type_parse(wired_span_of(buf, n), &(u64){0}, &consumed);
   CHECK(h3_settings_get(buf + consumed, n - consumed, &s) > 0);
-  wired_wt_session_init(&ws, 0);
-  CHECK(wired_wt_session_set_max_streams(&ws, 1, hcs_value(&s, 0x2b65)));
-  CHECK(wired_wt_session_set_max_streams(&ws, 0, hcs_value(&s, 0x2b64)));
-  CHECK(wired_wt_session_set_max_data(&ws, hcs_value(&s, 0x2b61)));
-  for (usz i = 0; i < 1000; i++) {
-    CHECK(wired_wt_session_stream_open_allowed(&ws, 1));
-    wired_wt_session_note_stream_opened(&ws, 1);
-    CHECK(wired_wt_session_stream_open_allowed(&ws, 0));
-    wired_wt_session_note_stream_opened(&ws, 0);
-    CHECK(wired_wt_session_data_send_allowed(&ws, 65536));
-    wired_wt_session_note_data_sent(&ws, 65536);
-  }
+  CHECK(hcs_value(&s, 0x2b65) == 24);
+  CHECK(hcs_value(&s, 0x2b64) == 6);
+  CHECK(hcs_value(&s, 0x2b61) == 1474560);
 }
 
 /* The shared control-stream buffer size holds the WT SETTINGS whatever
@@ -138,7 +128,7 @@ static void hcs_control_stream_fits_buffer(void) {
 }
 
 void test_h3settings_control_settings_advertises_wt(void) {
-  hcs_wt_limits_never_exhaust();
+  hcs_wt_limits_advertised();
   hcs_control_stream_fits_buffer();
   u8          buf[H3SETTINGS_CONTROL_STREAM_MAX];
   usz         n        = 0;

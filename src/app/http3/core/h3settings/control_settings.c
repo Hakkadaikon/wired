@@ -24,23 +24,6 @@
  * enabled below (draft-15 5.1). */
 #define DEFAULT_WT_MAX_SESSIONS 1
 
-/* draft-ietf-webtrans-http3-15 5.5.1/5.5.2/5.5.3 (WTH3-051): initial
- * session-level flow control limits. Nonzero, so flow control is enabled
- * (5.1: this server pools up to SRVRUN_MAX_WT_SESSIONS sessions on one
- * connection, which MUST enable it). WT_MAX_STREAMS and WT_MAX_DATA are
- * cumulative over the session's lifetime (5.6.2, 5.6.4) and this server
- * never raises them by capsule -- a capsule on the CONNECT stream is not
- * retransmitted here, and one lost would stall every later capsule behind
- * it -- so the initial values are the maxima: 2^60 streams (5.6.2's cap)
- * and 2^62-1 bytes (the varint cap). The receive side is bounded by the
- * QUIC limits instead (5.3: the session limit applies "in addition to" the
- * QUIC MAX_STREAMS): bidi/uni stream credit tied to the reassembly slot
- * tables (srvloop.h) and per-stream windows. 100 streams / 1 MiB stopped a
- * compliant client's long-lived MoQT session for good. */
-#define DEFAULT_WT_INITIAL_MAX_STREAMS_UNI (1ULL << 60)
-#define DEFAULT_WT_INITIAL_MAX_STREAMS_BIDI (1ULL << 60)
-#define DEFAULT_WT_INITIAL_MAX_DATA ((1ULL << 62) - 1)
-
 /* RFC 9114 7.2.4.1 / 9114-064: "Endpoints SHOULD include at least one such
  * setting in their SETTINGS frame" -- every connection carries one reserved
  * identifier; one random byte picks which (h3_grease_value). A failed RNG
@@ -69,9 +52,9 @@ static h3settings_in control_settings_in(int advertise_wt) {
   if (advertise_wt) {
     in.enable_h3_datagram          = 1;
     in.wt_max_sessions             = DEFAULT_WT_MAX_SESSIONS;
-    in.wt_initial_max_streams_uni  = DEFAULT_WT_INITIAL_MAX_STREAMS_UNI;
-    in.wt_initial_max_streams_bidi = DEFAULT_WT_INITIAL_MAX_STREAMS_BIDI;
-    in.wt_initial_max_data         = DEFAULT_WT_INITIAL_MAX_DATA;
+    in.wt_initial_max_streams_uni  = H3SETTINGS_WT_INIT_STREAMS_UNI_VALUE;
+    in.wt_initial_max_streams_bidi = H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE;
+    in.wt_initial_max_data         = H3SETTINGS_WT_INIT_DATA_VALUE;
   }
   return in;
 }

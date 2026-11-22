@@ -679,6 +679,9 @@
 #include "app/http3/server/srvrun/srvrun_wt_connect.c"
 #include "app/http3/server/srvrun/srvrun_wt_owner.c"
 #include "app/http3/server/srvrun/srvrun_wt_slot.c"
+#include "app/http3/server/srvrun/srvrun_wtfc.c"
+#include "app/http3/server/srvrun/srvrun_wtfc_grant.c"
+#include "app/http3/server/srvrun/srvrun_wtfc_pend.c"
 #include "app/http3/server/srvrun/srvrun_wtsend.c"
 #include "app/http3/server/srvrun/httpx.c"
 #include "app/http3/server/staticfile/staticfile.c"
@@ -1286,6 +1289,9 @@
 #include "app/srvrun_raw_test.c"
 #include "app/srvrun_wtflow_test.c"
 #include "app/srvrun_credit_test.c"
+#include "app/srvrun_wtfc_test.c"
+#include "app/srvrun_wtfc_wire_test.c"
+#include "app/srvrun_wtfc_pend_test.c"
 #include "app/srvrun_wtsess_test.c"
 #include "app/srvrun_rec_test.c"
 #include "app/sigmask_test.c"
@@ -1806,6 +1812,9 @@ int main(void) {
   test_srvrun_raw();
   test_srvrun_wtflow();
   test_srvrun_credit();
+  test_srvrun_wtfc();
+  test_srvrun_wtfc_wire();
+  test_srvrun_wtfc_pend();
   test_srvrun_wtsess();
   test_srvrun_rec();
   test_sigmask();

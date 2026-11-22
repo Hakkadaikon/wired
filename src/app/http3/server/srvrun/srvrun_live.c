@@ -133,6 +133,7 @@ static void srvrun_live_streams(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   srvrun_drain_wt_close_pending(ctx->cfg, c);
   srvrun_drain_wt_stream_reset(ctx->cfg, c);
   srvrun_grant_wt_streams(ctx, c);
+  srvrun_wtfc_step(ctx->cfg, c);
 }
 
 /* A later datagram on a live slot: one real-wire step, send any sealed

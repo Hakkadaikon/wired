@@ -24,4 +24,23 @@ u64 srvrun_wt_rx_fail_code(
     const srvrun_wt_caprx*           x);
 void srvrun_wt_watch_drain(const srvrun_cfg* cfg, srvrun_conn* c);
 
+/* draft-ietf-webtrans-http3-16 5.3/5.4/5.6: receive-side session flow
+ * control (srvrun_wtfc.c, srvrun_wtfc_grant.c, srvrun_wtfc_pend.c). */
+void srvrun_wtfc_open(srvrun_conn* c, int sidx);
+void srvrun_wtfc_offer(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, int bidi);
+void srvrun_wtfc_reject(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, int bidi, u64 id, usz hdr);
+void srvrun_wtfc_pend_add(srvrun_conn* c, u64 id, u64 sid, usz hdr);
+void srvrun_wtfc_settle(srvrun_conn* c);
+void srvrun_wtfc_refused(const srvrun_cfg* cfg, srvrun_conn* c);
+u64  srvrun_wtfc_charge(
+    const wired_srvloop* l, u64 id, usz hdr, const wired_srvloop_wt_window* w);
+void srvrun_wtfc_release_bidi(
+    srvrun_conn* c, const wired_srvloop_wt_stream_slot* slot);
+void srvrun_wtfc_release_uni(
+    srvrun_conn* c, const wired_srvloop_wt_uni_stream_slot* slot);
+void srvrun_wtfc_step(const srvrun_cfg* cfg, srvrun_conn* c);
+void srvrun_wtfc_flush(srvrun_conn* c);
+
 #endif
