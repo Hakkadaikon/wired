@@ -1393,6 +1393,8 @@
 #include "app/moqtrun_d23lg_test.c"
 #include "app/moqtrun_tprops_test.c"
 #include "app/moqtrun_ssts_test.c"
+#include "app/moqtrun_malformed_test.c"
+#include "app/moqtrun_bycons_test.c"
 #include "app/moqtrel_test.c"
 #include "app/moqns_test.c"
 #include "app/moqtstat_test.c"
@@ -1922,6 +1924,8 @@ int main(void) {
   test_moqtrun_d23lg();
   test_moqtrun_tprops();
   test_moqtrun_ssts();
+  test_moqtrun_malformed();
+  test_moqtrun_bycons();
   test_moqtrel();
   test_moqns();
   test_moqtstat();
