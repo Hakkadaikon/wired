@@ -134,6 +134,21 @@ static void test_p256cert_parse(void) {
   }
 }
 
+/* RFC 5758 3.2: ecdsa-with-SHA256 as an AlgorithmIdentifier is the OID
+ * alone -- "the encoding MUST omit the parameters field". SEQUENCE(10) {
+ * OID(8) 1.2.840.10045.4.3.2 }: 42 = 1*40+2, 840 = 0x86 0x48, 10045 =
+ * 0xce 0x3d, then 4, 3, 2. */
+static void test_p256cert_sigalg_rfc5758(void) {
+  static const u8 want[] = {0x30, 0x0a, 0x06, 0x08, 0x2a, 0x86,
+                            0x48, 0xce, 0x3d, 0x04, 0x03, 0x02};
+  u8              alg[16];
+  wired_obuf      ao = obuf_of(alg, sizeof(alg));
+  CHECK(p256cert_sigalg(&ao) == sizeof(want));
+  for (usz i = 0; i < sizeof(want); i++) {
+    CHECK(alg[i] == want[i]);
+  }
+}
+
 /* SEC1. The SPKI inside the cert carries secp256r1 and the input key. */
 static void test_cert_spki_key(void) {
   u8 priv[32], x[32], y[32];
@@ -379,6 +394,7 @@ void test_p256cert(void) {
   test_enc_cursor_overflow_latches();
   test_spki_roundtrip();
   test_p256cert_parse();
+  test_p256cert_sigalg_rfc5758();
   test_cert_spki_key();
   test_cert_selfsigned();
   test_cert_san_localhost();

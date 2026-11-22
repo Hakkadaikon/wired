@@ -27,6 +27,52 @@ static void test_spki_truncated(void) {
   CHECK(x509_public_key(wired_span_of(x509_golden + 4, 3), &oid, &key) == 0);
 }
 
+/* RFC 8410 10.1's example Ed25519 key (MCowBQYDK2VwAyEA...) inside a
+ * minimal tbs: serialNumber 1 and four empty SEQUENCEs stand in for
+ * signature, issuer, validity and subject. key_tag/key_len select the
+ * subjectPublicKey encoding: BIT STRING 03 21 00||key, or the forbidden
+ * OCTET STRING 04 20 key. */
+static const u8 r8410_key[32] = {
+    0x19, 0xbf, 0x44, 0x09, 0x69, 0x84, 0xcd, 0xfe, 0x85, 0x41, 0xba,
+    0xc1, 0x67, 0xdc, 0x3b, 0x96, 0xc8, 0x50, 0x86, 0xaa, 0x30, 0xb6,
+    0xb6, 0xcb, 0x0c, 0x5c, 0x38, 0xad, 0x70, 0x31, 0x66, 0xe1,
+};
+
+static usz r8410_tbs(u8* t, int bit_string) {
+  static const u8 head[] = {0x02, 0x01, 0x01, 0x30, 0x00, 0x30,
+                            0x00, 0x30, 0x00, 0x30, 0x00};
+  static const u8 alg[]  = {0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70};
+  usz             k = bit_string ? 33 : 32, n = 0;
+  t[n++] = 0x30;
+  t[n++] = (u8)(sizeof head + 2 + sizeof alg + 2 + k);
+  bytes_memcpy(t + n, head, sizeof head);
+  n += sizeof head;
+  t[n++] = 0x30;
+  t[n++] = (u8)(sizeof alg + 2 + k);
+  bytes_memcpy(t + n, alg, sizeof alg);
+  n += sizeof alg;
+  t[n++] = bit_string ? 0x03 : 0x04;
+  t[n++] = (u8)k;
+  if (bit_string) {
+    t[n++] = 0x00;
+  }
+  bytes_memcpy(t + n, r8410_key, 32);
+  return n + 32;
+}
+
+/* RFC 8410 Appendix A: subjectPublicKey is a BIT STRING; the same key as
+ * an OCTET STRING is rejected, while the BIT STRING form parses. */
+static void test_spki_ed25519_octet_string_rejected(void) {
+  u8         tbs[64];
+  wired_span oid, key;
+  CHECK(
+      x509_public_key(wired_span_of(tbs, r8410_tbs(tbs, 1)), &oid, &key) == 1);
+  CHECK(x509_is_ed25519(oid) == 1);
+  CHECK(key.n == 33 && key.p[0] == 0x00 && key.p[1] == 0x19);
+  CHECK(
+      x509_public_key(wired_span_of(tbs, r8410_tbs(tbs, 0)), &oid, &key) == 0);
+}
+
 /* A tbs SEQUENCE with too few elements never reaches the SPKI slot. */
 static void test_spki_short_tbs(void) {
   const u8   tbs[] = {0x30, 0x03, 0x02, 0x01, 0x02};
@@ -191,6 +237,7 @@ void test_spki(void) {
   test_spki_golden();
   test_spki_truncated();
   test_spki_short_tbs();
+  test_spki_ed25519_octet_string_rejected();
   test_spki_is_x25519();
   test_spki_is_x448();
   test_spki_is_ed25519();

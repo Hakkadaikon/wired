@@ -1,6 +1,7 @@
 #include "crypto/pki/encoding/x509/san.h"
 
 #include "chain_golden.h"
+#include "common/bytes/util/bytes.h"
 #include "crypto/pki/encoding/x509/x509.h"
 #include "san_id_golden.h"
 #include "test.h"
@@ -303,6 +304,80 @@ static void test_subject_cn_malformed(void) {
   CHECK(x509_subject_cn(wired_span_of(no_oid, sizeof(no_oid)), &cn) == 0);
 }
 
+/* A synthetic tbs (six NULL fillers, then [3] extensions) whose SAN holds
+ * the single dNSName name, the same shape as san_dnsname_only_tbs. */
+static wired_span s6125_dns_tbs(u8* t, const char* name) {
+  static const u8 fill[] = {0x05, 0x00, 0x05, 0x00, 0x05, 0x00,
+                            0x05, 0x00, 0x05, 0x00, 0x05, 0x00};
+  static const u8 san[]  = {0x06, 0x03, 0x55, 0x1d, 0x11, 0x04};
+  usz             n = wired_cstr_len(name), k = 0;
+  t[k++] = 0x30;
+  t[k++] = (u8)(sizeof fill + 2 + n + 15);
+  bytes_memcpy(t + k, fill, sizeof fill);
+  k += sizeof fill;
+  t[k++] = 0xa3;
+  t[k++] = (u8)(n + 15);
+  t[k++] = 0x30;
+  t[k++] = (u8)(n + 13);
+  t[k++] = 0x30;
+  t[k++] = (u8)(n + 11);
+  bytes_memcpy(t + k, san, sizeof san);
+  k += sizeof san;
+  t[k++] = (u8)(n + 4);
+  t[k++] = 0x30;
+  t[k++] = (u8)(n + 2);
+  t[k++] = 0x82;
+  t[k++] = (u8)n;
+  bytes_memcpy(t + k, name, n);
+  return wired_span_of(t, k + n);
+}
+
+static int s6125_dns_match(const char* presented, const char* host) {
+  u8 t[128];
+  return x509_san_matches(
+      s6125_dns_tbs(t, presented),
+      wired_span_of((const u8*)host, wired_cstr_len(host)));
+}
+
+/* RFC 6125 6.4.3 rule 1: a '*' that is not in the left-most label is not a
+ * wildcard -- bar.*.example.net covers no host. */
+static void test_san_wildcard_not_leftmost(void) {
+  CHECK(s6125_dns_match("bar.*.example.net", "bar.foo.example.net") == 0);
+  CHECK(s6125_dns_match("bar.*.example.net", "bar.example.net") == 0);
+}
+
+/* RFC 6125 6.4.2: A-labels compare as case-insensitive ASCII, label by
+ * label -- the case of xn-- and of the punycode does not matter, a one
+ * character change or an extra label does. */
+static void test_san_alabel_compare(void) {
+  CHECK(s6125_dns_match("xn--caf-dma.example", "XN--CAF-DMA.Example") == 1);
+  CHECK(s6125_dns_match("xn--caf-dma.example", "xn--caf-dmb.example") == 0);
+  CHECK(s6125_dns_match("xn--caf-dma.example", "a.xn--caf-dma.example") == 0);
+}
+
+/* A SAN-less tbs (four NULL fillers) whose subject is two RDNs: an
+ * organizationalUnitName (2.5.4.11) of "host.example", then a commonName
+ * (2.5.4.3) of "other.example". */
+static const u8 s6125_ou_cn_tbs[] = {
+    0x30, 0x39, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x30, 0x2f,
+    0x31, 0x15, 0x30, 0x13, 0x06, 0x03, 0x55, 0x04, 0x0b, 0x0c, 0x0c, 'h',
+    'o',  's',  't',  '.',  'e',  'x',  'a',  'm',  'p',  'l',  'e',  0x31,
+    0x16, 0x30, 0x14, 0x06, 0x03, 0x55, 0x04, 0x03, 0x0c, 0x0d, 'o',  't',
+    'h',  'e',  'r',  '.',  'e',  'x',  'a',  'm',  'p',  'l',  'e',
+};
+
+/* RFC 6125 6.2.1: only the CN RDN is a presented identifier -- a host equal
+ * to another RDN's value does not match, the CN's value does. */
+static void test_san_non_cn_rdn_ignored(void) {
+  const u8 ou[] = "host.example", cn[] = "other.example";
+  CHECK(
+      san_match_tbs(
+          s6125_ou_cn_tbs, sizeof(s6125_ou_cn_tbs), ou, sizeof(ou) - 1) == 0);
+  CHECK(
+      san_match_tbs(
+          s6125_ou_cn_tbs, sizeof(s6125_ou_cn_tbs), cn, sizeof(cn) - 1) == 1);
+}
+
 void test_san(void) {
   test_san_fragment_wildcard_label_too_short();
   test_san_ipv4_octet_over_255();
@@ -326,4 +401,7 @@ void test_san(void) {
   test_san_ipv4_no_cn_id_fallback();
   test_san_uri_srv_suppress_cn_fallback();
   test_san_alabel_wildcard_no_match();
+  test_san_wildcard_not_leftmost();
+  test_san_alabel_compare();
+  test_san_non_cn_rdn_ignored();
 }

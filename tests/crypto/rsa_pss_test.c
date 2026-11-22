@@ -195,7 +195,86 @@ static void test_rsa_pss_em_too_large(void) {
       0);
 }
 
+/* A synthetic EMSA-PSS encoding (RFC 8017 9.1.1 steps 4-12) under SHA-256,
+ * sLen 32, emLen 128, emBits 1023: maskedDB || H || 0xbc. ps_byte and
+ * one_byte stand in for PS's first octet and the 0x01 separator so a single
+ * step-10 field can be broken while H stays the true Hash(M'). */
+#define PSSE_LEN 128
+#define PSSE_DB (PSSE_LEN - 32 - 1)
+
+static const rsa_pss_cfg psse_cfg = {{wired_sha256, 32}, 32};
+
+static void psse_build(u8* em, const u8* mhash, u8 ps_byte, u8 one_byte) {
+  u8 m[8 + 32 + 32] = {0}, mask[PSSE_DB];
+  for (usz i = 0; i < 32; i++) {
+    m[8 + i]  = mhash[i];
+    m[40 + i] = (u8)(0xa0 + i); /* salt */
+  }
+  for (usz i = 0; i < PSSE_DB; i++) {
+    em[i] = 0;
+  }
+  em[0]                = ps_byte;
+  em[PSSE_DB - 32 - 1] = one_byte;
+  for (usz i = 0; i < 32; i++) {
+    em[PSSE_DB - 32 + i] = m[40 + i];
+  }
+  wired_sha256(m, sizeof m, em + PSSE_DB);
+  rsa_mgf1(
+      psse_cfg.h, (wired_span){em + PSSE_DB, 32}, (wired_mspan){mask, PSSE_DB});
+  for (usz i = 0; i < PSSE_DB; i++) {
+    em[i] ^= mask[i];
+  }
+  em[0] &= 0x7f;
+  em[PSSE_LEN - 1] = 0xbc;
+}
+
+static int psse_verify(const u8* em, const u8* mhash) {
+  return emsa_pss_verify(
+      (wired_span){em, PSSE_LEN}, 8 * PSSE_LEN - 1, (wired_span){mhash, 32},
+      &psse_cfg);
+}
+
+/* The untouched synthetic encoding is consistent, so each test below fails
+ * only on the one field it breaks. */
+static void test_rsa_pss_em_synthetic_ok(void) {
+  u8 em[PSSE_LEN];
+  psse_build(em, pss_hash, 0x00, 0x01);
+  CHECK(psse_verify(em, pss_hash) == 1);
+}
+
+/* RFC 8017 9.1.2 step 4: the rightmost octet is not 0xbc. */
+static void test_rsa_pss_em_trailer_rejected(void) {
+  u8 em[PSSE_LEN];
+  psse_build(em, pss_hash, 0x00, 0x01);
+  em[PSSE_LEN - 1] = 0xbd;
+  CHECK(psse_verify(em, pss_hash) == 0);
+}
+
+/* RFC 8017 9.1.2 step 6: the leftmost 8emLen - emBits bit of maskedDB is
+ * set. Step 9 clears that bit anyway, so the rest still decodes to a
+ * consistent DB -- only step 6 can reject it. */
+static void test_rsa_pss_em_top_bit_rejected(void) {
+  u8 em[PSSE_LEN];
+  psse_build(em, pss_hash, 0x00, 0x01);
+  em[0] |= 0x80;
+  CHECK(psse_verify(em, pss_hash) == 0);
+}
+
+/* RFC 8017 9.1.2 step 10: a nonzero PS octet, and a separator other than
+ * 0x01, each with H = Hash(M') still correct (step 14 would accept). */
+static void test_rsa_pss_em_padding_rejected(void) {
+  u8 em[PSSE_LEN];
+  psse_build(em, pss_hash, 0x01, 0x01);
+  CHECK(psse_verify(em, pss_hash) == 0);
+  psse_build(em, pss_hash, 0x00, 0x02);
+  CHECK(psse_verify(em, pss_hash) == 0);
+}
+
 void test_rsa_pss(void) {
+  test_rsa_pss_em_synthetic_ok();
+  test_rsa_pss_em_trailer_rejected();
+  test_rsa_pss_em_top_bit_rejected();
+  test_rsa_pss_em_padding_rejected();
   test_rsa_pss_em_too_large();
   test_rsa_pss_other_hashes();
   test_rsa_pss_other_mismatch();
