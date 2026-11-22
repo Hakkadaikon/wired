@@ -1539,7 +1539,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_error_credits_only_answered`
   - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_honest_peer_never_closed`
   - gap: 応答をキューに入れられなかったときにも枠を戻してしまう問題が残っています([#223](https://github.com/hakkadaikon/wired/issues/223))。
-- [x] MQ23-201 (SS3.3.2, SS8.6) Range Filter のパラメーターは、差分を解決してデコードし、検証しなければならない。デコードできない値、1 つのメッセージで繰り返された (Type, SetID)、広告した MAX_FILTER_RANGES を超える Range の総数(SUBSCRIBE、FETCH、REQUEST_UPDATE)は INVALID_FILTER とする。REQUEST_UPDATE は、触れたフィルターの型を丸ごと置き換え、長さ 0 の値はそれを取り除く。SetID どうしは OR で結び、OBJECTID_FILTER はデータグラムで転送する各 Object を制御する。
+- [x] MQ23-201 (SS3.3.2, SS8.6) Range Filter のパラメーターは、差分を解決してデコードし、検証しなければならない。デコードできない値、1 つのメッセージで繰り返された (Type, SetID)、広告した MAX_FILTER_RANGES を超える Range の総数(SUBSCRIBE、FETCH、REQUEST_UPDATE)は INVALID_FILTER とする。REQUEST_UPDATE は、触れたフィルターの型を丸ごと置き換え、長さ 0 の値はそれを取り除く。SetID どうしは OR で結ぶ。OBJECTID_FILTER と OBJECT_PROPERTY_FILTER は、ストリームとデータグラムで転送する各 Object を制御する。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_rangefilter_value_roundtrip`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_rangefilter_open_end_prop_and_remove`
@@ -1552,7 +1552,14 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_sets_or`
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_objectid_filter_gates_datagram`
-  - note: 台帳 10-9。配送を制御するのは OBJECTID_FILTER だけで、それも Object ごとの(データグラムの)関門でだけです。ほかのフィルターの型は検証して保存しますが、通過させます(対象外を参照)。draft-19 のセッションで動かしています。ハブの経路はバージョンに依存しません。
+  - test: `tests/app/moqtrun_ofilt_test.c` — `test_moqtrun_ofilt_rounds`
+  - test: `tests/app/moqtrun_ofilt_test.c` — `test_moqtrun_ofilt_lazy_open`
+  - test: `tests/app/moqtrun_ofilt_test.c` — `test_moqtrun_ofilt_property`
+  - test: `tests/app/moqtrun_ofilt_test.c` —
+    `test_moqtrun_ofilt_unfilter_mid_stream`
+  - test: `tests/app/moqtrun_ofilt_test.c` —
+    `test_moqtrun_ofilt_datagram_sg_prio`
+  - note: 台帳 10-9。SUBGROUP_FILTER と PRIORITY_FILTER はストリームを開くときにストリーム全体を、OBJECTID_FILTER と OBJECT_PROPERTY_FILTER は Object を 1 つずつ制御します。絞った購読者のストリームは Object ID Delta をつなぎ直して送ります。データグラムは Subgroup ID を持たないので、SUBGROUP_FILTER を含む組はデータグラムを通さず、PRIORITY_FILTER はデータグラムの Publisher Priority で制御します。テストは draft-19、draft-22、draft-23 のセッションで動かしています。
 
 ## 実験的な拡張(moqtail 互換の Track 切り替え)
 

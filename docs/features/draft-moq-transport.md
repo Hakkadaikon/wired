@@ -1149,7 +1149,7 @@
     `test_moqtrun_upd_credit_restored_by_flush`
   - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_credit`
   - note: 台帳 10-10。`MOQVER_CAP_MAX_REQUEST_UPDATES` で切り替える(12-5)。
-- [x] MOQT-208 (SS5.1.3, SS10.2.10-10.2.14) Range Filter のパラメーターは、差分を解決してデコードし、検証しなければならない。デコードできない値、1 つのメッセージ内での (Type, SetID) の重複、告知した MAX_FILTER_RANGES を超える Range の総数(SUBSCRIBE、FETCH、REQUEST_UPDATE)は INVALID_FILTER とする。REQUEST_UPDATE は、指定されたフィルターの型を丸ごと置き換え、長さ 0 の値はそれを取り除く。SetID 同士は OR で結び、OBJECTID_FILTER はデータグラムで転送する各 Object を通すかどうかを決める。
+- [x] MOQT-208 (SS5.1.3, SS10.2.10-10.2.14) Range Filter のパラメーターは、差分を解決してデコードし、検証しなければならない。デコードできない値、1 つのメッセージ内での (Type, SetID) の重複、告知した MAX_FILTER_RANGES を超える Range の総数(SUBSCRIBE、FETCH、REQUEST_UPDATE)は INVALID_FILTER とする。REQUEST_UPDATE は、指定されたフィルターの型を丸ごと置き換え、長さ 0 の値はそれを取り除く。SetID 同士は OR で結ぶ。OBJECTID_FILTER と OBJECT_PROPERTY_FILTER は、ストリームとデータグラムで転送する各 Object を通すかどうかを決める。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_rangefilter_value_roundtrip`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_rangefilter_open_end_prop_and_remove`
@@ -1162,7 +1162,14 @@
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_sets_or`
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_objectid_filter_gates_datagram`
-  - note: 台帳 10-9。配信を絞るのは OBJECTID_FILTER だけで、それも Object 単位(データグラム)の関門だけである。ほかのフィルターの型は検証して保存するが、すべて通す(「対象外」を参照)。
+  - test: `tests/app/moqtrun_ofilt_test.c` — `test_moqtrun_ofilt_rounds`
+  - test: `tests/app/moqtrun_ofilt_test.c` — `test_moqtrun_ofilt_lazy_open`
+  - test: `tests/app/moqtrun_ofilt_test.c` — `test_moqtrun_ofilt_property`
+  - test: `tests/app/moqtrun_ofilt_test.c` —
+    `test_moqtrun_ofilt_unfilter_mid_stream`
+  - test: `tests/app/moqtrun_ofilt_test.c` —
+    `test_moqtrun_ofilt_datagram_sg_prio`
+  - note: 台帳 10-9。SUBGROUP_FILTER と PRIORITY_FILTER はストリームを開くときにストリーム全体を、OBJECTID_FILTER と OBJECT_PROPERTY_FILTER は Object を 1 つずつ絞る。絞った購読者のストリームは Object ID Delta をつなぎ直して送る。データグラムは Subgroup ID を持たないので、SUBGROUP_FILTER を含む組はデータグラムを通さず、PRIORITY_FILTER はデータグラムの Publisher Priority で絞る。
 - [x] MOQT-236 (SS10.2.12, SS10.2.13, SS10.2.14) PRIORITY_FILTER の値が 255 を超える場合、または OBJECT_PROPERTY_FILTER / TRACK_PROPERTY_FILTER が奇数の Property Type を指す場合、ハブは REQUEST_ERROR INVALID_FILTER を返さなければならない。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_value_checks`
 
@@ -1184,7 +1191,6 @@ draft-19 のリレーの範囲内ですが、まだ実装していないもの�
 - (SS2.4.2) 受信側での Malformed Track の検出の一般的な一覧(Subgroup ID 内での Publisher Priority の不一致、Subgroup/Group/Track の最終値を超える Object ID、FIN したストリーム間での最終値の食い違い、Forwarding Preference の変更)。デコード時の違反(未知の Object Status、Object ID のオーバーフロー)のほかに検出するのは、END_OF_GROUP / END_OF_TRACK より後の Object と、上流の FETCH で出会った食い違う再送だけです(MOQT-209、MOQT-226)。
 - (SS3.1, SS3.1.1-3.1.6) `moqt` URI スキーム、フラグメント識別子、MOQT URI の参照解決。サーバー専用のハブにとってはクライアント側の関心事です。ネイティブ QUIC のセッションそのもの(SS3.1.5: ALPN `moqt-19`、PATH/AUTHORITY の Setup Option、CONNECTION_CLOSE による終了)は実装済みです(`wired_moqt_on_session_raw`、`tests/app/moqtrun_raw_test.c`)。ただし、実際のピアのトレースで固定したテストができるまでは、プロセス内でしか確かめていません。
 - (SS3.6, SS9.4.1, SS9.5.1) 上で扱った GOAWAY の仕組みを超えるセッションの移行と、リレーの穏やかな切り替え。このハブは単一で、切り替え先の上流リレーがありません。
-- (SS5.1.3, SS5.1.4) 配信時に SUBGROUP_FILTER、PRIORITY_FILTER、OBJECT_PROPERTY_FILTER に従って絞り込むこと(TRACK_PROPERTY_FILTER は SUBSCRIBE_TRACKS の PUBLISH を絞り込む。MOQT-219)、およびストリームで転送する Object に OBJECTID_FILTER を適用すること。これらはデコード、検証、MAX_FILTER_RANGES への算入、更新まで行います(MOQT-208)が、Group 単位のストリームの関門には絞り込みに使うフィールドが届かないので、すべて通ります。データグラムで転送する Object には OBJECTID_FILTER を適用します。
 - (SS7, SS7.1--7.3) 優先度。スケジューリングのアルゴリズムは WebTransport の送信ポンプで動きます(Subscriber Priority、次に Publisher Priority、1 つの購読の中では group order と fill を live より先にする順。MOQT-185)。残っているのは次の点です。キューに入った 1 回きりのストリームは REQUEST_UPDATE の後もクラスを保つ、データグラムはストリームのクラスを経由しない、FETCH 自身の SUBSCRIBER_PRIORITY は保持しない(128 として扱う)、購読をまたいで同じクラスのものはポンプの各回をラウンドロビンで分け合う。
 - (SS9.3) 1 つの Track の複数のパブリッシャー。draft-18/22 で `wired_moqt_hub.multi_publisher` のもとで実装済みです(MQ18-223、MQ22-229、コードは共通)。既定では無効で、その場合は各 Track のパブリッシャーは 1 つのままです。
 - (SS10.2.15) EXPIRES。レジストリでデコードしますが、それに従って動作はしません。NEW_GROUP_REQUEST (SS10.2.18) は draft-18 と同じく上流へ中継します(MQ18-229、コードは共通)。(FILL_TIMEOUT と RENDEZVOUS_TIMEOUT には従って動作します。MOQT-231、MOQT-232。)

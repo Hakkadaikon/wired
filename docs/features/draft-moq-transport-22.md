@@ -1358,7 +1358,7 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
     `test_moqtrun_upd_credit_restored_by_flush`
   - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_credit`
   - note: 台帳 10-10。`MOQVER_CAP_MAX_REQUEST_UPDATES` で切り替えます。このビットは draft-19 と draft-22 にあり、draft-18 にはありません(12-5)。
-- [x] MQ22-201 (SS3.3.2, SS8.6) Range Filter のパラメーターは、差分を解決してデコードし、検証しなければならない。デコードできない値、1 つのメッセージで繰り返された (Type, SetID)、広告した MAX_FILTER_RANGES を超える Range の総数(SUBSCRIBE、FETCH、REQUEST_UPDATE)は INVALID_FILTER とする。REQUEST_UPDATE は、触れたフィルターの型を丸ごと置き換え、長さ 0 の値はそれを取り除く。SetID どうしは OR で結び、OBJECTID_FILTER はデータグラムで転送する各 Object を制御する。
+- [x] MQ22-201 (SS3.3.2, SS8.6) Range Filter のパラメーターは、差分を解決してデコードし、検証しなければならない。デコードできない値、1 つのメッセージで繰り返された (Type, SetID)、広告した MAX_FILTER_RANGES を超える Range の総数(SUBSCRIBE、FETCH、REQUEST_UPDATE)は INVALID_FILTER とする。REQUEST_UPDATE は、触れたフィルターの型を丸ごと置き換え、長さ 0 の値はそれを取り除く。SetID どうしは OR で結ぶ。OBJECTID_FILTER と OBJECT_PROPERTY_FILTER は、ストリームとデータグラムで転送する各 Object を制御する。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_rangefilter_value_roundtrip`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_rangefilter_open_end_prop_and_remove`
@@ -1371,7 +1371,14 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_sets_or`
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_objectid_filter_gates_datagram`
-  - note: 台帳 10-9。配送を制御するのは OBJECTID_FILTER だけで、それも Object ごとの(データグラムの)関門でだけです。ほかのフィルターの型は検証して保存しますが、通過させます(対象外を参照)。draft-19 のセッションで動かしています。ハブの経路はバージョンに依存しません。
+  - test: `tests/app/moqtrun_ofilt_test.c` — `test_moqtrun_ofilt_rounds`
+  - test: `tests/app/moqtrun_ofilt_test.c` — `test_moqtrun_ofilt_lazy_open`
+  - test: `tests/app/moqtrun_ofilt_test.c` — `test_moqtrun_ofilt_property`
+  - test: `tests/app/moqtrun_ofilt_test.c` —
+    `test_moqtrun_ofilt_unfilter_mid_stream`
+  - test: `tests/app/moqtrun_ofilt_test.c` —
+    `test_moqtrun_ofilt_datagram_sg_prio`
+  - note: 台帳 10-9。SUBGROUP_FILTER と PRIORITY_FILTER はストリームを開くときにストリーム全体を、OBJECTID_FILTER と OBJECT_PROPERTY_FILTER は Object を 1 つずつ制御します。絞った購読者のストリームは Object ID Delta をつなぎ直して送ります。データグラムは Subgroup ID を持たないので、SUBGROUP_FILTER を含む組はデータグラムを通さず、PRIORITY_FILTER はデータグラムの Publisher Priority で制御します。テストは draft-19、draft-22、draft-23 のセッションで動かしています。
 
 ## 実験的な拡張(moqtail 互換の Track 切り替え)
 
@@ -1484,7 +1491,6 @@ draft-22 のリレーの範囲内ですが、まだ実装していない項目�
 - (SS12.1) 受信側での Malformed Track の検出の目録の残り(Subgroup の最終 Object より後の Object ID、FIN したストリームをまたいで異なる最終 Object、購読の経路でペイロードが異なる重複した Object): デコード時の違反(未知の Object Status、Object ID のオーバーフロー)のほかに検出するのは、END_OF_GROUP / END_OF_TRACK より後の Object、Subgroup の中での Publisher Priority の不一致、ストリームからデータグラムへの Delivery Mode の変化だけです(MQ22-025)。
 - (SS6.1, SS6.2) `moqt` URI スキーム、フラグメント識別子、MOQT URI の参照解決、SVCB/HTTPS RR によるホストの解決: サーバー専用のハブにとってはクライアント側の関心事です。ネイティブ QUIC のセッションそのもの(SS6.2.2: ALPN `moqt-22`、PATH/AUTHORITY の Setup Options、CONNECTION_CLOSE による終了)は実装しています(`wired_moqt_on_session_raw`、`tests/app/moqtrun_raw_test.c`)。実際のピアの固定したトレースができるまでは、プロセス内でしか確かめていません。
 - (SS6.6.1, SS7.2, SS7.3) 上で扱った GOAWAY の仕組みを超えるセッションの移行と、リレーの穏やかな切り替え: これは単一のハブで、切り替え先の上流のリレーがありません。
-- (SS3.3.x, SS8.6) 配送時に OBJECT_PROPERTY_FILTER に従って動くこと、ストリームで転送する Object に対して OBJECTID_FILTER に従って動くこと: これらはデコード、検証し、MAX_FILTER_RANGES に数え、更新します(MQ22-201)が、ストリームの関門は中継するストリームから個々の Object を切り出さないので、通過させます。OBJECTID_FILTER は、データグラムで転送する Object については制御します。SUBGROUP_FILTER と PRIORITY_FILTER はストリームを開くときにストリーム全体を制御し(`test_moqtrun_sub_rngf_gates_stream`)、TRACK_PROPERTY_FILTER は SUBSCRIBE_TRACKS に提示する Track を制御します(`test_moqtrun_misc_subtracks_track_prop_filter`)。fill fetch の範囲の絞り込みは MQ22-138 以降で扱っています。
 - (SS5, SS5.1--5.2) 優先度: スケジューリングのアルゴリズムは WebTransport の送信のポンプで動きます(Subscriber、次に Publisher Priority、次に 1 つの購読の中での Group の順序と fill を先・ライブを後。MQ22-180)。残っているのは次の点です。すでにキューに入った一度きりのストリームは、REQUEST_UPDATE をまたいでもクラスを保ちます。データグラムはストリームのクラスを迂回します。FETCH 自身の SUBSCRIBER_PRIORITY は保持しません(128 として順位付けする)。購読をまたいで等しいクラスは、ポンプの各回をラウンドロビンで分け合います。制御ストリームとリクエストストリームの、Object に対する優先度(SS5.1.2)は、WebTransport 層のストリームの既定値に任せています。
 - (SS7.3) 1 つの Track の複数のパブリッシャー: 複数のパブリッシャーが 1 つの名前空間を共有することはできます(MQ22-187)が、各 Track のパブリッシャーは依然として 1 つです。1 つの Track のパブリッシャーをまたいだ集約や重複の除去は実装していません。
 - (SS9.20.5, SS9.20.6, SS9.20.16, SS9.20.19) FILL_TIMEOUT 自身の予算に従った動作(その存在だけが Timed-Out の印を制御する。MQ22-142 を参照)と EXPIRES: 登録表でデコードするだけで、ほかには使いません。NEW_GROUP_REQUEST は draft-18 と同じく上流へ中継します(MQ18-229。共有のコード)。(SS9.20.6) RENDEZVOUS_TIMEOUT は 12-1(ff1c0df)から動作に反映しています: パブリッシャーのいない Track への SUBSCRIBE は、パブリッシャーが現れるまで保留し、タイムアウト(上限 1.5 秒)になったら TIMEOUT で応答します。tests/app/moqtrun_rdv_test.c を参照。

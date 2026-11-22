@@ -176,22 +176,21 @@ SUBSCRIBE_NAMESPACE の追いつきはイベントごとに O(reqs^2) の走査�
 
 参照: `moqtrun_disc_sync`、`moqtrun_subtracks_sync_track`
 
-### 2.14 Range Filter はストリーム単位か Track 単位
+### 2.14 Object ごとに絞り込む購読は信頼リングに乗らない
 
-影響: ストリームより細かい単位で絞り込む購読者。
+影響: OBJECTID_FILTER か OBJECT_PROPERTY_FILTER を付けた購読者。
 
-Range Filter は配送するストリームや Object を絞る SUBSCRIBE のパラメーターである(d19 と d22)。ハブは中継するストリームから個々の Object を切り出さない。
+Object を 1 つずつ落とす購読者には、ハブがストリームを購読者ごとに組み直して送る。信頼リング(2.5)は全員に同じバイト列を送るので、信頼リングで中継する Track でもこの購読者はリングに乗らず、配送の回ごとに受け取る。送信を断られた回は再送せず、その購読者のストリームをリセットし、次に通る Object で新しいストリームを開く。
 
-| フィルター | 動作 |
+| 場面 | 動作 |
 |---|---|
-| SUBGROUP_FILTER、PRIORITY_FILTER | 購読者へストリームを開く時点で、ヘッダーの Subgroup ID と Publisher Priority でストリーム全体を通すか決める |
-| TRACK_PROPERTY_FILTER | SUBSCRIBE_TRACKS に提示する Track を、96 バイトまでの Track Properties で選ぶ(2.20) |
-| OBJECTID_FILTER | データグラムだけに効く |
-| OBJECT_PROPERTY_FILTER | 評価しない |
+| リングで受け取っている購読が、途中で Object のフィルターを得た | そのストリームが終わるまで、絞り込まずにリングから受け取る |
+| 絞り込む購読者へのストリームのヘッダー | END_OF_GROUP のビットを外す。末尾の Object を落とした FIN が、Group の最後の Object を誤って伝えないようにするため |
+| Object Status だけの Object(END_OF_GROUP、END_OF_TRACK) | ほかの Object と同じく Object ID と Properties で絞る。落としたときは、上のビットも外れているので、購読者はストリームから Group の終わりを知れない |
+| データグラム | Subgroup ID を持たないので、SUBGROUP_FILTER を含む組はどのデータグラムも通さない。PRIORITY_FILTER はデータグラムの Publisher Priority(省略時は Track の既定値)で絞る |
+| SUBSCRIBE_TRACKS の複数の組 | ある組の TRACK_PROPERTY_FILTER が通らず別の組がその Track を通したとき、通らなかった組の Object のフィルターも Object を通す |
 
-SUBSCRIBE_TRACKS が複数のフィルターの組を持ち、ある組の TRACK_PROPERTY_FILTER が通らず別の組がその Track を通したときは、通らなかった組の Object のフィルターも Object を通す。
-
-参照: `moqtrun_sub_rngf_stream`、`moqtrun_subtracks_tp_pass`
+参照: `moqtrun_sub_rides_ring`、`moqtrun_ofilt_refused`、`moqtrun_sub_dg_pass`、`moqtrun_subtracks_tp_pass`
 
 ### 2.15 エイリアスによる認可トークンのキャッシュはない
 
