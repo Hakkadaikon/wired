@@ -12595,6 +12595,36 @@ static void test_srvrun_wt_accept_records_path(void) {
   }
 }
 
+/* RFC 9110 4.1: an Extended CONNECT's 8000-octet :path is recorded whole,
+ * so the session callback never sees a truncated path. */
+static void test_srvrun_wt_accept_records_long_path(void) {
+  static u8     path[8000];
+  struct lp_fix f;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_conn*  conns = sr_test_conns();
+  u8            obuf[1024];
+  wired_obuf    ob  = obuf_of(obuf, sizeof obuf);
+  srvrun_cfg    cfg = {0};
+  bytes_memset(path, 'w', sizeof path);
+  path[0]               = '/';
+  path[sizeof path - 1] = 'z';
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  conns[0].l.req.path     = path;
+  conns[0].l.req.path_len = sizeof path;
+  cfg.fd                  = -1;
+  cfg.env                 = &g_srvrun_env;
+  {
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt_path_len[0] == sizeof path);
+  CHECK(srvrun_wt_bytes_eq(conns[0].wt_path[0], path, sizeof path));
+}
+
 /* DISTINCT PATHS: two simultaneously-open sessions bound to different :path
  * values coexist -- neither overwrites the other's recorded path. */
 static void test_srvrun_wt_distinct_paths_coexist(void) {
@@ -14453,30 +14483,148 @@ static void test_srvrun_copy_stream_req_keeps_headers(void) {
   CHECK(v.n == 2 && srvrun_wt_bytes_eq(v.p, (const u8*)"ab", 2));
 }
 
-/* The streaming copy keeps a header that exactly fills its scratch and drops
- * the next one: later rounds see only the headers that fit. */
-static void test_srvrun_copy_stream_req_header_boundary(void) {
-  static srvrun_resp   r;
-  static u8            buf[sizeof r.stream_req_scratch + 8];
-  wired_h3reqdrive_req req  = {0};
-  wired_span           v    = {0, 0};
-  u16                  fill = (u16)(sizeof r.stream_req_scratch - 3);
-  bytes_memset(buf, 'v', sizeof buf);
-  buf[2]        = 'a';
-  buf[3 + fill] = 'b';
-  req.path      = buf;
-  req.path_len  = 2;
-  req.hdr_base  = buf;
-  req.hdrs[0]   = (wired_h3reqdrive_hdr){2, 1, 3, fill};
-  req.hdrs[1]   = (wired_h3reqdrive_hdr){(u16)(3 + fill), 1, 0, 1};
-  req.hdr_count = 2;
+/* RFC 9114 4.2.2 / RFC 9110 4.1: the 8000-octet :path of sr_full_fs. */
+static u8 g_sr_full_path[8000];
+
+/* A GET field section whose 8000-octet :path (g_sr_full_path) and 40
+ * regular fields ("hNN", 45-octet values) nearly fill the production decode
+ * scratch: fs gets it (WIRED_H3_MAX_FIELD_SECTION octets of room), its
+ * length is returned. Raw literals throughout, so it also fits one
+ * request slot's window once framed. */
+static usz sr_full_fs(u8* fs) {
+  static u8     val[45];
+  qpack_prefix  pfx  = {0, 0, 0};
+  qpack_nameref pn   = {1, 1, 0}; /* static ":path" */
+  qpack_nameref au   = {0, 1, 0}; /* static ":authority" */
+  u8            n[3] = {'h', 0, 0};
+  usz           off = qpack_prefix_encode(fs, WIRED_H3_MAX_FIELD_SECTION, &pfx);
+  u8*           path = g_sr_full_path;
+  bytes_memset(path, 'p', 8000);
+  path[0] = '/';
+  bytes_memset(val, 'v', sizeof val);
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 8), 17, 1); /* GET */
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 8), 23, 1); /* https */
+  off +=
+      qpack_literal_namref_encode(wired_mspan_of(fs + off, 64), &au, SR_AUTH);
+  off += qpack_literal_namref_encode(
+      wired_mspan_of(fs + off, WIRED_H3_MAX_FIELD_SECTION - off), &pn,
+      wired_span_of(path, 8000));
+  for (usz i = 0; i < 40; i++) {
+    qpack_field f = {wired_span_of(n, 3), wired_span_of(val, sizeof val)};
+    n[1]          = (u8)('0' + i / 10);
+    n[2]          = (u8)('0' + i % 10);
+    off += qpack_literal_name_encode(wired_mspan_of(fs + off, 64), 0, &f);
+  }
+  return off;
+}
+
+/* sr_full_fs decoded off the wire into scratch (the production
+ * WIRED_H3_MAX_FIELD_SECTION size). */
+static void sr_full_request(u8* scratch, wired_h3reqdrive_req* req) {
+  static u8  fs[WIRED_H3_MAX_FIELD_SECTION], h3[sizeof fs + 16];
+  wired_obuf hob = obuf_of(h3, sizeof h3);
+  CHECK(
+      h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, sr_full_fs(fs))));
+  {
+    wired_h3reqdrive_h3_in in = {
+        wired_span_of(h3, hob.len), 1,
+        wired_mspan_of(scratch, WIRED_H3_MAX_FIELD_SECTION), 0};
+    CHECK(wired_h3reqdrive_recv_h3(&in, req));
+  }
+}
+
+/* 1 if req carries sr_full_fs's whole :path and every one of its 40 fields
+ * intact. */
+static int sr_full_request_ok(const wired_h3reqdrive_req* req) {
+  u8         n[3] = {'h', 0, 0};
+  wired_span v    = {0, 0};
+  int        ok   = req->hdr_count == 40 && req->path_len == 8000 &&
+                    srvrun_wt_bytes_eq(req->path, g_sr_full_path, 8000);
+  for (usz i = 0; i < 40; i++) {
+    n[1] = (u8)('0' + i / 10);
+    n[2] = (u8)('0' + i % 10);
+    ok   = ok && wired_http_req_header(req, wired_span_of(n, 3), &v) &&
+           v.n == 45 && v.p[0] == 'v' && v.p[44] == 'v';
+  }
+  return ok;
+}
+
+/* A streaming response's later rounds see the same request round 0 did:
+ * the copy keeps the whole 8000-octet :path and every field of a request
+ * that fills the production decode scratch, even once that scratch is
+ * reused by the next request. */
+static void test_srvrun_copy_stream_req_full_request(void) {
+  static srvrun_resp          r;
+  static wired_h3reqdrive_req req;
+  static u8                   scratch[WIRED_H3_MAX_FIELD_SECTION];
+  sr_full_request(scratch, &req);
+  CHECK(sr_full_request_ok(&req));
   srvrun_copy_stream_req(&r, &req);
-  CHECK(r.stream_req.hdr_count == 1);
-  CHECK(wired_http_req_header(
-      &r.stream_req, wired_span_of((const u8*)"a", 1), &v));
-  CHECK(v.n == fill && v.p == r.stream_req_scratch + 3);
-  CHECK(!wired_http_req_header(
-      &r.stream_req, wired_span_of((const u8*)"b", 1), &v));
+  bytes_memset(scratch, 0, sizeof scratch);
+  CHECK(
+      r.stream_req.authority_len == 9 &&
+      srvrun_wt_bytes_eq(r.stream_req.authority, (const u8*)"localhost", 9));
+  CHECK(sr_full_request_ok(&r.stream_req));
+}
+
+/* Round count and verdict of sr_full_stream_handler: every call saw
+ * sr_full_fs's request intact. */
+static int g_sr_full_rounds;
+static int g_sr_full_ok;
+
+/* A 300-byte body in 100-byte rounds, checking the request it is handed on
+ * every round. */
+static int sr_full_stream_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    u64                         offset,
+    wired_obuf*                 body_out,
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
+  (void)hctx;
+  (void)ct;
+  g_sr_full_rounds++;
+  g_sr_full_ok = g_sr_full_ok && sr_full_request_ok(req);
+  bytes_memset(body_out->p, 'b', 100);
+  body_out->len = 100;
+  *total_size   = 300;
+  *more         = offset + 100 < 300;
+  return 1;
+}
+
+/* RFC 9114 4.2.2: through srvrun's streaming path, every round's handler
+ * call sees the request round 0 accepted -- the whole :path and all 40
+ * fields -- although the decode scratch is reused right after round 0. */
+static void test_srvrun_streaming_rounds_see_full_request(void) {
+  static u8     scratch[WIRED_H3_MAX_FIELD_SECTION];
+  struct lp_fix f;
+  srvrun_conn   c = {0};
+  u8            obuf[1024];
+  wired_obuf    ob = obuf_of(obuf, sizeof obuf);
+  srvrun_cfg    cfg;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  sr_full_request(scratch, &c.l.req);
+  g_sr_full_rounds = 0;
+  g_sr_full_ok     = 1;
+  cfg              = (srvrun_cfg){0};
+  cfg.fd           = -1;
+  cfg.handler      = sr_full_stream_handler;
+  cfg.env          = &g_srvrun_env;
+  {
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+    bytes_memset(scratch, 0, sizeof scratch); /* the slot's next request */
+    for (int i = 0; i < 8 && c.resp[0].streaming; i++) {
+      sr_drive_round_to_done(&ctx, &c);
+      srvrun_reap_resps(&ctx, &c, 0);
+    }
+  }
+  CHECK(g_sr_full_rounds == 3 && g_sr_full_ok);
 }
 
 /* An absent optional view (0, as the decoder leaves :protocol/origin when
@@ -19614,7 +19762,8 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
         &r));
     CHECK(r.wt_avail_len == 0);
   }
-  /* an oversized value (300 octets > the 256-octet buffer) is dropped */
+  /* an oversized value (300 octets > the 256-octet buffer) fails the
+   * request with 431 (RFC 9114 4.2.2) instead of dropping the offer */
   {
     static u8   scratch3[1024];
     qpack_field fl;
@@ -19636,10 +19785,10 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
       h3conn_req_in in3 = {wired_span_of(fs, off), wired_span_of(0, 0)};
       CHECK(h3conn_send_request(0, &in3, &ob3));
     }
-    CHECK(wired_h3reqdrive_recv_get(
+    CHECK(!wired_h3reqdrive_recv_get(
         wired_span_of(req, ob3.len), wired_mspan_of(scratch3, sizeof scratch3),
         &r));
-    CHECK(r.wt_avail_len == 0);
+    CHECK(r.too_large_status == 431 && r.wt_avail_len == 0);
   }
 }
 
@@ -30282,6 +30431,131 @@ static usz sr_fs_huff_line(u8* f, usz cap, usz n, char id) {
   return n;
 }
 
+/* RFC 9204 4.5.4: append an "age" line -- a name reference to static 2 --
+ * whose value is len 'a's Huffman-coded (5 bits each, so a value filling
+ * most of the decode scratch still fits one request slot's window). */
+static usz sr_fs_age_huff(u8* f, usz cap, usz n, usz len) {
+  static u8 as[WIRED_H3_MAX_FIELD_SECTION], hv[WIRED_H3_MAX_FIELD_SECTION];
+  qpack_pfx pfx = {7, 0x80};
+  usz       hn;
+  bytes_memset(as, 'a', len);
+  hn = qpack_huffman_encode(
+      wired_span_of(as, len), wired_mspan_of(hv, sizeof hv));
+  f[n++] = 0x52; /* '01' N=0 T=1, index 2 */
+  n += qpack_int_encode(wired_mspan_of(f + n, cap - n), pfx, hn);
+  bytes_memcpy(f + n, hv, hn);
+  return n + hn;
+}
+
+/* A GET (static :method, :scheme and :path; :authority "localhost" as a
+ * name reference, its 9 octets the only scratch the pseudo-headers take)
+ * plus two "age" lines of a and b octets. Each age line takes its value plus
+ * a 3-octet copy of its static name in the decode scratch. */
+static usz sr_fs_two_age(u8* f, usz cap, usz a, usz b) {
+  qpack_prefix  pfx = {0, 0, 0};
+  qpack_nameref au  = {0, 1, 0};
+  usz           n   = qpack_prefix_encode(f, cap, &pfx);
+  f[n++]            = 0xd1; /* GET */
+  f[n++]            = 0xd7; /* https */
+  n += qpack_literal_namref_encode(wired_mspan_of(f + n, 64), &au, SR_AUTH);
+  f[n++] = 0xc1; /* :path "/" */
+  n      = sr_fs_age_huff(f, cap, n, a);
+  return sr_fs_age_huff(f, cap, n, b);
+}
+
+/* What sr_age_handler saw: regular-field count and the last one's length. */
+static usz g_sr_age_count;
+static usz g_sr_age_last_len;
+
+static int sr_age_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    u64                         offset,
+    wired_obuf*                 body_out,
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
+  (void)hctx;
+  (void)offset;
+  (void)ct;
+  (void)more;
+  (void)total_size;
+  g_sr_age_count = req->hdr_count;
+  g_sr_age_last_len =
+      req->hdr_count ? req->hdrs[req->hdr_count - 1].value_len : 0;
+  body_out->len = 0;
+  return 1;
+}
+
+/* RFC 9114 4.2.2: a request whose decoded lines fill the decode scratch
+ * exactly (9 + a + 3 + b + 3 == WIRED_H3_MAX_FIELD_SECTION) reaches the
+ * handler with both fields; when only the values fit and the last line's
+ * static-name copy does not, the request is answered 431 instead of
+ * reaching the handler without that field. */
+static void test_srvrun_scratch_exact_fit_or_431(void) {
+  static u8    f[SR_REQ_BUF_CAP];
+  usz          a = 5000, b = WIRED_H3_MAX_FIELD_SECTION - 15 - a;
+  srvrun_conn* c   = sr_sl_fixture();
+  g_sl_cfg.handler = sr_age_handler;
+  g_sr_age_count   = 0;
+  sr_fs_send(c, f, sr_fs_two_age(f, sizeof f, a, b), 1);
+  CHECK(g_sr_age_count == 2 && g_sr_age_last_len == b);
+  CHECK(!sr_resp_is_status(&c->resp[0], 0, 431));
+  *c               = (srvrun_conn){0};
+  c                = sr_sl_fixture();
+  g_sl_cfg.handler = sr_age_handler;
+  g_sr_age_count   = 0;
+  sr_fs_send(c, f, sr_fs_two_age(f, sizeof f, a, b + 3), 1);
+  CHECK(g_sr_age_count == 0);
+  CHECK(sr_resp_is_status(&c->resp[0], 0, 431));
+  *c = (srvrun_conn){0};
+}
+
+/* RFC 9114 4.2.2 / RFC 9110 4.1: a request at this server's limits -- an
+ * 8000-octet :path and 40 regular fields (more than the old 32-entry
+ * table) in one window-sized HEADERS frame -- reaches the handler intact. */
+static void test_srvrun_full_request_reaches_handler(void) {
+  static u8    f[WIRED_H3_MAX_FIELD_SECTION];
+  srvrun_conn* c   = sr_sl_fixture();
+  g_sl_cfg.handler = sr_full_stream_handler;
+  g_sr_full_rounds = 0;
+  g_sr_full_ok     = 1;
+  sr_fs_send(c, f, sr_full_fs(f), 1);
+  CHECK(g_sr_full_rounds == 1 && g_sr_full_ok);
+  *c = (srvrun_conn){0};
+}
+
+/* Slot 0 of l holding a whole HEADERS frame at the front of a window full
+ * without FIN, with too_large_status already set to tl (an on_body decode
+ * leaves 431 there, route_body_start); returns the status the stall is
+ * answered with (srvloop_route_complete_over). */
+static u16 sr_stuck_window_status(u16 tl) {
+  static wired_srvloop       l;
+  static wired_server        s;
+  static u8                  data[BODYWIN_CAP];
+  wired_obuf                 ob  = obuf_of(data, sizeof data);
+  wired_srvloop_dispatch_ctx ctx = {&s, 0, 0, &l};
+  wired_srvloop_stream_slot* sl  = &l.streams[0];
+  l                              = (wired_srvloop){0};
+  s.sdrv.alpn                    = SALPN_H3;
+  CHECK(h3_frame_put(&ob, H3_FRAME_HEADERS, wired_span_of(data + 200, 100)));
+  sl->in_use               = 1;
+  sl->req.too_large_status = tl;
+  bodywin_land(&sl->body, sl->req_buf, 0, wired_span_of(data, sizeof data), 0);
+  sl->req_len = sizeof data;
+  CHECK(srvloop_route_complete_over(&ctx, 0));
+  return sl->req.too_large_status;
+}
+
+/* RFC 9110 15.5.14 / 15.5.20: a window stuck without FIN behind a whole
+ * HEADERS frame is a body overflow (413) -- unless that section was already
+ * found past this server's limit, which stays 431 instead of turning into
+ * a 413 the client would read as "body too large". */
+static void test_srvloop_stuck_window_keeps_431(void) {
+  CHECK(sr_stuck_window_status(0) == 413);
+  CHECK(sr_stuck_window_status(431) == 431);
+}
+
 /* RFC 9114 4.2.2: a request whose field section decodes past this server's
  * limit (the advertised SETTINGS_MAX_FIELD_SECTION_SIZE) though each line
  * is valid QPACK -- two 6400-octet Huffman values in an ~8 KB HEADERS
@@ -31525,6 +31799,7 @@ void test_srvrun(void) {
   test_srvrun_wt_seed_limits_max_data_only_grants_streams();
   test_srvrun_wt_reject_at_session_limit();
   test_srvrun_wt_accept_records_path();
+  test_srvrun_wt_accept_records_long_path();
   test_srvrun_wt_distinct_paths_coexist();
   test_srvrun_wt_stream_routes_to_matching_session();
   test_srvrun_wt_foreign_stream_id_rejected();
@@ -31557,7 +31832,8 @@ void test_srvrun(void) {
   test_srvrun_streaming_later_round_uses_own_stream_not_sibling();
   test_srvrun_copy_stream_req_repoints_every_view();
   test_srvrun_copy_stream_req_keeps_headers();
-  test_srvrun_copy_stream_req_header_boundary();
+  test_srvrun_copy_stream_req_full_request();
+  test_srvrun_streaming_rounds_see_full_request();
   test_srvrun_copy_stream_req_keeps_absent_views_null();
   test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len();
   test_srvrun_streaming_body_exactly_row_cap_single_round();
@@ -32251,6 +32527,7 @@ void test_srvrun(void) {
   test_srvrun_wt_bidi_credit_raised_from_request_window();
   test_srvrun_on_body_streams_body_then_handler();
   test_srvrun_on_body_reject_answers_413();
+  test_srvloop_stuck_window_keeps_431();
   test_srvrun_on_body_truncated_frame_is_frame_error();
   test_srvrun_req_frame_error_closes();
   test_srvrun_on_body_empty_body_gets_fin();
@@ -32354,6 +32631,8 @@ void test_srvrun(void) {
   test_srvrun_on_body_wt_signal_frame_error();
   test_srvrun_bad_static_index_closes_conn();
   test_srvrun_oversized_field_section_gets_431();
+  test_srvrun_scratch_exact_fit_or_431();
+  test_srvrun_full_request_reaches_handler();
   test_srvrun_wt_200_capsule_protocol();
   test_srvrun_status_no_capsule_protocol();
   test_srvrun_wt_stream_api_rejects_plumbing();

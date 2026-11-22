@@ -129,13 +129,20 @@ static usz litname_name_decode(wired_span buf, int huff, wired_obuf* nm) {
   return off + (usz)len;
 }
 
+usz qpack_literal_name_head(wired_span buf, wired_obuf* name) {
+  if (!is_litname(buf)) {
+    return 0;
+  }
+  return litname_name_decode(buf, flag(buf.p[0], QPACK_LITNAME_H), name);
+}
+
 usz qpack_literal_name_decode(wired_span buf, int* never, qpack_fieldbuf* out) {
   usz off;
   if (!is_litname(buf)) {
     return 0;
   }
   *never = flag(buf.p[0], QPACK_LITNAME_N);
-  off = litname_name_decode(buf, flag(buf.p[0], QPACK_LITNAME_H), &out->name);
+  off    = qpack_literal_name_head(buf, &out->name);
   return decode_value(buf, off, &out->value);
 }
 

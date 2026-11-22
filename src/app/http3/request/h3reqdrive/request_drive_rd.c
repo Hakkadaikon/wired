@@ -8,8 +8,12 @@ static usz rd_pos(rd_cursor* cur, const u8* p, usz n);
 static int rd_place(rd_cursor* cur, const u8* p, usz n, u16* pos);
 static int rd_place_line(
     rd_cursor* cur, const rline* L, wired_h3reqdrive_hdr* h);
-static int  rd_keeps(const rline* L, const wired_h3reqdrive_req* r);
+static int rd_keeps(const rline* L);
+static int rd_slot_place(
+    rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r);
 static void rd_record(rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r);
+static int  rd_take(rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r);
+static int  rd_line_admits(const rline* L, const wired_h3reqdrive_req* r);
 
 /* RFC 9114 4.2 / 10.3, RFC 9110 5.1: a regular field name is a lowercase
  * token; a pseudo-header name is left to the section's pseudo-header check
@@ -104,25 +108,62 @@ usz h3reqdrive_rd_dedicated_idx(wired_span name) {
   return i;
 }
 
-static int rd_keeps(const rline* L, const wired_h3reqdrive_req* r) {
-  return r->hdr_count < WIRED_H3REQDRIVE_MAX_HDRS &&
-         h3_ph_classify(L->name, L->name_len) == H3_PH_NONE &&
+/* A regular line wired_http_req_header serves from hdrs (not a
+ * pseudo-header, not one of rd_dedicated). */
+static int rd_keeps(const rline* L) {
+  return h3_ph_classify(L->name, L->name_len) == H3_PH_NONE &&
          h3reqdrive_rd_dedicated_idx(wired_span_of(L->name, L->name_len)) ==
              RD_DEDICATED_N;
 }
 
-/* RFC 9114 4.2: keep a regular header line for wired_http_req_header. */
-static void rd_record(rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r) {
+/* Append L to r's hdrs with its bytes placed in scratch; 0 if hdrs is full
+ * or the bytes do not fit. */
+static int rd_slot_place(
+    rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r) {
   wired_h3reqdrive_hdr* h;
-  if (!rd_keeps(L, r)) {
-    return;
+  int                   ok;
+  if (r->hdr_count >= WIRED_H3REQDRIVE_MAX_HDRS) {
+    return 0;
   }
   h            = &r->hdrs[r->hdr_count];
   h->name_len  = (u16)L->name_len;
   h->value_len = (u16)L->value_len;
-  if (rd_place_line(cur, L, h)) {
-    r->hdr_count++;
+  ok           = rd_place_line(cur, L, h);
+  r->hdr_count += (usz)ok;
+  return ok;
+}
+
+/* RFC 9114 4.2 / 4.2.2: keep a regular header line for
+ * wired_http_req_header. One that does not fit hdrs (only past the
+ * advertised size, see WIRED_H3REQDRIVE_MAX_HDRS) or the scratch fails the
+ * request with 431 rather than being left out. */
+static void rd_record(rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r) {
+  if (rd_keeps(L) && !rd_slot_place(cur, L, r)) {
+    r->too_large_status = 431;
   }
+}
+
+/* Take a decoded, well-formed line into r. 0 when it fails the request with
+ * 431 (rd_record, or a dedicated field past its buffer) -- r is then cleared
+ * so no partial header list reaches the application. */
+static int rd_take(rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r) {
+  h3_ph_field(&cur->ph, L->name, L->name_len);
+  h3reqdrive_classify_line(L, r);
+  cur->used += L->scratch_used;
+  rd_record(cur, L, r);
+  if (r->too_large_status) {
+    h3reqdrive_too_large(r);
+    return 0;
+  }
+  return 1;
+}
+
+/* A well-formed line (h3reqdrive_line_ok) that is not a second `origin`:
+ * origin is a single value (RFC 6454 7) kept outside hdrs, so a repeat
+ * would replace the first unseen -- malformed (RFC 9114 4.1.2). */
+static int rd_line_admits(const rline* L, const wired_h3reqdrive_req* r) {
+  return h3reqdrive_line_ok(L) &&
+         !(r->origin && h3reqdrive_line_name_is(L, "origin"));
 }
 
 /* Decode one line at cur->off into r, advancing cur. Returns 1 ok, 0 on a
@@ -143,15 +184,11 @@ int h3reqdrive_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
     return 0;
   }
   h3reqdrive_line_trim(&L);
-  if (!h3reqdrive_line_ok(&L)) {
+  if (!rd_line_admits(&L, r)) {
     return 0;
   }
-  h3_ph_field(&cur->ph, L.name, L.name_len);
-  h3reqdrive_classify_line(&L, r);
   cur->off += c;
-  cur->used += L.scratch_used;
-  rd_record(cur, &L, r);
-  return 1;
+  return rd_take(cur, &L, r);
 }
 
 /* Walk field lines from cur->off to cur->fs.n into r. Returns 1 ok, 0 on a

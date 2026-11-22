@@ -17,9 +17,10 @@ static void srvrun_continue_slot(
  * (see stream_req's doc): later rounds must call the handler with THIS copy,
  * never c->l.req directly, since c->l.req is a per-connection mirror any
  * sibling stream's completion overwrites between rounds -- and its views
- * point into a decode scratch the next request reuses. :path goes first so
- * it is the last to be truncated. wt_avail/cookie are inline arrays the
- * struct copy already owns. */
+ * point into a decode scratch the next request reuses. r's scratch holds the
+ * whole request (SRVRUN_STREAM_REQ_CAP), so every round sees the :path and
+ * headers round 0 did. wt_avail/cookie are inline arrays the struct copy
+ * already owns. */
 static void srvrun_copy_stream_req(
     srvrun_resp* r, const wired_h3reqdrive_req* req) {
   wired_h3reqdrive_req* q   = &r->stream_req;

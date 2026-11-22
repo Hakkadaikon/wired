@@ -37,9 +37,13 @@ void srvrun_start_wt_resource_status(
   srvrun_start_wt_status(env, slot, c, r, d->status, 0);
 }
 
+_Static_assert(
+    sizeof(((wired_srvloop_stream_slot*)0)->req_scratch) <= SRVRUN_WT_PATH_CAP,
+    "a session's path holds any :path the decode scratch can hold");
+
 /* Record this Extended CONNECT's own :path value into session slot sidx:
  * copied, not viewed, since c->l.req's storage does not outlive this step.
- * Overflow past SRVRUN_WT_PATH_CAP is truncated (see its own doc). */
+ * SRVRUN_WT_PATH_CAP holds any decoded :path, so the copy is whole. */
 void srvrun_wt_record_path(srvrun_conn* c, int sidx) {
   usz n = u64_min(c->l.req.path_len, SRVRUN_WT_PATH_CAP);
   bytes_memcpy(c->wt_path[sidx], c->l.req.path, n);

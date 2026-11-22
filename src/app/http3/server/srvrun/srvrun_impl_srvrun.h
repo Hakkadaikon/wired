@@ -109,11 +109,19 @@ typedef struct {
  * per-stream, so up to SRVRUN_RESP_SLOTS requests can be in flight
  * concurrently on one connection (RFC 9000 2.2). */
 /* Bytes retained of an accepted Extended CONNECT's own :path pseudo-header
- * (draft-ietf-webtrans-http3-15 SS3.2), enough for typical endpoint paths
- * (e.g. quic-interop-runner's "/<endpoint>") without growing per-slot storage
- * for an arbitrarily long one; overflow is truncated, not rejected -- the
- * value is descriptive bookkeeping, not itself validated. */
-#define SRVRUN_WT_PATH_CAP 128
+ * (draft-ietf-webtrans-http3-15 SS3.2), handed to wt_on_session: the decode
+ * scratch's size, the most a decoded :path can be (it lives there or is the
+ * static "/"), so the session never sees a truncated path. */
+#define SRVRUN_WT_PATH_CAP WIRED_H3_MAX_FIELD_SECTION
+
+/* Bytes of a streaming response's own copy of its request (stream_req): the
+ * copied views -- the request pseudo-headers, origin and every kept header --
+ * each live in the decode scratch (WIRED_H3_MAX_FIELD_SECTION, each line's
+ * octets once) or are static-table values (RFC 9204 Appendix A: at most
+ * "CONNECT" + "https" + "/" = 13 octets); an hq-interop request is "GET"
+ * plus a :path inside its BODYWIN_CAP window. So a request the decoder
+ * accepted is copied whole, never truncated (RFC 9114 4.2.2). */
+#define SRVRUN_STREAM_REQ_CAP (WIRED_H3_MAX_FIELD_SECTION + 16)
 
 /* RFC 9000 14.1/17.3.1: the largest CONNECTION_CLOSE frame that still seals
  * into one minimum-size (1200-byte) datagram whatever the peer's CID length:
@@ -215,7 +223,7 @@ typedef struct {
    * against a real quic-go client running 3 parallel large downloads:
    * whichever stream's request happened to complete last got served to
    * every other stream's later rounds too). Meaningless while !streaming. */
-  u8                   stream_req_scratch[512];
+  u8                   stream_req_scratch[SRVRUN_STREAM_REQ_CAP];
   wired_h3reqdrive_req stream_req;
   /** 1 once the header section could not be framed (it did not fit the
    * prefix room) so the response was never armed: the next reap resets

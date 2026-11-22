@@ -17,6 +17,7 @@ static int trailer_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r);
 static int trailer_decode(
     wired_span            h3,
     wired_mspan           scr,
+    usz                   used,
     const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r);
 
@@ -108,12 +109,13 @@ static int trailer_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
       wired_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &cur->dyn,
       &L);
   r->qpack_failed = L.ref_bad; /* RFC 9204 2.2.3 */
-  /* RFC 9204 7.4: trailers keep the QPACK_DECOMPRESSION_FAILED stream
-   * error for any line that does not decode, even one that only lacks the
-   * room the leading section took -- no 431 here, unlike
-   * h3reqdrive_line_fail. */
+  /* RFC 9114 4.2.2 / RFC 9204 7.4: a line that only lacks the room the
+   * leading section took is a 431 (each section is within the limit alone,
+   * the two together are not); one that does not decode even in the whole
+   * scratch is QPACK_DECOMPRESSION_FAILED (h3reqdrive_line_fail). */
   if (!c) {
-    r->reject_code = QPACK_DECOMPRESSION_FAILED;
+    h3reqdrive_line_fail(
+        cur, wired_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off), r);
     return 0;
   }
   if (!trailer_line_ok(&L)) {
@@ -136,11 +138,13 @@ static int trailer_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
 }
 
 /* RFC 9114 4.3 / RFC 9204 2.2.2.1: decode the trailer section (if any)
- * against dyn into r's qpack_trailer_ric/qpack_failed, its values only in
- * scr. 1 if there is none or it is well-formed with no pseudo-header. */
+ * against dyn into r's qpack_trailer_ric/qpack_failed, its values in scr
+ * past the used octets the leading section took. 1 if there is none or it
+ * is well-formed with no pseudo-header. */
 static int trailer_decode(
     wired_span            h3,
     wired_mspan           scr,
+    usz                   used,
     const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r) {
   wired_span tfs = wired_span_of(0, 0);
@@ -148,7 +152,7 @@ static int trailer_decode(
   if (!wired_h3reqdrive_request_trailer(h3, &tfs)) {
     return 1;
   }
-  cur     = (rd_cursor){tfs, scr, 0, 0, {dyn, 0, tfs, 0}, {0, 0, 0}};
+  cur     = (rd_cursor){tfs, scr, 0, used, {dyn, 0, tfs, 0}, {0, 0, 0}};
   cur.off = h3reqdrive_prefix_base(tfs, dyn, &cur.dyn.base, &cur.dyn.ric);
   r->qpack_trailer_ric = cur.dyn.ric;
   r->qpack_failed      = cur.off == 0;
@@ -159,7 +163,8 @@ static int trailer_decode(
 }
 
 /* The leading field section, then the trailer section (if any) in the
- * scratch the leading one left free. */
+ * scratch the leading one left free (the whole scratch is passed so a
+ * trailer line that only lacks that room is told apart, as a 431). */
 int h3reqdrive_decode_sections(
     wired_span            h3,
     wired_span            fs,
@@ -170,5 +175,5 @@ int h3reqdrive_decode_sections(
   if (!decode_lines(fs, scr, dyn, r, &used)) {
     return 0;
   }
-  return trailer_decode(h3, wired_mspan_of(scr.p + used, scr.n - used), dyn, r);
+  return trailer_decode(h3, scr, used, dyn, r);
 }

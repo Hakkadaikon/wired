@@ -8,7 +8,6 @@ static int postbase_name(
     wired_span fs, const qdyn_src* dyn, rline* L, wired_span* name);
 static usz line_postbase(
     wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L);
-static usz litname_split(usz scr_n);
 static usz line_litname(
     wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L);
 
@@ -76,29 +75,32 @@ static usz line_postbase(
   return c;
 }
 
-static usz litname_split(usz scr_n) {
-  return scr_n > LITNAME_NAME_CAP ? LITNAME_NAME_CAP : scr_n / 2;
-}
-
-/* RFC 9204 4.5.6: a Literal With Literal Name -> name in the first (capped)
- * scratch share, value in the rest (disjoint, both written in one call). */
+/* RFC 9204 4.5.6: a Literal With Literal Name -> name at the scratch's
+ * start, value right after it, so the line keeps only its own name + value
+ * octets: a section within the advertised SETTINGS_MAX_FIELD_SECTION_SIZE
+ * (which accounts 32 more per line, RFC 9114 4.2.2) always fits a scratch
+ * of that size, whatever the name's length (RFC 9110 5.1 sets none). */
 static usz line_litname(
     wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L) {
-  int never = 0;
+  wired_obuf nm  = obuf_of(scr.p, scr.n);
+  usz        off = qpack_literal_name_head(fs, &nm);
+  wired_obuf vb;
+  usz        w;
   (void)dyn;
-  usz            half = litname_split(scr.n);
-  qpack_fieldbuf fb   = {
-      obuf_of(scr.p, half), obuf_of(scr.p + half, scr.n - half)};
-  usz c = qpack_literal_name_decode(fs, &never, &fb);
-  if (!c) {
+  if (!off) {
+    return 0;
+  }
+  vb = obuf_of(scr.p + nm.len, scr.n - nm.len);
+  w  = qpack_string_decode(wired_span_of(fs.p + off, fs.n - off), &vb);
+  if (!w) {
     return 0;
   }
   L->name         = scr.p;
-  L->name_len     = fb.name.len;
-  L->value        = scr.p + half;
-  L->value_len    = fb.value.len;
-  L->scratch_used = half + fb.value.len;
-  return c;
+  L->name_len     = nm.len;
+  L->value        = scr.p + nm.len;
+  L->value_len    = vb.len;
+  L->scratch_used = nm.len + vb.len;
+  return off + w;
 }
 
 /* RFC 9204 4.5: the five field line forms, tried in turn; each rejects a

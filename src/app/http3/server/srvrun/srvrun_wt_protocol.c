@@ -218,9 +218,9 @@ static int wt_has_field(const wired_h3reqdrive_req* r, const char* name) {
 
 /* RFC 9297 3.2: "The Capsule Protocol MUST NOT be used with messages that
  * contain Content-Length, Content-Type, or Transfer-Encoding header fields"
- * (Transfer-Encoding is already malformed at decode, RFC 9114 4.2).
- * shortcut: only the first WIRED_H3REQDRIVE_MAX_HDRS regular lines are
- * kept, so one past them goes unseen; widen hdrs if a client ever pads. */
+ * (Transfer-Encoding is already malformed at decode, RFC 9114 4.2). Every
+ * regular line is kept (a request with more than hdrs holds is answered 431
+ * at decode, RFC 9114 4.2.2), so none goes unseen. */
 static int wt_capsule_fields_absent(const wired_h3reqdrive_req* r) {
   return !wt_has_field(r, "content-length") &&
          !wt_has_field(r, "content-type") &&

@@ -2,6 +2,7 @@
 #define WIRED_H3REQDRIVE_REQUEST_DRIVE_H
 
 #include "app/http3/core/h3/priority.h"
+#include "app/http3/core/h3settings/control_settings.h"
 #include "app/qpack/qpack/dyntable.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -47,9 +48,13 @@ typedef struct {
 int wired_h3reqdrive_send_method(
     u64 stream_id, const wired_h3reqdrive_send_in* in, wired_obuf* out);
 
-/** Regular request headers kept per request (see wired_h3reqdrive_req's
- * hdrs); further ones are ignored. */
-#define WIRED_H3REQDRIVE_MAX_HDRS 32
+/** RFC 9114 4.2.2: regular request headers kept per request (see
+ * wired_h3reqdrive_req's hdrs). Each field line accounts its name, its value
+ * and 32 octets, and a regular name is at least one octet (RFC 9110 5.1),
+ * so a section within the advertised WIRED_H3_MAX_FIELD_SECTION (10240)
+ * carries at most 10240 / 33 = 310 of them. One more is past that size and
+ * fails the request with 431. */
+#define WIRED_H3REQDRIVE_MAX_HDRS (WIRED_H3_MAX_FIELD_SECTION / 33)
 
 /** One regular request header: name and value as octet positions inside the
  * request's hdr_base (its decode scratch), so a copy of the request only has
@@ -92,13 +97,14 @@ typedef struct {
    * header value (an RFC 8941 sf-list of sf-strings, the client's offer in
    * preference order), copied verbatim -- not a scratch view like origin,
    * so the offer survives past the decode's scratch lifetime. A value that
-   * does not fit is dropped (treated as absent). */
+   * does not fit fails the request with 431 (too_large_status). */
   u8  wt_avail[256];
   usz wt_avail_len; /**< wt-available-protocols length in octets, 0 if absent */
   /** RFC 9114 4.2.1: multiple `cookie` field lines, reassembled with the
    * "; " delimiter into a single value (as if the peer had sent one
    * HTTP/1.1-style Cookie header) before the application ever sees it. A
-   * reassembled value that does not fit is truncated to what fits. */
+   * reassembled value that does not fit fails the request with 431
+   * (too_large_status). */
   u8  cookie[512];
   usz cookie_len; /**< cookie length in octets, 0 if absent */
   /** RFC 9110 10.1.1: 1 if a regular `expect` field carried exactly
@@ -121,17 +127,19 @@ typedef struct {
   /** RFC 9110 15.5.14 / RFC 6585 5 / RFC 9114 4.2.2: 413 (body) or 431
    * (header section) for a request too large for this server. The decoder
    * sets 431 itself when the decoded field section overflows its scratch
-   * though each line fits alone, and then clears every other field (views
-   * included) and returns 0; the server sets 413/431 when the request
+   * though each line fits alone, or a field does not fit hdrs, cookie or
+   * wt_avail, and then clears every other field (views included) and
+   * returns 0 -- a request is never handed on with a field missing. The
+   * server sets 413/431 when the request
    * stream overflows its per-request buffer. Either way the server answers
    * with this status instead of calling the application. 0 otherwise. */
   u16 too_large_status;
-  /** RFC 9114 4.2: the first WIRED_H3REQDRIVE_MAX_HDRS regular
-   * (non-pseudo) header field lines in received order, except cookie,
-   * origin and wt-available-protocols, which wired_http_req_header serves
-   * from their dedicated fields above. Bytes are copied into scratch at
-   * decode time (a dynamic-table entry can change afterwards, RFC 9204
-   * 2.1.1/3.2); a line that no longer fits the scratch is skipped. hdr_base
+  /** RFC 9114 4.2: every regular (non-pseudo) header field line in
+   * received order, except cookie, origin and wt-available-protocols,
+   * which wired_http_req_header serves from their dedicated fields above.
+   * Bytes are copied into scratch at decode time (a dynamic-table entry can
+   * change afterwards, RFC 9204 2.1.1/3.2); a line that does not fit the
+   * scratch or hdrs fails the request with 431 (RFC 9114 4.2.2). hdr_base
    * is the scratch the positions index. */
   const u8* hdr_base;
   /** the kept headers, in received order (see hdr_base) */
@@ -151,8 +159,8 @@ typedef struct {
   /** RFC 9204 7.4 / 6: the stream error a rejected request is reset with
    * when it is not H3_MESSAGE_ERROR -- QPACK_DECOMPRESSION_FAILED for a
    * field line this decoder could not interpret (one larger than the whole
-   * scratch or the name cap, or not a valid encoding); 0 otherwise,
-   * including a 431 (too_large_status). */
+   * scratch, or not a valid encoding), in the leading or the trailer
+   * section; 0 otherwise, including a 431 (too_large_status). */
   u16 reject_code;
   /** RFC 9110 8.6 / RFC 9114 4.1.2: the received Content-Length value, valid
    * when has_content_length is 1. */
@@ -175,8 +183,7 @@ static inline wired_span wired_h3req_path(const wired_h3reqdrive_req* r) {
 /** RFC 9114 4.2: find a regular request header by name. Field names are
  * lowercase on the wire, so the match is exact (case-sensitive). cookie
  * returns the crumbs joined with "; " (RFC 9114 4.2.1); other duplicates
- * return the first. Only the first WIRED_H3REQDRIVE_MAX_HDRS other regular
- * headers are searched.
+ * return the first.
  * @param req the decoded request
  * @param name the lowercase field name
  * @param out receives a view of the value, valid as long as req's views

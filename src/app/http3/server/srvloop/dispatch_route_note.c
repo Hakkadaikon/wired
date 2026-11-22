@@ -7,6 +7,7 @@ static void route_note_incomplete_append(wired_srvloop* l, int i);
 static void route_note_incomplete(wired_srvloop* l, int i);
 static void route_note_rejected(wired_srvloop* l, int i);
 static int  route_note_too_large(wired_srvloop* l, int i);
+static int  route_body_overflowed(const wired_srvloop_stream_slot* slot);
 static u16  route_too_large_status(const wired_srvloop_stream_slot* slot);
 static int  route_window_stuck(const wired_srvloop_stream_slot* slot);
 static int  route_body_unsendable(
@@ -164,13 +165,21 @@ void srvloop_route_note_result(wired_srvloop* l, int i, int got) {
   }
 }
 
-/* RFC 6585 5 / RFC 9110 15.5.14: 431 when the leading HEADERS frame itself
- * does not fit req_buf, 413 when it does (the body overflowed). The one
- * place a streaming-body consumer would accept the overflow instead. */
-static u16 route_too_large_status(const wired_srvloop_stream_slot* slot) {
+/* The leading HEADERS frame is whole in req_buf and its section was not
+ * already found too large (an on_body request's decode, route_body_start,
+ * leaves 431 in slot->req): only the body overflowed. */
+static int route_body_overflowed(const wired_srvloop_stream_slot* slot) {
   h3_frame f = {0};
   usz      n = h3_frame_get(wired_span_of(slot->req_buf, slot->req_len), &f);
-  return n && f.type == H3_FRAME_HEADERS ? 413 : 431;
+  return n && f.type == H3_FRAME_HEADERS && slot->req.too_large_status != 431;
+}
+
+/* RFC 6585 5 / RFC 9110 15.5.14 / 15.5.20: 431 when the leading HEADERS
+ * frame itself does not fit req_buf or its section is past this server's
+ * limit, 413 when only the body overflowed. The one place a streaming-body
+ * consumer would accept the overflow instead. */
+static u16 route_too_large_status(const wired_srvloop_stream_slot* slot) {
+  return route_body_overflowed(slot) ? 413 : 431;
 }
 
 /* RFC 9000 4.1: a window full of contiguous bytes with no FIN -- a client
@@ -195,12 +204,14 @@ static int route_is_over(const wired_srvloop_dispatch_ctx* ctx, int i) {
  * slot i was handled this way. */
 int srvloop_route_complete_over(const wired_srvloop_dispatch_ctx* ctx, int i) {
   wired_srvloop_stream_slot* slot = &ctx->l->streams[i];
+  u16                        status;
   if (!route_is_over(ctx, i)) {
     return 0;
   }
   slot->req_done             = 1;
+  status                     = route_too_large_status(slot);
   slot->req                  = (wired_h3reqdrive_req){0};
-  slot->req.too_large_status = route_too_large_status(slot);
+  slot->req.too_large_status = status;
   srvloop_qdec_cancel_slot(ctx->l, i); /* RFC 9204 2.2.2.2: reading abandoned */
   srvloop_route_note_done(ctx->l, i);
   return 1;

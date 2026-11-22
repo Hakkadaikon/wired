@@ -19,6 +19,7 @@
 #include "app/qpack/qpack/literal.h"
 #include "app/qpack/qpack/prefix.h"
 #include "app/qpack/qpack/static_table.h"
+#include "app/qpack/qpack/string.h"
 #include "app/qpack/qpackdyn/field_decode.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/ct.h"
@@ -39,12 +40,6 @@ typedef struct {
 /* RFC 9204 4.5.2: '1' then T=1 -- an Indexed Field Line naming a static
  * entry; every other indexed form names a dynamic one. */
 #define LINE_INDEXED_STATIC 0xc0
-
-/* Field names are short (RFC 9110 5.1's token grammar, the longest ones this
- * codebase decodes -- e.g. "wt-available-protocols" -- run well under this);
- * capping the name's share leaves the rest of scr for the value, which can
- * run much longer (e.g. a multi-entry subprotocol offer list). */
-#define LITNAME_NAME_CAP 64
 
 #include "app/http3/core/h3/connect.h"
 
@@ -100,6 +95,7 @@ int  h3reqdrive_request_ok(int fin, wired_h3reqdrive_req* r);
 void h3reqdrive_line_trim(rline* L);
 usz  h3reqdrive_rd_dedicated_idx(wired_span name);
 int  h3reqdrive_step_line(rd_cursor* cur, wired_h3reqdrive_req* r);
+void h3reqdrive_too_large(wired_h3reqdrive_req* r);
 void h3reqdrive_line_fail(
     rd_cursor* cur, wired_span rest, wired_h3reqdrive_req* r);
 int h3reqdrive_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r);

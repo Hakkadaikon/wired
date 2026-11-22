@@ -4,8 +4,8 @@ static int  is_request_pseudo(h3_ph_kind k);
 static void take_priority(const rline* L, wired_h3reqdrive_req* r);
 static void take_origin(const rline* L, wired_h3reqdrive_req* r);
 static void take_wt_avail(const rline* L, wired_h3reqdrive_req* r);
-static usz  cookie_sep_len(const wired_h3reqdrive_req* r);
-static void cookie_join(wired_h3reqdrive_req* r, const u8* value, usz vlen);
+static int  field_join(
+    u8* buf, usz cap, usz* len, const char* sep, wired_span v);
 static void take_cookie(const rline* L, wired_h3reqdrive_req* r);
 static int  value_is_100_continue(const rline* L);
 static void take_expect(const rline* L, wired_h3reqdrive_req* r);
@@ -20,6 +20,14 @@ usz h3reqdrive_decode_line(
   return c;
 }
 
+/* RFC 9114 4.2.2 / RFC 9110 15.5.20: a section larger than this decoder
+ * holds is answered 431. Every other field is cleared, views into the
+ * scratch included, so no request with a field left out goes further; the
+ * server cancels the stream's QPACK references (RFC 9204 2.2.2.2). */
+void h3reqdrive_too_large(wired_h3reqdrive_req* r) {
+  *r = (wired_h3reqdrive_req){.too_large_status = 431};
+}
+
 /* RFC 9114 4.2.2 / RFC 9204 7.4: why the line at rest failed to decode.
  * One that fits the whole scratch (re-decoded there: the request is
  * dropped, so earlier lines' bytes may go) failed only for the room
@@ -32,7 +40,7 @@ void h3reqdrive_line_fail(
     rd_cursor* cur, wired_span rest, wired_h3reqdrive_req* r) {
   rline L = {0};
   if (h3reqdrive_decode_line(rest, cur->scr, &cur->dyn, &L)) {
-    *r = (wired_h3reqdrive_req){.too_large_status = 431};
+    h3reqdrive_too_large(r);
     return;
   }
   r->reject_code = QPACK_DECOMPRESSION_FAILED;
@@ -64,8 +72,8 @@ static void take_priority(const rline* L, wired_h3reqdrive_req* r) {
 
 /* WebTransport draft-ietf-webtrans-http3-15 SS3.6 / RFC 9220 3: a regular
  * `origin` header carries the browser client's origin for the server to
- * validate. Same borrow-or-scratch view as any other recovered line; other
- * regular fields stay ignored. */
+ * validate. Same borrow-or-scratch view as any other recovered line. A
+ * second origin line never reaches here: it is malformed (rd_line_admits). */
 static void take_origin(const rline* L, wired_h3reqdrive_req* r) {
   if (!h3reqdrive_line_name_is(L, "origin")) {
     return;
@@ -74,45 +82,47 @@ static void take_origin(const rline* L, wired_h3reqdrive_req* r) {
   r->origin_len = L->value_len;
 }
 
+/* RFC 9110 5.3: append value v to the list held in buf[0..*len) after the
+ * 2-octet sep (none before the first item); 0 if it would not fit cap. */
+static int field_join(
+    u8* buf, usz cap, usz* len, const char* sep, wired_span v) {
+  usz s = *len ? 2 : 0;
+  if (s + v.n > cap - *len) {
+    return 0;
+  }
+  bytes_memcpy(buf + *len, sep, s);
+  bytes_memcpy(buf + *len + s, v.p, v.n);
+  *len += s + v.n;
+  return 1;
+}
+
 /* WebTransport draft-ietf-webtrans-http3-15 SS3.4: a regular
  * `wt-available-protocols` header carries the client's subprotocol offer (an
- * RFC 8941 sf-list of sf-strings). Copied verbatim into r's own fixed buffer
- * (unlike origin's borrowed view, see request_drive.h); a value that does not
- * fit is dropped, leaving the offer absent. */
+ * RFC 8941 sf-list of sf-strings). Copied into r's own fixed buffer (unlike
+ * origin's borrowed view, see request_drive.h); several lines are one list
+ * joined with ", " (RFC 9110 5.3), and an offer that does not fit fails the
+ * request with 431 (RFC 9114 4.2.2) instead of losing a line. */
 static void take_wt_avail(const rline* L, wired_h3reqdrive_req* r) {
   if (!h3reqdrive_line_name_is(L, "wt-available-protocols")) {
     return;
   }
-  if (L->value_len > sizeof r->wt_avail) {
-    return;
+  if (!field_join(
+          r->wt_avail, sizeof r->wt_avail, &r->wt_avail_len, ", ",
+          wired_span_of(L->value, L->value_len))) {
+    r->too_large_status = 431;
   }
-  bytes_memcpy(r->wt_avail, L->value, L->value_len);
-  r->wt_avail_len = L->value_len;
 }
 
 /* RFC 9114 4.2.1: reassemble multiple `cookie` field lines into a single
  * value joined by "; ", as if the peer had sent one HTTP/1.1-style Cookie
- * header. Isolated from wired_h3reqdrive_req's other field-capture helpers
- * (see take_origin/take_wt_avail) since it is the only one that must fold
- * several field lines into one slot instead of taking the latest. */
-static usz cookie_sep_len(const wired_h3reqdrive_req* r) {
-  return r->cookie_len ? 2 : 0;
-}
-
-static void cookie_join(wired_h3reqdrive_req* r, const u8* value, usz vlen) {
-  usz sep = cookie_sep_len(r);
-  usz cap = sizeof r->cookie - r->cookie_len;
-  if (sep + vlen > cap) {
-    return;
-  }
-  bytes_memcpy(r->cookie + r->cookie_len, "; ", sep);
-  bytes_memcpy(r->cookie + r->cookie_len + sep, value, vlen);
-  r->cookie_len += sep + vlen;
-}
-
+ * header. A crumb that would not fit fails the request with 431 (RFC 9114
+ * 4.2.2) instead of being dropped. */
 static void take_cookie(const rline* L, wired_h3reqdrive_req* r) {
-  if (h3reqdrive_line_name_is(L, "cookie")) {
-    cookie_join(r, L->value, L->value_len);
+  if (h3reqdrive_line_name_is(L, "cookie") &&
+      !field_join(
+          r->cookie, sizeof r->cookie, &r->cookie_len, "; ",
+          wired_span_of(L->value, L->value_len))) {
+    r->too_large_status = 431;
   }
 }
 

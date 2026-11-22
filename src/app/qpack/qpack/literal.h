@@ -42,6 +42,12 @@ usz qpack_literal_name_encode(wired_mspan buf, int never, const qpack_field* f);
  * non-matching pattern, truncation, or overflow. */
 usz qpack_literal_name_decode(wired_span buf, int* never, qpack_fieldbuf* out);
 
+/* RFC 9204 4.5.6: decode only a literal-name field line's first byte and
+ * name into name (a H=1 name is Huffman-decoded), so a caller can place the
+ * value string right after it. Returns the bytes up to the value string, or
+ * 0 on a non-matching pattern, truncation, or overflow. */
+usz qpack_literal_name_head(wired_span buf, wired_obuf* name);
+
 /* RFC 9204 4.5.5. Literal Field Line With Post-Base Name Reference: pattern
  * 0000Niii, N=never-indexed, a 3-bit prefixed post-Base index into the
  * dynamic table (an entry inserted after the section's Base), then a value

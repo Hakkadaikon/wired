@@ -1,5 +1,13 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
+_Static_assert(
+    BODYWIN_CAP + 3 <= SRVRUN_STREAM_REQ_CAP,
+    "an hq-interop request (GET + a window-sized :path) fits the copy");
+_Static_assert(
+    sizeof(((wired_srvloop_stream_slot*)0)->req_scratch) + 16 <=
+        SRVRUN_STREAM_REQ_CAP,
+    "the copy holds a request filling the decode scratch plus static values");
+
 static void srvrun_arm_h3_resp_framed(
     const srvrun_step_ctx*     ctx,
     srvrun_conn*               c,
@@ -54,9 +62,10 @@ void srvrun_arm_h3_resp(
   srvrun_arm_h3_resp_framed(ctx, c, slot, r, st, x, total_len);
 }
 
-/* Copy one view of r->stream_req into r's own scratch at *off (capped at
- * what is left of it) and re-point the view there. An absent view (0, e.g.
- * no :protocol / origin) stays 0 so the handler still reads it as absent. */
+/* Copy one view of r->stream_req into r's own scratch at *off and re-point
+ * the view there. An absent view (0, e.g. no :protocol / origin) stays 0 so
+ * the handler still reads it as absent. The cap only guards memory:
+ * SRVRUN_STREAM_REQ_CAP holds any request the decoder accepted. */
 void srvrun_scratch_view(srvrun_resp* r, usz* off, const u8** p, usz* len) {
   usz n;
   if (!*p) {
@@ -88,8 +97,8 @@ static int srvrun_copy_hdr(
          srvrun_copy_hdr_part(r, off, base, &h->value_off, h->value_len);
 }
 
-/* Move the recorded request headers after the views; those that no longer
- * fit the copy's scratch are dropped from the end. */
+/* Move the recorded request headers after the views (all of them fit, see
+ * SRVRUN_STREAM_REQ_CAP; the stop only guards memory). */
 void srvrun_copy_stream_hdrs(srvrun_resp* r, usz off) {
   wired_h3reqdrive_req* q    = &r->stream_req;
   const u8*             base = q->hdr_base;

@@ -850,7 +850,8 @@ static int rd_trailer_ok(
   wired_h3reqdrive_req r;
   stream_frame         f;
   CHECK(frame_get_stream(stream_data.p, stream_data.n, &f));
-  return trailer_decode(wired_span_of(f.data, (usz)f.length), scratch, dyn, &r);
+  return trailer_decode(
+      wired_span_of(f.data, (usz)f.length), scratch, 0, dyn, &r);
 }
 
 /* RFC 9114 4.3: a pseudo-header field in the trailer section is malformed,
@@ -1082,12 +1083,13 @@ static void test_h3reqdrive_trailer_oversized_rejected(void) {
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), 0));
 }
 
-/* Boundary companions to the two oversized pinning tests above (V-0421/
- * V-0422 re-triage): one decoded value that fills the production scratch
- * EXACTLY (WIRED_H3_MAX_FIELD_SECTION bytes -- a static name reference,
- * line_namref, hands the whole scratch to the value) decodes, and one byte
- * more is rejected. Both edges share the one #define so a cap change moves
- * the tests with it. rd_ua_value is the shared 'u'-filled value source. */
+/* RFC 9114 4.2.2 boundary companions to the two oversized pinning tests
+ * above: a header section that fills the production scratch
+ * EXACTLY (WIRED_H3_MAX_FIELD_SECTION bytes: :authority's octet, the
+ * user-agent value and the kept line's 10-octet name copy) decodes with
+ * that header kept, and one byte more is rejected. Both edges share the one
+ * #define so a cap change moves the tests with it. rd_ua_value is the shared
+ * 'u'-filled value source. */
 static const u8* rd_ua_value(void) {
   static u8 v[WIRED_H3_MAX_FIELD_SECTION + 1];
   for (usz i = 0; i < sizeof v; i++) {
@@ -1122,8 +1124,9 @@ static int rd_headers_value_len_accepted(usz value_len) {
   fs_len += qpack_indexed_encode(
       wired_mspan_of(fs + fs_len, sizeof fs - fs_len), 17, 1); /* GET */
   rd_pseudo(fs, &fs_len, 1);
-  /* :authority's one scratch octet comes out of the value's share */
-  fs_len = rd_ua_line(fs, fs_len, sizeof fs, value_len - 1);
+  /* :authority's one scratch octet and the kept line's copy of its static
+   * name ("user-agent", 10 octets) come out of the value's share */
+  fs_len = rd_ua_line(fs, fs_len, sizeof fs, value_len - 11);
   h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   CHECK(h3_len != 0);
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
@@ -1170,6 +1173,56 @@ static void test_h3reqdrive_trailer_field_section_at_cap_accepted(void) {
 
 static void test_h3reqdrive_trailer_field_section_one_over_cap_rejected(void) {
   CHECK(!rd_trailer_value_len_accepted(WIRED_H3_MAX_FIELD_SECTION + 1));
+}
+
+/* A POST whose leading section carries an 8000-octet :path (RFC 9110 4.1)
+ * and whose trailer section is one user-agent line of tlen octets, decoded
+ * over the production scratch. Each section alone is within the advertised
+ * WIRED_H3_MAX_FIELD_SECTION (RFC 9114 4.2.2 limits each section). */
+static int rd_big_path_trailer(usz tlen, wired_h3reqdrive_req* r) {
+  static u8     fs[WIRED_H3_MAX_FIELD_SECTION], tfs[WIRED_H3_MAX_FIELD_SECTION];
+  static u8     h3[2 * WIRED_H3_MAX_FIELD_SECTION + 64];
+  static u8     scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static u8     path[8000];
+  qpack_prefix  pfx  = {0, 0, 0};
+  qpack_nameref pn   = {1, 1, 0}; /* static ":path" */
+  usz           off  = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  usz           toff = qpack_prefix_encode(tfs, sizeof tfs, &pfx);
+  usz           h    = 0;
+  wired_obuf    hob;
+  bytes_memset(path, 'p', sizeof path);
+  path[0] = '/';
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 8), 20, 1); /* POST */
+  rd_pseudo(fs, &off, 0);
+  off += qpack_literal_namref_encode(
+      wired_mspan_of(fs + off, sizeof fs - off), &pn,
+      wired_span_of(path, sizeof path));
+  toff = rd_ua_line(tfs, toff, sizeof tfs, tlen);
+  hob  = obuf_of(h3, sizeof h3);
+  h += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, off));
+  hob = obuf_of(h3 + h, sizeof h3 - h);
+  h += h3_frame_put(&hob, H3_FRAME_DATA, wired_span_of((const u8*)"hi", 2));
+  hob = obuf_of(h3 + h, sizeof h3 - h);
+  CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(tfs, toff)));
+  h += hob.len;
+  {
+    wired_h3reqdrive_h3_in in = {
+        wired_span_of(h3, h), 1, wired_mspan_of(scratch, sizeof scratch), 0};
+    return wired_h3reqdrive_recv_h3(&in, r);
+  }
+}
+
+/* RFC 9114 4.2.2 / RFC 9204 6: a 3000-octet trailer section after an
+ * 8000-octet :path no longer fits the scratch the leading section left,
+ * though it decodes alone -- 431, not a QPACK_DECOMPRESSION_FAILED reset. A
+ * 1000-octet trailer still fits and the request decodes. */
+static void test_h3reqdrive_trailer_after_big_headers(void) {
+  static wired_h3reqdrive_req r;
+  CHECK(!rd_big_path_trailer(3000, &r));
+  CHECK(r.too_large_status == 431 && r.reject_code == 0);
+  CHECK(r.qpack_failed == 0 && r.path == 0);
+  CHECK(rd_big_path_trailer(1000, &r));
+  CHECK(r.path_len == 8000 && r.too_large_status == 0);
 }
 
 /* Pinning: RFC 9114 10.5.1 -- regardless of what a peer advertises, this
@@ -1311,8 +1364,9 @@ static void test_reqdrive_req_header_lookup(void) {
   CHECK(!wired_http_req_header(&r, wired_span_of((const u8*)"accept", 6), &v));
 }
 
-/* RFC 9114 4.2.1: a cookie line that would push the joined value past the
- * 512-byte r.cookie is dropped; the request and the earlier cookie stand. */
+/* RFC 9114 4.2.2 / 4.2.1: a cookie line that would push the joined value
+ * past the 512-byte r.cookie fails the request with 431 -- the handler never
+ * sees a request missing a crumb the client sent. */
 static void test_reqdrive_cookie_join_overflow(void) {
   static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
   static u8            va[400], vb[200];
@@ -1334,33 +1388,151 @@ static void test_reqdrive_cookie_join_overflow(void) {
     off += qpack_literal_name_encode(
         wired_mspan_of(fs + off, sizeof fs - off), 0, &b);
   }
-  CHECK(rd_hdr_decode(fs, off, scratch, 0, &r));
-  CHECK(r.cookie_len == sizeof va && r.cookie[sizeof va - 1] == 'a');
+  CHECK(!rd_hdr_decode(fs, off, scratch, 0, &r));
+  CHECK(r.too_large_status == 431 && r.reject_code == 0);
+  CHECK(r.cookie_len == 0 && r.hdr_count == 0);
 }
 
-/* Up to WIRED_H3REQDRIVE_MAX_HDRS regular headers are kept; the next one is
- * ignored, not an error. */
+/* A GET (rd_pseudo) carrying literal-name lines "name: <a 'v's>" and, when
+ * b != 0, "name: <b 'w's>", decoded over the production scratch. */
+static int rd_named_pair(
+    const char* name, usz a, usz b, wired_h3reqdrive_req* r) {
+  static u8    scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static u8    va[600], vb[600], fs[1024];
+  qpack_prefix pfx = {0, 0, 0};
+  usz          off = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  qpack_field  fa  = {
+      wired_span_of((const u8*)name, cstr(name)), wired_span_of(va, a)};
+  qpack_field fb = {
+      wired_span_of((const u8*)name, cstr(name)), wired_span_of(vb, b)};
+  bytes_memset(va, 'v', sizeof va);
+  bytes_memset(vb, 'w', sizeof vb);
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  rd_pseudo(fs, &off, 1);
+  off += qpack_literal_name_encode(
+      wired_mspan_of(fs + off, sizeof fs - off), 0, &fa);
+  if (b) {
+    off += qpack_literal_name_encode(
+        wired_mspan_of(fs + off, sizeof fs - off), 0, &fb);
+  }
+  return rd_hdr_decode(fs, off, scratch, 0, r);
+}
+
+/* RFC 9114 4.2.1 / 4.2.2: the joined cookie fills r.cookie exactly (512:
+ * one crumb, or 255 + "; " + 255) and is kept; one octet more is 431. */
+static void test_reqdrive_cookie_boundary(void) {
+  static wired_h3reqdrive_req r;
+  CHECK(rd_named_pair("cookie", 512, 0, &r) && r.cookie_len == 512);
+  CHECK(!rd_named_pair("cookie", 513, 0, &r) && r.too_large_status == 431);
+  CHECK(rd_named_pair("cookie", 255, 255, &r) && r.cookie_len == 512);
+  CHECK(r.cookie[255] == ';' && r.cookie[256] == ' ' && r.cookie[257] == 'w');
+  CHECK(!rd_named_pair("cookie", 255, 256, &r) && r.too_large_status == 431);
+}
+
+/* RFC 9110 5.3 / RFC 9114 4.2.2: wt-available-protocols lines are one list
+ * joined with ", " (draft-ietf-webtrans-http3-15 3.4); the joined offer
+ * filling r.wt_avail exactly (256) is kept, one octet more is 431 -- the
+ * first line is never overwritten. */
+static void test_reqdrive_wt_avail_boundary(void) {
+  static wired_h3reqdrive_req r;
+  const char*                 n = "wt-available-protocols";
+  CHECK(rd_named_pair(n, 256, 0, &r) && r.wt_avail_len == 256);
+  CHECK(!rd_named_pair(n, 257, 0, &r) && r.too_large_status == 431);
+  CHECK(rd_named_pair(n, 127, 127, &r) && r.wt_avail_len == 256);
+  CHECK(r.wt_avail[0] == 'v' && r.wt_avail[127] == ',');
+  CHECK(r.wt_avail[128] == ' ' && r.wt_avail[129] == 'w');
+  CHECK(!rd_named_pair(n, 127, 128, &r) && r.too_large_status == 431);
+}
+
+/* RFC 9114 4.1.2 / RFC 9110 5.3: origin is a single value (RFC 6454 7);
+ * a second origin line would replace the first unseen, so the request is
+ * malformed (H3_MESSAGE_ERROR: reject_code 0, not 431). */
+static void test_reqdrive_duplicate_origin_malformed(void) {
+  static wired_h3reqdrive_req r;
+  CHECK(rd_named_pair("origin", 4, 0, &r) && r.origin_len == 4);
+  CHECK(!rd_named_pair("origin", 4, 5, &r));
+  CHECK(r.reject_code == 0 && r.too_large_status == 0 && r.qpack_failed == 0);
+}
+
+/* A GET (rd_pseudo) carrying 1 + n regular lines: "xa: xa" (literal name),
+ * then n "age: 1" lines (a name reference to static 2), decoded over the
+ * production scratch. */
+static int rd_age_lines(usz n, wired_h3reqdrive_req* r) {
+  static u8     scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static u8     fs[4 * WIRED_H3REQDRIVE_MAX_HDRS + 64];
+  qpack_prefix  pfx = {0, 0, 0};
+  qpack_nameref age = {2, 1, 0}; /* static "age" */
+  usz           off = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  rd_pseudo(fs, &off, 1);
+  put_litname(fs, &off, "xa", "xa");
+  for (usz i = 0; i < n; i++) {
+    off += qpack_literal_namref_encode(
+        wired_mspan_of(fs + off, 64), &age, wired_span_of((const u8*)"1", 1));
+  }
+  return rd_hdr_decode(fs, off, scratch, 0, r);
+}
+
+/* RFC 9114 4.2.2: WIRED_H3REQDRIVE_MAX_HDRS covers every regular line a
+ * section within the advertised size can carry (each accounts at least a
+ * 1-octet name + 32), so all of them are kept; one more line is past that
+ * size and fails the request with 431 instead of being dropped. */
 static void test_reqdrive_req_header_cap(void) {
+  static wired_h3reqdrive_req r;
+  CHECK(WIRED_H3REQDRIVE_MAX_HDRS * 33 <= WIRED_H3_MAX_FIELD_SECTION);
+  CHECK((WIRED_H3REQDRIVE_MAX_HDRS + 1) * 33 > WIRED_H3_MAX_FIELD_SECTION);
+  CHECK(rd_age_lines(WIRED_H3REQDRIVE_MAX_HDRS - 1, &r));
+  CHECK(r.hdr_count == WIRED_H3REQDRIVE_MAX_HDRS);
+  CHECK(rd_hdr_is(&r, "xa", "xa"));
+  CHECK(rd_hdr_is(&r, "age", "1"));
+  CHECK(!rd_age_lines(WIRED_H3REQDRIVE_MAX_HDRS, &r));
+  CHECK(r.too_large_status == 431 && r.reject_code == 0);
+  CHECK(r.hdr_count == 0);
+}
+
+/* RFC 9114 4.2.2: 40 distinct regular fields (more than the old 32-entry
+ * table) within the advertised size all reach wired_http_req_header. */
+static void test_reqdrive_many_headers_all_kept(void) {
   static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
-  u8                   fs[512];
+  static u8            fs[1024];
+  qpack_prefix         pfx  = {0, 0, 0};
+  usz                  off  = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  char                 n[4] = {'h', 0, 0, 0};
+  wired_h3reqdrive_req r;
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  rd_pseudo(fs, &off, 1);
+  for (usz i = 0; i < 40; i++) {
+    n[1] = (char)('0' + i / 10);
+    n[2] = (char)('0' + i % 10);
+    put_litname(fs, &off, n, n);
+  }
+  CHECK(rd_hdr_decode(fs, off, scratch, 0, &r));
+  CHECK(r.hdr_count == 40);
+  CHECK(rd_hdr_is(&r, "h00", "h00"));
+  CHECK(rd_hdr_is(&r, "h32", "h32"));
+  CHECK(rd_hdr_is(&r, "h39", "h39"));
+}
+
+/* RFC 9114 4.2.2: a section within the advertised size never overflows the
+ * decode scratch -- 200 one-octet-named literal lines account 200 * 34
+ * octets (under WIRED_H3_MAX_FIELD_SECTION) and each takes only its own two
+ * octets of scratch, not the 64-octet literal-name share reserved while
+ * decoding (200 * 65 would overflow). */
+static void test_reqdrive_short_literal_names_fit(void) {
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static u8            fs[2048];
   qpack_prefix         pfx = {0, 0, 0};
-  qpack_nameref        age = {2, 1, 0}; /* static "age" */
   usz                  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
   wired_h3reqdrive_req r;
   off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
   rd_pseudo(fs, &off, 1);
-  put_litname(fs, &off, "xa", "xa");
-  for (usz i = 1; i < WIRED_H3REQDRIVE_MAX_HDRS; i++) {
-    off += qpack_literal_namref_encode(
-        wired_mspan_of(fs + off, 64), &age, wired_span_of((const u8*)"1", 1));
+  for (usz i = 0; i < 200; i++) {
+    put_litname(fs, &off, "a", "1");
   }
-  put_litname(fs, &off, "xz", "xz");
-  CHECK(WIRED_H3REQDRIVE_MAX_HDRS == 32);
+  CHECK(200 * 34 + 64 < WIRED_H3_MAX_FIELD_SECTION);
+  CHECK(200 * 65 > WIRED_H3_MAX_FIELD_SECTION);
   CHECK(rd_hdr_decode(fs, off, scratch, 0, &r));
-  CHECK(r.hdr_count == WIRED_H3REQDRIVE_MAX_HDRS);
-  CHECK(rd_hdr_is(&r, "xa", "xa"));
-  CHECK(rd_hdr_is(&r, "age", "1"));
-  CHECK(!rd_hdr_is(&r, "xz", "xz")); /* the 33rd */
+  CHECK(r.hdr_count == 200 && rd_hdr_is(&r, "a", "1"));
 }
 
 /* A Chrome-like fetch: 20 regular field lines with the cookie split into
@@ -1640,25 +1812,19 @@ static void test_reqdrive_bad_name_ref_before_bad_value(void) {
   }
 }
 
-/* RFC 9204 7.4: a field this decoder cannot hold (a literal name past its
- * name cap) only rejects the request; it is not a decompression failure
- * that would end the whole connection. */
+/* RFC 9110 5.1 / RFC 9204 4.5.6: a field name has no length limit of its
+ * own -- a 70-octet literal name within the section limit decodes and is
+ * kept (no name share capped below the scratch). A well-encoded malformed
+ * request keeps H3_MESSAGE_ERROR, not a decompression failure. */
 static void test_reqdrive_local_capacity_not_qpack_failure(void) {
-  static u8   scratch[WIRED_H3_MAX_FIELD_SECTION];
-  u8          name[70], fs[128] = {0x00, 0x00, 0xd1, 0xd7};
-  usz         n = 4;
-  qpack_field f = {wired_span_of(name, sizeof name), wired_span_of(0, 0)};
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static char          name[71];
   wired_h3reqdrive_req r;
-  for (usz i = 0; i < sizeof name; i++) {
-    name[i] = 'X'; /* 8-bit Huffman code: the name stays raw, 70 octets */
-  }
-  n += qpack_literal_name_encode(wired_mspan_of(fs + n, sizeof fs - n), 0, &f);
-  CHECK(n > 4 + sizeof name);
-  CHECK(!rd_hdr_decode(fs, n, scratch, 0, &r));
-  CHECK(r.qpack_failed == 0);
-  /* RFC 9204 7.4 (9204-063): a stream error of its own type */
-  CHECK(r.reject_code == QPACK_DECOMPRESSION_FAILED);
-  /* a well-encoded malformed request keeps H3_MESSAGE_ERROR (code 0) */
+  wired_span           v = {0, 0};
+  bytes_memset(name, 'x', 70);
+  CHECK(rd_named_pair(name, 4, 0, &r));
+  CHECK(wired_http_req_header(&r, wired_span_of((const u8*)name, 70), &v));
+  CHECK(v.n == 4 && v.p[0] == 'v');
   {
     static const u8 conn[] = {0x00, 0x00, 0xd1, 0xd7, 0xc1, 0x24, 'h',
                               'o',  's',  't',  0x01, 'h',  0x27, 0x03,
@@ -1719,15 +1885,21 @@ static void test_reqdrive_line_past_scratch_qpack_error(void) {
   CHECK(r.too_large_status == 0 && r.qpack_failed == 0);
 }
 
-/* Boundary: decoded values exactly filling the scratch (1 + a + 3 + b ==
- * WIRED_H3_MAX_FIELD_SECTION; the second line's name copy no longer fits,
- * so that line alone is not kept) still decode; one octet more is a 431. */
+/* Boundary: both lines with their static-name copies exactly filling the
+ * scratch (1 + a + 3 + b + 3 == WIRED_H3_MAX_FIELD_SECTION) are served
+ * intact. When only the values fit and the last line's table-reference name
+ * copy does not (1 + a + 3 + b == the scratch), the request fails with 431
+ * rather than losing that header. */
 static void test_reqdrive_exact_fit_boundary(void) {
   wired_h3reqdrive_req r;
-  usz                  a = 4000, b = WIRED_H3_MAX_FIELD_SECTION - 4 - a;
+  usz                  a = 4000, b = WIRED_H3_MAX_FIELD_SECTION - 7 - a;
   CHECK(rd_two_lines(a, b, &r));
-  CHECK(r.too_large_status == 0 && r.hdr_count == 1);
-  CHECK(!rd_two_lines(a, b + 1, &r));
+  CHECK(r.too_large_status == 0 && r.hdr_count == 2);
+  CHECK(r.hdrs[1].value_len == b);
+  CHECK(!rd_two_lines(a, b + 3, &r));
+  CHECK(r.too_large_status == 431 && r.reject_code == 0);
+  CHECK(r.hdr_count == 0 && r.hdr_base == 0);
+  CHECK(!rd_two_lines(a, b + 4, &r));
   CHECK(r.too_large_status == 431 && r.reject_code == 0);
 }
 
@@ -1835,7 +2007,12 @@ void test_h3reqdrive(void) {
   test_h3req_path_view();
   test_reqdrive_req_header_lookup();
   test_reqdrive_req_header_cap();
+  test_reqdrive_many_headers_all_kept();
+  test_reqdrive_short_literal_names_fit();
   test_reqdrive_cookie_join_overflow();
+  test_reqdrive_cookie_boundary();
+  test_reqdrive_wt_avail_boundary();
+  test_reqdrive_duplicate_origin_malformed();
   test_reqdrive_req_header_chrome();
   test_reqdrive_req_header_dynamic_copied();
   test_reqdrive_priority_header();
@@ -1880,5 +2057,6 @@ void test_h3reqdrive(void) {
   test_h3reqdrive_headers_field_section_one_over_cap_rejected();
   test_h3reqdrive_trailer_field_section_at_cap_accepted();
   test_h3reqdrive_trailer_field_section_one_over_cap_rejected();
+  test_h3reqdrive_trailer_after_big_headers();
   test_h3reqdrive_deeply_nested_frames_no_stack_overflow();
 }

@@ -57,6 +57,8 @@ static void srvloop_stream_slot_init(
   s->continue_len   = 0;
   srvloop_body_reset(s);
   s->req.qpack_failed = 0; /* read before any decode (RFC 9204 2.2.3) */
+  /* read by srvloop_route_complete_over before any decode of this stream */
+  s->req.too_large_status = 0;
 }
 
 /* Claim and reset a free slot for stream_id.
