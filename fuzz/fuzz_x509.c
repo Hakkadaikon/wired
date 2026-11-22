@@ -7,7 +7,8 @@
  * structured seed is needed: raw DER bytes drive both x509_parse and,
  * on success, the signatureAlgorithm allowlist (RFC 4055 RSASSA-PSS
  * parameters included), the tbsCertificate sub-parsers, the inner/outer
- * signatureAlgorithm comparison and extension lookup. */
+ * signatureAlgorithm comparison, extension lookup, and the RFC 5280
+ * 4.2.1.5 policyMappings parser feeding the RFC 9618 policy graph. */
 #include <stddef.h>
 #include <stdint.h>
 
@@ -16,6 +17,11 @@
 #include "crypto/pki/encoding/asn1/der.c"
 #include "crypto/pki/encoding/asn1/derseq.c"
 #include "crypto/pki/encoding/asn1/derval.c"
+#include "crypto/pki/encoding/x509/certpolicies.c"
+#include "crypto/pki/encoding/x509/policymap.c"
+#include "crypto/pki/encoding/x509/policytree.c"
+#include "crypto/pki/encoding/x509/policytree_map.c"
+#include "crypto/pki/encoding/x509/policytree_node.c"
 #include "crypto/pki/encoding/x509/sigalgoid.c"
 #include "crypto/pki/encoding/x509/sigalgoid_pss.c"
 #include "crypto/pki/encoding/x509/x509.c"
@@ -49,6 +55,28 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   static const u8 basic_constraints_oid[] = {0x55, 0x1d, 0x13};
   wired_span      val;
   x509_find_ext(x.tbs, wired_span_of(basic_constraints_oid, 3), &val);
+
+  /* The certificate's certificatePolicies / policyMappings folded into a
+   * policy graph as two consecutive path certificates would be. The
+   * input's last byte (inside the signature, so the committed raw-DER
+   * corpus keeps working; the first byte is always 0x30) picks any_ok for
+   * each fold, map_ok (0: the 6.1.4 (b)(3) deletion path) and whether the
+   * certificate's own policies act as a user-initial-policy-set.
+   * castore_policy_run itself is not linked here: it pulls in the whole
+   * signature-verification closure of pathvalidate.c. */
+  u8                sw = data[size - 1];
+  x509_policy_graph g;
+  x509_policy_set   user;
+  x509_pm_unprocessed_critical(x.tbs);
+  x509_policy_graph_init(&g);
+  x509_policy_graph_fold(&g, x.tbs, sw & 1);
+  x509_policy_graph_map(&g, x.tbs, (sw >> 1) & 1);
+  x509_policy_graph_fold(&g, x.tbs, (sw >> 2) & 1);
+  x509_policy_graph_nonempty(&g, 0);
+  if (x509_cert_policies(x.tbs, &user)) {
+    x509_policy_graph_nonempty(&g, (sw & 8) ? &user : 0);
+    x509_policy_graph_has(&g, &user, x509_any_policy_oid());
+  }
 
   return 0;
 }
