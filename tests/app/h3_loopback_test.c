@@ -3,6 +3,7 @@
 #include "app/http3/server/srvboot/srvboot.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "app/http3/server/srvwire/wire.h"
+#include "ch_cookie.h"
 #include "common/bytes/util/bytes.h"
 #include "realchain_golden.h"
 #include "test.h"
@@ -1271,6 +1272,7 @@ static void test_srvboot_hrr_then_ch2_accepts(void) {
 
   /* ClientHello2: a normal x25519 ClientHello at the continued offset. */
   n2      = sb_build_raw_ch(&c, ch2, sizeof ch2);
+  n2      = test_ch_add_cookie(ch2, n2, sizeof ch2, s.sdrv.hrr_cookie);
   nd      = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch2, n2), n1, 4);
   iob.len = 0;
   hob.len = 0;
@@ -1346,6 +1348,7 @@ static void test_srvboot_hrr_v2_switch_accepts_ch2_with_v1_chosen(void) {
         &ob);
   }
   CHECK(n2 != 0);
+  n2 = test_ch_add_cookie(ch2, n2, sizeof ch2, s.sdrv.hrr_cookie);
   {
     initpkt_desc d = {
         wired_span_of(g_scid, 6), wired_span_of(g_scid, 6),
@@ -1435,6 +1438,7 @@ static void test_srvrun_hrr_ch2_retransmit_not_closed(void) {
   nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch1, n1), 0, 3);
   srvrun_serve(&ctx, wired_mspan_of(dg, nd)); /* the HRR */
   n2 = sb_build_raw_ch(&c, ch2, sizeof ch2);
+  n2 = test_ch_add_cookie(ch2, n2, sizeof ch2, st.conns[0].s.sdrv.hrr_cookie);
   nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch2, n2), n1, 4);
   bytes_memcpy(dup, dg, nd); /* rx unprotects in place */
   srvrun_serve(&ctx, wired_mspan_of(dg, nd));

@@ -169,6 +169,7 @@ static void sdrv_reset_hs(sdrv* s) {
     s->ch1_hash[i] = 0;
   }
   bytes_memset(s->sni_digest, 0, sizeof s->sni_digest);
+  bytes_memset(s->hrr_cookie, 0, sizeof s->hrr_cookie);
   s->cert_sigs_offered = 0;
 }
 

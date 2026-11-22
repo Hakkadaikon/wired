@@ -4,6 +4,7 @@
 
 #include "app/datagram/datagram/datagram.h"
 #include "app/http3/server/srvboot/srvboot_impl.h"
+#include "ch_cookie.h"
 #include "common/bytes/util/be.h"
 #include "common/diag/error/error.h"
 #include "common/platform/clock/clock.h"
@@ -3469,6 +3470,18 @@ static void sdrv_test_hrr_round1(
   *hrr_len = hob.len;
 }
 
+/* RFC 8446 4.2.2: f's ClientHello echoing the HRR's cookie (its last 16
+ * bytes -- hrr_build appends the cookie last) into base (600 bytes, the
+ * fixture's own size); returns its length. */
+static usz sdrv_test_hrr_echo(
+    const sdrv_psk_fixture* f, const u8* hrr, usz hrr_len, u8* base) {
+  usz n;
+  bytes_memcpy(base, f->ch, f->ch_len);
+  n = test_ch_add_cookie(base, f->ch_len, 600, hrr + hrr_len - 16);
+  CHECK(n != 0);
+  return n;
+}
+
 /* RFC 8446 4.2.11.2 / 4.4.1, recomputed test-side from the raw bytes (not
  * the server's transcript object): SHA-256(message_hash || HRR ||
  * Truncate(ClientHello2)), message_hash = 0xfe 00 00 20 || SHA-256(CH1). */
@@ -3510,13 +3523,15 @@ static usz sdrv_test_hrr_ch2(
       wired_span_of(binder, sizeof binder)};
   usz (*append)(u8*, usz, const u8*, usz, const tlsext_psk_in*, usz*) =
       early ? sdrv_test_append_early_data_then_psk : sdrv_test_append_psk;
-  CHECK(append(ch2, cap, f->ch, f->ch_len, &in, &off) != 0);
+  u8  base[600];
+  usz bn = sdrv_test_hrr_echo(f, hrr, hrr_len, base);
+  CHECK(append(ch2, cap, base, bn, &in, &off) != 0);
   sdrv_test_hrr_binder_hash(
       ch1, f->ch_len, hrr, hrr_len,
       wired_span_of(ch2, sdrv_test_psk_truncate_len(off, sizeof(f->sealed))),
       th);
   tls_binder_compute_hash(TLS_AES_128_GCM_SHA256, f->psk, th, binder);
-  n = append(ch2, cap, f->ch, f->ch_len, &in, &off);
+  n = append(ch2, cap, base, bn, &in, &off);
   CHECK(n != 0);
   return n;
 }
@@ -3547,14 +3562,17 @@ static void test_sdrv_psk_binder_after_hrr_needs_transcript(void) {
   tlsext_psk_in    in = {
       wired_span_of(f.sealed, sizeof(f.sealed)), 0,
       wired_span_of(binder, sizeof binder)};
+  u8  base[600];
+  usz bn;
   sdrv_psk_fixture_init(&f);
   sdrv_test_hrr_round1(&s, &f, ch1, hrr, &hrr_len);
-  CHECK(sdrv_test_append_psk(ch2, sizeof ch2, f.ch, f.ch_len, &in, &off));
+  bn = sdrv_test_hrr_echo(&f, hrr, hrr_len, base);
+  CHECK(sdrv_test_append_psk(ch2, sizeof ch2, base, bn, &in, &off));
   tls_binder_compute(
       f.psk,
       wired_span_of(ch2, sdrv_test_psk_truncate_len(off, sizeof(f.sealed))),
       binder);
-  ch2_len = sdrv_test_append_psk(ch2, sizeof ch2, f.ch, f.ch_len, &in, &off);
+  ch2_len = sdrv_test_append_psk(ch2, sizeof ch2, base, bn, &in, &off);
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 0);
   CHECK(sdrv_last_error(&s) == err_crypto(51));
 }
@@ -3615,18 +3633,19 @@ static usz sdrv_test_hrr_psk_ch2(
     usz               hrr_len,
     u8*               ch2,
     usz               cap) {
-  u8            binder[HKDF_PRK] = {0}, th[32];
+  u8            binder[HKDF_PRK] = {0}, th[32], base[600];
   usz           off              = 0, n;
   tlsext_psk_in in               = {
       wired_span_of(f->sealed, sizeof(f->sealed)), 0,
       wired_span_of(binder, sizeof binder)};
-  CHECK(sdrv_test_append_psk(ch2, cap, f->ch, f->ch_len, &in, &off) != 0);
+  usz bn = sdrv_test_hrr_echo(f, hrr, hrr_len, base);
+  CHECK(sdrv_test_append_psk(ch2, cap, base, bn, &in, &off) != 0);
   sdrv_test_hrr_binder_hash(
       ch1, ch1_len, hrr, hrr_len,
       wired_span_of(ch2, sdrv_test_psk_truncate_len(off, sizeof(f->sealed))),
       th);
   tls_binder_compute_hash(TLS_AES_128_GCM_SHA256, f->psk, th, binder);
-  n = sdrv_test_append_psk(ch2, cap, f->ch, f->ch_len, &in, &off);
+  n = sdrv_test_append_psk(ch2, cap, base, bn, &in, &off);
   CHECK(n != 0);
   return n;
 }

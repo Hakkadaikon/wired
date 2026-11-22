@@ -1,3 +1,6 @@
+#include "ch_cookie.h"
+#include "common/bytes/util/bytes.h"
+#include "common/bytes/util/ct.h"
 #include "common/diag/error/error.h"
 #include "crypto/asymmetric/ecc/p256/p256_ecdhe.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
@@ -131,6 +134,7 @@ static void test_sdrv_hrr_second_ch_same_cipher_accepted(void) {
 
   ch2_len = sdrv_hrr_build_ch(ch2, sizeof(ch2), f.cli_pub, f.srv_random);
   CHECK(ch2_len != 0);
+  ch2_len = test_ch_add_cookie(ch2, ch2_len, sizeof ch2, s.hrr_cookie);
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
   CHECK(sdrv_hrr_pending(&s) == 0);
 }
@@ -153,6 +157,7 @@ static void test_sdrv_hrr_second_ch_diff_cipher_rejected(void) {
 
   ch2_len = sdrv_hrr_build_ch(ch2, sizeof(ch2), f.cli_pub, f.srv_random);
   CHECK(ch2_len != 0);
+  ch2_len = test_ch_add_cookie(ch2, ch2_len, sizeof ch2, s.hrr_cookie);
   sdrv_hrr_set_suite(ch2, TLS_CHACHA20_POLY1305_SHA256);
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 0);
 }
@@ -242,6 +247,7 @@ static void test_sdrv_hrr_second_ch_still_no_share_rejected(void) {
 
   ch2_len = sdrv_hrr_build_ch(ch2, sizeof(ch2), f.cli_pub, f.srv_random);
   CHECK(ch2_len != 0);
+  ch2_len = test_ch_add_cookie(ch2, ch2_len, sizeof ch2, s.hrr_cookie);
   sdrv_hrr_drop_x25519(ch2); /* the client ignored the HRR's group */
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 0);
   CHECK(sdrv_hrr_pending(&s) == 0); /* no second HRR armed */
@@ -400,6 +406,124 @@ static void test_sdrv_hrr_x25519_low_order_share_fails_flight(void) {
   CHECK(sdrv_build_server_flight(&s, rnd, &fo) == 0);
 }
 
+/* RFC 8446 4.1.4: ClientHello1 offering no x25519 share, answered with an
+ * HRR built into hrr (256 bytes); returns the HRR length. */
+static usz sdrv_hrr_round1(sdrv* s, const sdrv_hrr_fixture* f, u8* hrr) {
+  u8         ch1[512];
+  wired_obuf hob = obuf_of(hrr, 256);
+  usz        n = sdrv_hrr_build_ch(ch1, sizeof ch1, f->cli_pub, f->srv_random);
+  CHECK(n != 0);
+  sdrv_hrr_drop_x25519(ch1);
+  sdrv_hrr_init_any(s);
+  CHECK(sdrv_recv_client_hello(s, ch1, n) == 1);
+  CHECK(sdrv_build_hrr(s, &hob) == 1);
+  return hob.len;
+}
+
+/* The HRR's cookie: its last extension (hrr_build appends it last), whose
+ * TLV header 002c 0012 0010 precedes the 16 cookie bytes. */
+static const u8* sdrv_hrr_cookie_of(const u8* hrr, usz n) {
+  static const u8 hdr[6] = {0x00, 0x2c, 0x00, 0x12, 0x00, 0x10};
+  for (usz i = 0; i < 6; i++) {
+    CHECK(hrr[n - 22 + i] == hdr[i]);
+  }
+  return hrr + n - 16;
+}
+
+/* ClientHello2: x25519 share restored, echoing ck (0 = no cookie). */
+static usz sdrv_hrr_ch2(const sdrv_hrr_fixture* f, const u8* ck, u8* ch2) {
+  usz n = sdrv_hrr_build_ch(ch2, 512, f->cli_pub, f->srv_random);
+  CHECK(n != 0);
+  return ck ? test_ch_add_cookie(ch2, n, 512, ck) : n;
+}
+
+/* RFC 8446 4.2.2 / 4.4.1: the HRR carries a cookie; ClientHello2 echoing it
+ * is accepted, the transcript is message_hash(CH1) || HRR || CH2, and the
+ * server flight builds. */
+static void test_sdrv_hrr_cookie_round_trip(void) {
+  sdrv_hrr_fixture f;
+  sdrv             s;
+  u8               ch1[512], ch2[512], hrr[256], mh[36], h[32], got[32];
+  u8               sh[512], fl[4096], rnd[32] = {0};
+  wired_obuf sh_ob = obuf_of(sh, sizeof sh), fl_ob = obuf_of(fl, sizeof fl);
+  sdrv_flight_out fo = {&sh_ob, &fl_ob};
+  transcript      tr;
+  usz             hrr_len, n1, n2;
+  sdrv_hrr_fixture_init(&f);
+  hrr_len = sdrv_hrr_round1(&s, &f, hrr);
+  n2      = sdrv_hrr_ch2(&f, sdrv_hrr_cookie_of(hrr, hrr_len), ch2);
+  CHECK(sdrv_recv_client_hello(&s, ch2, n2) == 1);
+  n1 = sdrv_hrr_build_ch(ch1, sizeof ch1, f.cli_pub, f.srv_random);
+  sdrv_hrr_drop_x25519(ch1);
+  wired_sha256(ch1, n1, h);
+  CHECK(hrr_message_hash(h, 32, mh, sizeof mh) == 36);
+  transcript_init(&tr);
+  transcript_add(&tr, mh, 36);
+  transcript_add(&tr, hrr, hrr_len);
+  transcript_add(&tr, ch2, n2);
+  transcript_hash(&tr, h);
+  transcript_hash(&s.tr, got);
+  CHECK(ct_diff32(h, got) == 0);
+  CHECK(sdrv_build_server_flight(&s, rnd, &fo) == 1);
+}
+
+/* RFC 8446 4.2.2: two HRRs carry independent random cookies. */
+static void test_sdrv_hrr_cookie_random(void) {
+  sdrv_hrr_fixture f;
+  sdrv             s1, s2;
+  u8               h1[256], h2[256];
+  usz              n1, n2;
+  sdrv_hrr_fixture_init(&f);
+  n1 = sdrv_hrr_round1(&s1, &f, h1);
+  n2 = sdrv_hrr_round1(&s2, &f, h2);
+  CHECK(ct_diff16(sdrv_hrr_cookie_of(h1, n1), sdrv_hrr_cookie_of(h2, n2)) != 0);
+}
+
+/* RFC 8446 4.2.2 / 4.1.4: a ClientHello2 with a cookie other than the one
+ * the HRR sent (one bit flipped) is illegal_parameter. */
+static void test_sdrv_hrr_cookie_tampered_rejected(void) {
+  sdrv_hrr_fixture f;
+  sdrv             s;
+  u8               ch2[512], hrr[256], ck[16];
+  usz              hrr_len, n2;
+  sdrv_hrr_fixture_init(&f);
+  hrr_len = sdrv_hrr_round1(&s, &f, hrr);
+  bytes_memcpy(ck, sdrv_hrr_cookie_of(hrr, hrr_len), 16);
+  ck[15] ^= 0x01;
+  n2 = sdrv_hrr_ch2(&f, ck, ch2);
+  CHECK(sdrv_recv_client_hello(&s, ch2, n2) == 0);
+  CHECK(sdrv_last_error(&s) == err_crypto(47));
+}
+
+/* RFC 8446 4.2.2: the client MUST echo the HRR's cookie -- a ClientHello2
+ * without one is illegal_parameter. */
+static void test_sdrv_hrr_cookie_missing_rejected(void) {
+  sdrv_hrr_fixture f;
+  sdrv             s;
+  u8               ch2[512], hrr[256];
+  usz              n2;
+  sdrv_hrr_fixture_init(&f);
+  sdrv_hrr_round1(&s, &f, hrr);
+  n2 = sdrv_hrr_ch2(&f, 0, ch2);
+  CHECK(sdrv_recv_client_hello(&s, ch2, n2) == 0);
+  CHECK(sdrv_last_error(&s) == err_crypto(47));
+}
+
+/* RFC 8446 4.2.2: clients MUST NOT send a cookie in an initial
+ * ClientHello; with no HRR of ours on this connection there is no state it
+ * could validate against, so it is illegal_parameter, never ignored. */
+static void test_sdrv_hrr_cookie_without_hrr_rejected(void) {
+  sdrv_hrr_fixture f;
+  sdrv             s;
+  u8               ch[512], ck[16] = {1};
+  usz              n;
+  sdrv_hrr_fixture_init(&f);
+  n = sdrv_hrr_ch2(&f, ck, ch);
+  sdrv_hrr_init_any(&s);
+  CHECK(sdrv_recv_client_hello(&s, ch, n) == 0);
+  CHECK(sdrv_last_error(&s) == err_crypto(47));
+}
+
 void test_sdrv_hrr(void) {
   test_sdrv_hrr_normal_ch_no_hrr_pending();
   test_sdrv_hrr_no_x25519_triggers_hrr();
@@ -413,4 +537,9 @@ void test_sdrv_hrr(void) {
   test_sdrv_hrr_p256_only_ch_accepted();
   test_sdrv_hrr_p256_off_curve_share_refused();
   test_sdrv_hrr_x25519_low_order_share_fails_flight();
+  test_sdrv_hrr_cookie_round_trip();
+  test_sdrv_hrr_cookie_random();
+  test_sdrv_hrr_cookie_tampered_rejected();
+  test_sdrv_hrr_cookie_missing_rejected();
+  test_sdrv_hrr_cookie_without_hrr_rejected();
 }

@@ -12,8 +12,6 @@ const u8 hrr_random[32] = {0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11,
                            0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e,
                            0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
 
-#define EXT_COOKIE 44
-
 /* RFC 8446 4.1.3 prefix with empty session_id, the negotiated cipher_suite
  * (4.1.4: the one the connection will use -- a fixed suite here made a
  * ChaCha20-only client reject the HRR with illegal_parameter), and the HRR

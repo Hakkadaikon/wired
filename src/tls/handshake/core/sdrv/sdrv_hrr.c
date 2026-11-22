@@ -1,3 +1,4 @@
+#include "common/bytes/util/be.h"
 #include "tls/handshake/core/sdrv/sdrv_impl.h"
 
 static int  sdrv_ch_run_gates(sdrv* s, const u8* ch_msg, usz ch_len);
@@ -58,8 +59,46 @@ static void sdrv_hrr_reset_transcript(sdrv* s, const u8* hrr, usz hrr_len) {
   transcript_add(&s->tr, hrr, hrr_len);
 }
 
+/* RFC 8446 4.2.2: the cookie extension ClientHello2 must carry -- type,
+ * length and the opaque cookie<1..2^16-1> holding this driver's cookie. */
+static int sdrv_cookie_echoed(const sdrv* s, wired_span ext) {
+  u8 want[6 + SDRV_HRR_COOKIE_LEN];
+  be_put_be16(want, EXT_COOKIE);
+  be_put_be16(want + 2, 2 + SDRV_HRR_COOKIE_LEN);
+  be_put_be16(want + 4, SDRV_HRR_COOKIE_LEN);
+  bytes_memcpy(want + 6, s->hrr_cookie, SDRV_HRR_COOKIE_LEN);
+  return ext.n == sizeof want && ct_diffn(ext.p, want, sizeof want) == 0;
+}
+
+/* RFC 8446 4.2.2: after our HRR the cookie must come back unchanged; before
+ * it a cookie can only be stale or forged (clients MUST NOT send one in an
+ * initial ClientHello) -- this stateful server has nothing to check it
+ * against. */
+static int sdrv_cookie_ok(const sdrv* s, const u8* ch_msg, usz ch_len) {
+  wired_span ext;
+  int        found = sdrv_find_client_ext(ch_msg, ch_len, EXT_COOKIE, &ext);
+  if (!s->hrr_sent) {
+    return !found;
+  }
+  return found && sdrv_cookie_echoed(s, ext);
+}
+
+/* RFC 8446 4.1.2 / 4.2.2: a missing, altered or unsolicited cookie is
+ * illegal_parameter (alert 47). */
+int sdrv_ch_check_cookie(sdrv* s, const u8* ch_msg, usz ch_len) {
+  if (sdrv_cookie_ok(s, ch_msg, ch_len)) {
+    return 1;
+  }
+  s->last_error = err_crypto(47);
+  return 0;
+}
+
 int sdrv_build_hrr(sdrv* s, wired_obuf* out) {
-  if (!hrr_build(s->cipher_suite, s->group, wired_span_of(0, 0), out)) {
+  wired_span ck = wired_span_of(s->hrr_cookie, SDRV_HRR_COOKIE_LEN);
+  if (!rng_bytes(s->hrr_cookie, SDRV_HRR_COOKIE_LEN)) {
+    return 0;
+  }
+  if (!hrr_build(s->cipher_suite, s->group, ck, out)) {
     return 0;
   }
   sdrv_hrr_reset_transcript(s, out->p, out->len);

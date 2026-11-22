@@ -30,6 +30,10 @@
  * certificate_required (alert 116). */
 #define WIRED_CLIENT_AUTH_REQUIRED 2
 
+/** RFC 8446 4.2.2: octets of the HelloRetryRequest cookie this server
+ * sends (a random value, 128 bits so it cannot be guessed). */
+#define SDRV_HRR_COOKIE_LEN 16
+
 /** Server-side handshake driver state. Members are grouped by alignment
  * (8-byte, 4, 2, then byte arrays) to keep the struct free of padding.
  * views: certs=own|env|slot|caller, alpn_tok=own|caller,
@@ -292,6 +296,11 @@ typedef struct {
    * so sdrv_build_hrr can fold the message_hash synthetic message into
    * the transcript without keeping ClientHello1's raw bytes around. */
   u8 ch1_hash[TLS_HASH_MAX];
+  /** RFC 8446 4.2.2: the random cookie sdrv_build_hrr sent; ClientHello2
+   * must echo it unchanged. shortcut: stateful (the slot waits for
+   * ClientHello2 anyway), seal ch1_hash/suite/group into it when HRR must
+   * survive without the slot. */
+  u8 hrr_cookie[SDRV_HRR_COOKIE_LEN];
   /** RFC 9000 9.6/18.2: the preferred_address transport parameter this
    * flight advertises, set via sdrv_set_preferred_address before the
    * flight is built. pref_cid_len 0 (never set) omits the parameter. The

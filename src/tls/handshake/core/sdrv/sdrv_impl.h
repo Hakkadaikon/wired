@@ -12,6 +12,7 @@
 #include "common/diag/error/codes.h"
 #include "common/diag/error/error.h"
 #include "common/platform/clock/clock.h"
+#include "common/platform/rng/rng.h"
 #include "crypto/asymmetric/ecc/p256/p256_ecdhe.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
 #include "crypto/pki/cert/p256cert/p256cert.h"
@@ -143,6 +144,7 @@ int sdrv_ch_require_null_compression(sdrv* s, const u8* ch_msg, usz ch_len);
 int sdrv_ch_require_ext_shapes(sdrv* s, const u8* ch_msg, usz ch_len);
 int sdrv_ch_require_psk_shape(sdrv* s, const u8* ch_msg, usz ch_len);
 int sdrv_ch_require_ks_with_groups(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_check_cookie(sdrv* s, const u8* ch_msg, usz ch_len);
 
 /* The offset past the w-byte-length-prefixed entry at q, or 0 if its
  * prefix or its declared bytes run past n. */
@@ -183,7 +185,7 @@ static inline int sdrv_vec_ok(
   return sdrv_count_ok(sdrv_vec_count(d.p + w, d.n - w, step), min);
 }
 
-extern const sdrv_ch_gate SDRV_CH_GATES[18];
+extern const sdrv_ch_gate SDRV_CH_GATES[19];
 
 /* sdrv_early_ticket.c: the resumed ticket's own checks. */
 int sdrv_early_limits_ok(const sdrv* s, const ticket* t);

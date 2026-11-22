@@ -9,6 +9,9 @@
  * supported_versions (selected_version 0x0304), key_share (selected_group
  * only, no key exchange), and an optional cookie. */
 
+/* RFC 8446 4.2: the "cookie" extension_type (HRR and ClientHello2). */
+#define EXT_COOKIE 44
+
 /* The 32-byte HelloRetryRequest random sentinel (RFC 8446 4.1.3). */
 extern const u8 hrr_random[32];
 

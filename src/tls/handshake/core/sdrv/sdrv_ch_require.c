@@ -249,4 +249,5 @@ const sdrv_ch_gate SDRV_CH_GATES[] = {
     sdrv_ch_require_ks_with_groups,
     sdrv_ch_require_psk_modes,
     sdrv_ch_require_psk_last,
+    sdrv_ch_check_cookie,
 };
