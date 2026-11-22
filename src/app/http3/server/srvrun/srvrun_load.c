@@ -108,11 +108,15 @@ static int srvrun_ack_progress(const srvrun_conn* c) {
 
 /* A DATAGRAM with a payload queued this step (RFC 9221 5). */
 static int srvrun_dg_progress(const srvrun_rxmark* m, const srvrun_conn* c) {
-  int hit = 0;
+  /* Early return, not an |= reduction: the vectorized reduction's trip
+   * count under -fsanitize=bounds,pointer-overflow needs __udivti3, which
+   * a -nostdlib link does not have. */
   for (usz i = m->rx_dg; i < c->l.rx_datagram_n; i++) {
-    hit |= c->l.rx_datagrams[i].len != 0;
+    if (c->l.rx_datagrams[i].len) {
+      return 1;
+    }
   }
-  return hit;
+  return 0;
 }
 
 /* RFC 9000 21.9: the step delivered stream bytes never received before
