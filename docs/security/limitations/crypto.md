@@ -128,7 +128,9 @@ NewSessionTicket は発行の時点ではなく、接続を受け入れた時点
 
 影響: これらの機能を使って証明書チェーンを検証するアプリケーション。
 
-iPAddress の名前制約のサブツリーは、IP アドレスをそのまま書いた CN には適用しない。CRL、OCSP などの失効の確認、ポリシーのマッピング、IDN の処理、SRV-ID や URI-ID の照合はない(DNS-ID の dNSName だけ)。
+iPAddress の名前制約のサブツリーは、IP アドレスをそのまま書いた CN には適用しない。CRL、OCSP などの失効の確認、IDN の処理、SRV-ID や URI-ID の照合はない(DNS-ID の dNSName だけ)。
+
+証明書ポリシーの処理(RFC 9618 のグラフ)には上限がある。certificatePolicies が 9 件以上、policyMappings が 17 組以上の証明書を含むパスと、ノードが 1 つの深さで 33 個以上、valid_policy_node_set の OID が全体で 33 種類以上になるパスは、explicit_policy が 0 のときに拒否する。explicit_policy が 0 より大きいときは RFC 5280 6.1.5 のとおり受け入れる。
 
 参照: `nameconstraints.c`(ponytail)、[rfc5280.md](../../features/rfc5280.md)、[rfc6125.md](../../features/rfc6125.md) の対象外
 
