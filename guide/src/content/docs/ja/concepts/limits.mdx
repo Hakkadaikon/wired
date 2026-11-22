@@ -27,14 +27,16 @@ wired が内部に持つ表（コネクションやストリームの管理表�
 | 上限 | 値 | 定数 |
 |---|---|---|
 | コネクションあたりの同時リクエストストリーム | 40（`-D` で上書き可） | `WIRED_SRVLOOP_MAX_STREAMS` |
-| リクエストボディのウィンドウ（`on_body` なしではボディ全体、ありでは 1 回分） | 2048 バイト | `BODYWIN_CAP` |
-| リクエストのヘッダーセクション | 2048 バイト | `WIRED_H3_MAX_FIELD_SECTION` |
-| リクエストごとに保持するヘッダー（それ以降は無視） | 32 | `WIRED_H3REQDRIVE_MAX_HDRS` |
+| リクエストボディのウィンドウ（`on_body` なしではボディ全体、ありでは 1 回分） | 10240 バイト | `BODYWIN_CAP` |
+| リクエストのヘッダーセクション | 10240 バイト | `WIRED_H3_MAX_FIELD_SECTION` |
+| リクエストごとに保持するヘッダー（上の上限内のセクションならすべて。それを超える 1 行は 431） | 310 | `WIRED_H3REQDRIVE_MAX_HDRS` |
+| 連結した `cookie` の値（超えると 431） | 512 バイト | `wired_h3reqdrive_req.cookie` |
+| `wt-available-protocols` の値（超えると 431） | 256 バイト | `wired_h3reqdrive_req.wt_avail` |
 | ハンドラー 1 回あたりのレスポンスヘッダーフィールド | 8 | `WIRED_HTTP_MAX_FIELDS` |
 | エンコード済みのレスポンスヘッダーの領域 | 512 バイト | `SRVRUN_RESP_HDR_ROOM` |
 | 固定長のレスポンス 1 回分（ヘッダーとボディ） | 16384 バイト | `WIRED_SRVRUN_RESP_MAX` |
 
-2048 バイトを超えるリクエストボディには `wired_srvrun_handler.on_body` が必要で、ボディをウィンドウ 1 つ分ずつ受け取ります（[POST ボディのストリーミング](../../h3/post-body/)）。
+10240 バイトを超えるリクエストボディには `wired_srvrun_handler.on_body` が必要で、ボディをウィンドウ 1 つ分ずつ受け取ります（[POST ボディのストリーミング](../../h3/post-body/)）。
 1 回分を超えるレスポンスはストリーミングします（[大きなボディのストリーミング](../../h3/streaming/)）。
 
 ## MoQT ハブ

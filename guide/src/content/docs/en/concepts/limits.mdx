@@ -29,14 +29,16 @@ override with `-D` at build time).
 | Limit | Value | Constant |
 |---|---|---|
 | Concurrent request streams per connection | 40 (`-D` overridable) | `WIRED_SRVLOOP_MAX_STREAMS` |
-| Request body window (whole body without `on_body`; per round with it) | 2048 bytes | `BODYWIN_CAP` |
-| Request header section | 2048 bytes | `WIRED_H3_MAX_FIELD_SECTION` |
-| Request headers kept per request (further ones ignored) | 32 | `WIRED_H3REQDRIVE_MAX_HDRS` |
+| Request body window (whole body without `on_body`; per round with it) | 10240 bytes | `BODYWIN_CAP` |
+| Request header section | 10240 bytes | `WIRED_H3_MAX_FIELD_SECTION` |
+| Request headers kept per request (every header of a section within the limit above; one more is answered 431) | 310 | `WIRED_H3REQDRIVE_MAX_HDRS` |
+| Joined `cookie` value (longer: 431) | 512 bytes | `wired_h3reqdrive_req.cookie` |
+| `wt-available-protocols` value (longer: 431) | 256 bytes | `wired_h3reqdrive_req.wt_avail` |
 | Response header fields per handler round | 8 | `WIRED_HTTP_MAX_FIELDS` |
 | Room for the encoded response headers | 512 bytes | `SRVRUN_RESP_HDR_ROOM` |
 | One fixed response round (headers + body) | 16384 bytes | `WIRED_SRVRUN_RESP_MAX` |
 
-A request body larger than 2048 bytes needs `wired_srvrun_handler.on_body`,
+A request body larger than 10240 bytes needs `wired_srvrun_handler.on_body`,
 which receives it window by window
 ([Streaming a POST body](../../h3/post-body/)); a response larger than one
 round is streamed ([Streaming a large body](../../h3/streaming/)).

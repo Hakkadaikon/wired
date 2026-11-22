@@ -115,15 +115,7 @@ QUIC DATAGRAM があることを前提にしている。
 
 参照: [rfc9297.md](../../features/rfc9297.md)
 
-### 1.12 カプセルの禁止フィールドは先頭の 32 行だけを調べる
-
-影響: 32 行を超えるフィールドを付けた WebTransport の CONNECT。
-
-RFC 9297 3.2 は Content-Length か Content-Type を持つメッセージに Capsule Protocol を使うことを禁じている。SDK が保持するリクエストのフィールドは先頭の `WIRED_H3REQDRIVE_MAX_HDRS`(32)行である。それより後ろの行にある禁止フィールドは検出せず、そのリクエストを不正として扱わない。
-
-参照: `wt_capsule_fields_absent`(shortcut)、`srvrun_wt_request_ok`
-
-### 1.13 RESET_STREAM_AT は届いた時点でリセットとして扱う
+### 1.12 RESET_STREAM_AT は届いた時点でリセットとして扱う
 
 影響: アプリケーションのデータを含む範囲を Reliable Size に指定してリセットする相手。
 
@@ -131,7 +123,7 @@ RFC 9297 3.2 は Content-Length か Content-Type を持つメッセージに Cap
 
 参照: `srvloop_reset_at_frame`(shortcut)、`srvloop_wt_reset_frame`
 
-### 1.14 WT_CLOSE_SESSION のあとの CONNECT ストリームの監視は接続あたり 1 つ
+### 1.13 WT_CLOSE_SESSION のあとの CONNECT ストリームの監視は接続あたり 1 つ
 
 影響: 1 つの接続で 2 つのセッションを続けて閉じるクライアント。
 
@@ -141,7 +133,7 @@ WT_CLOSE_SESSION のあとに CONNECT ストリームへデータが届くと、
 
 参照: `srvrun_wt_watch_arm`(shortcut)、`srvrun_wt_watch_drain`
 
-### 1.15 セッションのフロー制御の上限は受信の表の大きさで決まる
+### 1.14 セッションのフロー制御の上限は受信の表の大きさで決まる
 
 影響: 1 つのセッションで同時に多くのストリームを開いたままにするクライアント(MoQT の通話)と、サーバーから双方向ストリームを開くアプリケーション。
 
@@ -260,6 +252,12 @@ RFC 9110 4.1 は少なくとも 8000 オクテットの URI を受け付ける�
 | interop のイメージの 64 接続 | 65 MB |
 | `srvthreads` | ワーカーごとに環境を 1 つ割り当てるので、上の値 x ワーカーの数 |
 
+広告したフィールドセクションに収まるリクエストを欠けなく渡すため、次の 3 つも上限に合わせている。合わせて接続あたり約 0.6 MB(64 接続で約 38 MB)増える。
+
+- リクエストごとのヘッダーの表(`WIRED_H3REQDRIVE_MAX_HDRS`、310 行、1 行 8 バイト)。リクエストのスロット、`l.req`、レスポンスのスロットがそれぞれ 1 つ持つ
+- ストリーミングのレスポンスが持つリクエストのコピー(`SRVRUN_STREAM_REQ_CAP`、10256 バイト)。レスポンスのスロットごとに 1 つ
+- WebTransport のセッションが保持する `:path`(`SRVRUN_WT_PATH_CAP`、10240 バイト)。セッションのスロットごとに 1 つ
+
 参照: `body_window.h`、`control_settings.h`
 
 ### 2.7 中断の再送テーブルは固定長
@@ -278,8 +276,11 @@ RFC 9110 4.1 は少なくとも 8000 オクテットの URI を受け付ける�
 |---|---|
 | HEADERS フレーム全体からリクエストを組み立てられない | FIN を待たずに H3_MESSAGE_ERROR と STOP_SENDING でリセット。その前に 400 は送らない(RFC 9114 4.1.2 の MAY)。適合性の検査ツールが期待するリセットになる |
 | HEADERS フレームが揃う前に終わった | H3_REQUEST_INCOMPLETE |
-| 復号した行が復号用の作業領域からあふれる(広告した SETTINGS_MAX_FIELD_SECTION_SIZE を超える) | 431 で応答(RFC 9114 4.2.2) |
-| 1 行のフィールドが復号用の作業領域全体より大きい、またはデコーダーが解釈できない | QPACK_DECOMPRESSION_FAILED でリセット(RFC 9204 7.4) |
+| 復号した行が復号用の作業領域からあふれる、または保持するヘッダーの表(`WIRED_H3REQDRIVE_MAX_HDRS`、310 行)からあふれる(どちらも広告した SETTINGS_MAX_FIELD_SECTION_SIZE を超える) | 431 で応答(RFC 9114 4.2.2)。一部のフィールドを落としたリクエストはハンドラーに渡さない |
+| 連結した cookie が 512 バイトを、", " で連結した wt-available-protocols が 256 バイトを超える | 431 で応答(RFC 9114 4.2.2) |
+| origin のフィールド行が 2 つある | H3_MESSAGE_ERROR でリセット(RFC 9114 4.1.2)。origin は 1 つの値しか持たない |
+| トレーラーセクションの行が、先頭のセクションの残した作業領域に収まらない(どちらのセクションも単独では上限内) | 431 で応答(RFC 9114 4.2.2)。作業領域は 2 つのセクションで共有する |
+| 1 行のフィールドが復号用の作業領域全体より大きい、またはデコーダーが解釈できない | QPACK_DECOMPRESSION_FAILED でリセット(RFC 9204 7.4)。フィールド名の長さだけでは断らない |
 
 どの場合もスロットと双方向ストリームのクレジットは返す。受信の途中で相手がリセットしたリクエストストリームや、データがまだスロットを取る前にリセットされたリクエストストリームも同じ扱いである。
 
