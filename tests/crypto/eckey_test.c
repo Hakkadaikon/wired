@@ -109,6 +109,9 @@ static void test_eckey_ed25519_import_then_keypair(void) {
               eckey_ed25519_test1_pkcs8_der,
               sizeof(eckey_ed25519_test1_pkcs8_der)),
           seed) == 1);
+  /* RFC 8410 7: the seed is imported verbatim (DER bytes 16..47), no
+   * masking at import; RFC 8032 5.1.5's clamp happens on use below. */
+  CHECK(ct_diff32(seed, eckey_ed25519_test1_pkcs8_der + 16) == 0);
   CHECK(ed25519_keypair(seed, pub) == 1);
   CHECK(ct_diff32(pub, eckey_ed25519_test1_pub) == 0);
 }

@@ -1170,6 +1170,7 @@
 #include "crypto/chainverify_test.c"
 #include "crypto/pathvalidate_test.c"
 #include "crypto/pathvalidate_path_test.c"
+#include "crypto/pathvalidate_rows_test.c"
 #include "transport/crypto_stream_test.c"
 #include "tls/tlsdriver_test.c"
 #include "tls/cert_chain_test.c"
@@ -1659,6 +1660,7 @@ int main(void) {
   test_chainverify();
   test_pathvalidate();
   test_pathvalidate_path();
+  test_pathvalidate_rows();
   test_crypto_stream();
   test_tlsdriver();
   test_cert_chain();
