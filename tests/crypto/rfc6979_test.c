@@ -27,6 +27,19 @@ static void test_rfc6979_sample_k(void) {
   }
 }
 
+/* RFC 6979 A.2.5: the same key, SHA-256, message "test". */
+static void test_rfc6979_test_k(void) {
+  u8 priv[32], want[32], h[32], k[32];
+  r6979_hb32(R6979_X, priv);
+  r6979_hb32(
+      "d16b6ae827f17175e040871a1c7ec3500192c4c92677336ec2537acaee0008e0", want);
+  wired_sha256((const u8*)"test", 4, h);
+  p256sign_k(priv, h, k);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(k[i] == want[i]);
+  }
+}
+
 /* Group order n (FIPS 186-4 D.1.2.3), big-endian 32 bytes, cross-checked by
  * hand against p256_n's little-endian limbs the same way as
  * ecdsa_verify_test.c's P256_N. */
@@ -105,6 +118,7 @@ static void test_rfc6979_accept_out_of_range(void) {
 
 void test_rfc6979(void) {
   test_rfc6979_sample_k();
+  test_rfc6979_test_k();
   test_rfc6979_k_in_range_boundaries();
   test_rfc6979_retry_skips_rejected_candidates();
   test_rfc6979_accept_out_of_range();

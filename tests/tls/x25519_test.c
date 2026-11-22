@@ -1,3 +1,5 @@
+#include <stdlib.h>
+
 #include "test.h"
 
 static void hb32(const char* hex, u8 out[32]) {
@@ -113,11 +115,11 @@ static void test_x25519_rfc_iterate_1(void) {
   }
 }
 
-static void test_x25519_rfc_iterate_1000(void) {
+/* RFC 7748 5.2 iteration: k = u = 9, then n times k, u = X25519(k, u), k. */
+static void x25519_iterate(long n, const char* want_hex) {
   u8 k[32] = {9}, u[32] = {9}, next[32], want[32];
-  hb32(
-      "684cf59ba83309552800ef566f2f4d3c1c3887c49360e3875f2eb94d99532c51", want);
-  for (int i = 0; i < 1000; i++) {
+  hb32(want_hex, want);
+  for (long i = 0; i < n; i++) {
     wired_x25519(next, k, u);
     for (usz j = 0; j < 32; j++) {
       u[j] = k[j];
@@ -129,6 +131,24 @@ static void test_x25519_rfc_iterate_1000(void) {
   for (usz i = 0; i < 32; i++) {
     CHECK(k[i] == want[i]);
   }
+}
+
+static void test_x25519_rfc_iterate_1000(void) {
+  x25519_iterate(
+      1000, "684cf59ba83309552800ef566f2f4d3c1c3887c49360e3875f2eb94d99532c51");
+}
+
+/* RFC 7748 5.2, 1,000,000 iterations: minutes of CPU, so `just test` skips
+ * it unless WIRED_X25519_1M is set; run it by hand with
+ * `WIRED_X25519_1M=1 nix develop -c just test`. */
+static void test_x25519_rfc_iterate_1m(void) {
+  if (!getenv("WIRED_X25519_1M")) {
+    return;
+  }
+  x25519_iterate(
+      1000000,
+      "7c3911e0ab2586fd864497297e575e6f3bc601c0883c30df5f4dd2d24f665424");
+  printf("x25519 1,000,000-iteration vector checked\n");
 }
 
 /* RFC 7748 6.1 Diffie-Hellman fixed vector: Alice's and Bob's key pairs and
@@ -225,6 +245,7 @@ void test_x25519(void) {
   test_x25519_noncanonical_u_reduced();
   test_x25519_rfc_iterate_1();
   test_x25519_rfc_iterate_1000();
+  test_x25519_rfc_iterate_1m();
   test_x25519_rfc_dh_alice_bob();
   test_x25519_clamp_rfc7748();
   test_x25519_clamp_zero_forces_bit254();

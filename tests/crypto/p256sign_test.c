@@ -44,6 +44,25 @@ static void test_p256sign_known_vector(void) {
   }
 }
 
+/* RFC 6979 A.2.5, SHA-256, message "test": (r, s) as published. This s is
+ * already below n/2, so low-S normalization leaves it unchanged. */
+static void test_p256sign_test_vector(void) {
+  u8 priv[32], h[32], r[32], s[32], wr[32], ws[32];
+  psign_hb32(PS_X, priv);
+  psign_hb32(
+      "f1abb023518351cd71d881567b1ea663ed3efcf6c5132b354f28d3b0b7d38367", wr);
+  psign_hb32(
+      "019f4113742a2b14bd25926b49c649155f267e60d3814b4c0cc84250e46f0083", ws);
+  wired_sha256((const u8*)"test", 4, h);
+  CHECK(p256sign_sign(priv, h, r, s) == 1);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(r[i] == wr[i]);
+  }
+  for (usz i = 0; i < 32; i++) {
+    CHECK(s[i] == ws[i]);
+  }
+}
+
 /* Self-produced signature verifies under the existing verifier (round-trip). */
 static void ps_roundtrip(const u8* msg, usz len) {
   u8 priv[32], qx[32], qy[32], h[32], r[32], s[32];
@@ -146,6 +165,7 @@ static void test_p256sign_s_zero_candidate_unsuitable(void) {
 }
 
 void test_p256sign(void) {
+  test_p256sign_test_vector();
   test_p256sign_s_zero_candidate_unsuitable();
   test_p256sign_known_vector();
   test_p256sign_single_mulg();

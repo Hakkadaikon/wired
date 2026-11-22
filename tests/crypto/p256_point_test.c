@@ -149,7 +149,25 @@ static void test_p256_point_infinity_ops(void) {
   CHECK(r.inf);
 }
 
+/* RFC 6090 3: P != Q with x1 == x2 (Q = -P = (x, p - y)) sums to the
+ * point at infinity on ec_add's affine branch, in either operand order. */
+static void test_p256_add_inverse_is_infinity(void) {
+  static const p256_fe zero = {0};
+  ec_point             neg, r = {{0}, {0}, 0};
+  p256_fp_set(neg.x, p256_g.x);
+  p256_fp_sub(neg.y, (fpab){zero, p256_g.y}, p256_p);
+  neg.inf = 0;
+  CHECK(ec_on_curve(&neg) == 1);
+  CHECK(!p256_fp_eq(neg.y, p256_g.y));
+  ec_add(&r, &p256_g, &neg);
+  CHECK(r.inf == 1);
+  r.inf = 0;
+  ec_add(&r, &neg, &p256_g);
+  CHECK(r.inf == 1);
+}
+
 void test_p256_point(void) {
+  test_p256_add_inverse_is_infinity();
   test_p256_g_on_curve();
   test_p256_double_eq_add();
   test_p256_scalar();
