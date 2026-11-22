@@ -193,7 +193,30 @@ static void test_gcm_tamper_rejects(void) {
   }
 }
 
+/* SP 800-38D 7.2 step 1: an input shorter than the 16-octet tag is FAIL
+ * for every length 0..15 (gcm_open and gcm256_open), with pt untouched;
+ * exactly a tag (empty plaintext) is the boundary that still opens. */
+static void test_gcm_open_short_ct_fails(void) {
+  u8         key[32] = {0}, iv[12] = {0}, tag[16], tag256[16], pt[1] = {0xCC};
+  aes128     a;
+  aes256     a256;
+  gcm_ctx    g    = {&a, iv, {(const u8*)"hdr", 3}};
+  gcm256_ctx g256 = {&a256, iv, {(const u8*)"hdr", 3}};
+  aes128_init(&a, key);
+  aes256_init(&a256, key);
+  CHECK(gcm_seal(&g, wired_span_of(pt, 0), tag) == GCM_TAG);
+  CHECK(gcm256_seal(&g256, wired_span_of(pt, 0), tag256) == GCM_TAG);
+  for (usz n = 0; n < GCM_TAG; n++) {
+    CHECK(gcm_open(&g, wired_span_of(tag, n), pt) == 0);
+    CHECK(gcm256_open(&g256, wired_span_of(tag256, n), pt) == 0);
+  }
+  CHECK(pt[0] == 0xCC);
+  CHECK(gcm_open(&g, wired_span_of(tag, GCM_TAG), pt) == 1);
+  CHECK(gcm256_open(&g256, wired_span_of(tag256, GCM_TAG), pt) == 1);
+}
+
 void test_gcm(void) {
+  test_gcm_open_short_ct_fails();
   test_gcm_nist();
   test_gcm_open();
   test_gcm_dispatch();

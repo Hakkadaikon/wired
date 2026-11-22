@@ -10,7 +10,7 @@
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 12/15、間接 3、未テスト 0。**
+**カバレッジ: テスト済み 14/15、間接 1、未テスト 0。**
 
 ## §3 表記法と規約
 
@@ -21,8 +21,9 @@
 
 ## §4 数学的準備
 
-- [~] F197-002 (§4.1, §4.2) 実装は、GF(2^8) の 2 つのバイトを XOR で加算し、m(x) = x^8+x^4+x^3+x+1 を法として簡約する多項式乗算で乗算しなければならない({02} による乗算には XTIMES を使う)。
-  - evidence: `src/crypto/symmetric/aead/aes/aes.c` の `XTIME` が法による簡約を実装しています(`((x << 1) ^ ((x >> 7) * 0x1b))`。m(x) のバイト形式)。`MIX_COLUMNS`/`INV_MIX_COLUMNS` で使うような小さな固定の定数による乗算は、`XTIME` を繰り返して組み立てています。GF(2^8) の乗算だけを確かめる単体テストはなく、`CIPHER()` 全体の既知解テストを通じて間接的に動かしているだけです。
+- [x] F197-002 (§4.1, §4.2) 実装は、GF(2^8) の 2 つのバイトを XOR で加算し、m(x) = x^8+x^4+x^3+x+1 を法として簡約する多項式乗算で乗算しなければならない({02} による乗算には XTIMES を使う)。
+  - test: `tests/crypto/aes_test.c` — `test_aes_xtimes` (§4.2.1 の {57} の XTIMES の連鎖と {57}•{13} = {fe})
+  - test: `tests/crypto/aes_test.c` — `test_aes_appendix_b_rounds` (Appendix B の 9 ラウンドの MixColumns 後の状態)
 - [x] F197-003 (§4.3) 実装は、MIXCOLUMNS() の数学的な基礎として、GF(2^8) の乗算と XOR を使ってワードに固定行列 [{02},{01},{01},{03}](順方向)を掛けなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_mix_columns_matrix`
 
@@ -34,8 +35,8 @@
 - [x] F197-005 (§5.1.1) 実装は、SUBBYTES() で SBOX の置換表(Table 4)をステートの各バイトに独立に適用しなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
-- [~] F197-006 (§5.1.2) 実装は、SHIFTROWS() でステートの r 行目を左へ r 位置だけ巡回シフトし、0 行目は変えずに残さなければならない。
-  - evidence: `src/crypto/symmetric/aead/aes/aes.c` の `shift_rows`/`shift_col` が `t[4c+r] = s[4*((c+r)%4)+r]` を実装しています。既知解テストで端から端まで動かしているだけで、SHIFTROWS 単体の検証はありません。
+- [x] F197-006 (§5.1.2) 実装は、SHIFTROWS() でステートの r 行目を左へ r 位置だけ巡回シフトし、0 行目は変えずに残さなければならない。
+  - test: `tests/crypto/aes_test.c` — `test_aes_appendix_b_rounds` (Appendix B の 10 ラウンドすべてで、`shift_rows` の後の状態を比べる)
 - [x] F197-007 (§5.1.3) 実装は、MIXCOLUMNS() でステートの各列に固定行列 [{02},{01},{01},{03}] を掛けて混ぜなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_mix_columns_matrix`
 - [x] F197-008 (§5.1.4) 実装は、ADDROUNDKEY() で各ラウンド鍵(鍵スケジュールの 4 ワード)とステートを XOR で組み合わせなければならない。ADDROUNDKEY() は最初のラウンドの前に 1 回、その後はラウンドごとに 1 回呼び出す。
