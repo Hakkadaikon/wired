@@ -8,7 +8,8 @@
  * on success, the signatureAlgorithm allowlist (RFC 4055 RSASSA-PSS
  * parameters included), the tbsCertificate sub-parsers, the inner/outer
  * signatureAlgorithm comparison, extension lookup, and the RFC 5280
- * 4.2.1.5 policyMappings parser feeding the RFC 9618 policy graph. */
+ * 4.2.1.5 policyMappings parser feeding the RFC 9618 policy graph, and
+ * subjectAltName matching of a reference identity taken from the input. */
 #include <stddef.h>
 #include <stdint.h>
 
@@ -22,6 +23,11 @@
 #include "crypto/pki/encoding/x509/policytree.c"
 #include "crypto/pki/encoding/x509/policytree_map.c"
 #include "crypto/pki/encoding/x509/policytree_node.c"
+#include "crypto/pki/encoding/x509/san.c"
+#include "crypto/pki/encoding/x509/san_ipv4.c"
+#include "crypto/pki/encoding/x509/san_ipv6.c"
+#include "crypto/pki/encoding/x509/san_ipv6_list.c"
+#include "crypto/pki/encoding/x509/san_x509.c"
 #include "crypto/pki/encoding/x509/sigalgoid.c"
 #include "crypto/pki/encoding/x509/sigalgoid_pss.c"
 #include "crypto/pki/encoding/x509/x509.c"
@@ -55,6 +61,11 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   static const u8 basic_constraints_oid[] = {0x55, 0x1d, 0x13};
   wired_span      val;
   x509_find_ext(x.tbs, wired_span_of(basic_constraints_oid, 3), &val);
+
+  /* The signatureValue octets as a peer-chosen reference identity: drives
+   * the IPv4/IPv6 literal parsers (RFC 4291 2.2) and the SAN matchers
+   * (RFC 9525 6.3) against this certificate's own SAN and subject. */
+  x509_san_matches(x.tbs, x.sig);
 
   /* The certificate's certificatePolicies / policyMappings folded into a
    * policy graph as two consecutive path certificates would be. The
