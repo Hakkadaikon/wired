@@ -133,11 +133,11 @@ static void test_critical_nc_min_max_rejects(void) {
   CHECK(pkp_lone(PKP_SPAN(pkp_ncminnc_der)) == 1);
 }
 
-/* RFC 5280 4.2.1.11: policy mapping is not supported, so a critical
- * policyConstraints carrying inhibitPolicyMapping is rejected; one with
- * only requireExplicitPolicy is processed and accepted. */
-static void test_critical_pc_inhibit_mapping_rejects(void) {
-  CHECK(pkp_lone(PKP_SPAN(pkp_pcipm_der)) == 0);
+/* RFC 5280 4.2.1.11 / 6.1.4 (i)(2): inhibitPolicyMapping is processed, so
+ * a critical policyConstraints carrying it is accepted, like one with only
+ * requireExplicitPolicy. */
+static void test_critical_pc_inhibit_mapping_processed(void) {
+  CHECK(pkp_lone(PKP_SPAN(pkp_pcipm_der)) == 1);
   CHECK(pkp_lone(PKP_SPAN(pkp_pcrep_der)) == 1);
 }
 
@@ -173,7 +173,7 @@ void test_pathvalidate_path(void) {
   test_self_issued_case_insensitive();
   test_leaf_ku_without_digital_signature_rejects();
   test_critical_nc_min_max_rejects();
-  test_critical_pc_inhibit_mapping_rejects();
+  test_critical_pc_inhibit_mapping_processed();
   test_critical_cp_qualifier_rejects();
   test_nc_san_dirname_excluded_rejects();
 }

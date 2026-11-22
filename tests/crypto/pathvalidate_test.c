@@ -566,20 +566,21 @@ static void test_pv_ed_ca_keyusage(void) {
  * 0 -> 0x80) and a non-INTEGER inhibitAnyPolicy (the SKID extension's OID
  * 2.5.29.14 relabelled 2.5.29.54 at pc_mid2[307]) each fail the step. */
 static void test_pv_policy_step_malformed_rejects(void) {
-  u8               buf[sizeof(castore_pc_mid2_der)];
-  x509_policy_tree t;
-  u64              ex = X509_SKIPCERTS_NONE, ia = X509_SKIPCERTS_NONE;
+  u8                 buf[sizeof(castore_pc_mid2_der)];
+  x509_policy_graph  g;
+  castore_policy_ctr c = {
+      X509_SKIPCERTS_NONE, X509_SKIPCERTS_NONE, X509_SKIPCERTS_NONE};
   CHECK(castore_pc_mid2_der[281] == 0x00 && castore_pc_mid2_der[307] == 0x0e);
-  x509_policy_tree_init(&t);
-  CHECK(castore_policy_step(PV_SPAN(castore_pc_mid2_der), &t, &ex, &ia) == 1);
+  x509_policy_graph_init(&g);
+  CHECK(castore_policy_step(PV_SPAN(castore_pc_mid2_der), &g, &c, 0) == 1);
   CHECK(
       castore_policy_step(
-          pv_mut(buf, castore_pc_mid2_der, sizeof(buf), 281, 0x80), &t, &ex,
-          &ia) == 0);
+          pv_mut(buf, castore_pc_mid2_der, sizeof(buf), 281, 0x80), &g, &c,
+          0) == 0);
   CHECK(
       castore_policy_step(
-          pv_mut(buf, castore_pc_mid2_der, sizeof(buf), 307, 0x36), &t, &ex,
-          &ia) == 0);
+          pv_mut(buf, castore_pc_mid2_der, sizeof(buf), 307, 0x36), &g, &c,
+          0) == 0);
 }
 
 void test_pathvalidate(void) {

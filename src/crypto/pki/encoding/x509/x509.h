@@ -41,6 +41,9 @@ int x509_ext_critical(wired_span tbs, wired_span oid);
  * certificate carrying an unrecognized critical extension. */
 int x509_has_unknown_critical(wired_span tbs);
 
+/* RFC 5280 4.2.1.5. id-ce-policyMappings = 2.5.29.33. */
+extern const u8 x509_oid_policy_mappings[3];
+
 /* RFC 5280 4.2: "A certificate MUST NOT include more than one instance of a
  * particular extension." 1 if some extnID appears in tbs's extensions more
  * than once (x509_find_ext consults only the first instance, so a repeated

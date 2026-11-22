@@ -26,68 +26,89 @@ static u64 skipcerts_uint(wired_span v) {
   return out;
 }
 
-/* The PolicyConstraints SEQUENCE value, if the extension is present. */
-static int policy_constraints_locate(wired_span tbs, wired_span* val) {
-  wired_span raw;
+/* The extnValue is exactly one SEQUENCE TLV; views its value. */
+static int pc_outer(wired_span raw, wired_span* seq) {
+  der_tlv t;
+  if (!der_read(raw, &t)) {
+    return 0;
+  }
+  *seq = t.val;
+  return t.tag == DER_SEQUENCE && t.used == raw.n;
+}
+
+/* tag names a field not before *next: DER order, [0] then [1], no repeat. */
+static int pc_tag_ok(u8 tag, u8 next) {
+  return tag >= next && tag <= POLICYCONSTRAINTS_INHIBIT_MAP_TAG;
+}
+
+/* Store element (tag, v) into f[tag - [0]]; 0 on a misplaced tag or a
+ * malformed SkipCerts. */
+static int pc_take(u8 tag, wired_span v, u8* next, u64* f) {
+  usz k = (usz)(tag - POLICYCONSTRAINTS_REQEXP_TAG);
+  if (!pc_tag_ok(tag, *next)) {
+    return 0;
+  }
+  f[k]  = skipcerts_uint(v);
+  *next = (u8)(tag + 1);
+  return f[k] != X509_SKIPCERTS_MALFORMED;
+}
+
+/* RFC 5280 4.2.1.11. The PolicyConstraints SEQUENCE value into f: its
+ * elements must fill it exactly. */
+static int pc_parse(wired_span seq, u64* f) {
+  derseq     c;
+  u8         tag;
+  wired_span v;
+  u8         next = POLICYCONSTRAINTS_REQEXP_TAG;
+  derseq_init(&c, seq);
+  while (derseq_next(&c, &tag, &v)) {
+    if (!pc_take(tag, v, &next, f)) {
+      return 0;
+    }
+  }
+  return c.off == c.len;
+}
+
+/* f[0] requireExplicitPolicy, f[1] inhibitPolicyMapping, each
+ * X509_SKIPCERTS_NONE when absent (or the extension is). 0 if present but
+ * malformed. */
+static int pc_read(wired_span tbs, u64* f) {
+  wired_span raw, seq;
+  f[0] = X509_SKIPCERTS_NONE;
+  f[1] = X509_SKIPCERTS_NONE;
   if (!x509_find_ext(
           tbs,
           wired_span_of(oid_policy_constraints, sizeof(oid_policy_constraints)),
           &raw)) {
+    return 1;
+  }
+  if (!pc_outer(raw, &seq)) {
     return 0;
   }
-  return der_seq(raw, val);
+  return pc_parse(seq, f);
 }
 
-/* RFC 5280 4.2.1.11. requireExplicitPolicy, the SEQUENCE's leading element
- * when tagged [0]; absent if the SEQUENCE is empty or starts with [1]
- * (inhibitPolicyMapping only). */
-static u64 policy_constraints_reqexp(wired_span seq) {
-  derseq     c;
-  u8         tag;
-  wired_span v;
-  derseq_init(&c, seq);
-  if (!derseq_next(&c, &tag, &v)) {
-    return X509_SKIPCERTS_NONE;
+/* Field k of tbs's PolicyConstraints, or X509_SKIPCERTS_MALFORMED. */
+static u64 pc_lookup(wired_span tbs, usz k) {
+  u64 f[2];
+  if (!pc_read(tbs, f)) {
+    return X509_SKIPCERTS_MALFORMED;
   }
-  if (tag != POLICYCONSTRAINTS_REQEXP_TAG) {
-    return X509_SKIPCERTS_NONE;
-  }
-  return skipcerts_uint(v);
+  return f[k];
 }
 
-u64 x509_require_explicit_policy(wired_span tbs) {
-  wired_span seq;
-  if (!policy_constraints_locate(tbs, &seq)) {
-    return X509_SKIPCERTS_NONE;
-  }
-  return policy_constraints_reqexp(seq);
-}
+u64 x509_require_explicit_policy(wired_span tbs) { return pc_lookup(tbs, 0); }
 
-/* The PolicyConstraints SEQUENCE carries [1] inhibitPolicyMapping. */
-static int pc_has_inhibit_mapping(wired_span seq) {
-  derseq     c;
-  u8         tag;
-  wired_span v;
-  derseq_init(&c, seq);
-  while (derseq_next(&c, &tag, &v)) {
-    if (tag == POLICYCONSTRAINTS_INHIBIT_MAP_TAG) {
-      return 1;
-    }
-  }
-  return 0;
-}
+u64 x509_inhibit_policy_mapping(wired_span tbs) { return pc_lookup(tbs, 1); }
 
 int x509_pc_unprocessed_critical(wired_span tbs) {
-  wired_span seq;
+  u64 f[2];
   if (!x509_ext_critical(
           tbs, wired_span_of(
                    oid_policy_constraints, sizeof(oid_policy_constraints)))) {
     return 0;
   }
-  if (!policy_constraints_locate(tbs, &seq)) {
-    return 1;
-  }
-  return pc_has_inhibit_mapping(seq);
+  return !pc_read(tbs, f);
 }
 
 /* RFC 5280 4.2.1.14. InhibitAnyPolicy's extnValue is a bare SkipCerts

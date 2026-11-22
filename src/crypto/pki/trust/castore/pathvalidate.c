@@ -71,13 +71,14 @@ int castore_cert_self_issued(wired_span cert) {
   return x509_dn_equal_ci(iss, subj);
 }
 
-/* RFC 5280 4.2.1.4/4.2.1.10/4.2.1.11: a known critical extension carrying
- * a field this SDK does not process (policy qualifiers, subtree
- * minimum/maximum, inhibitPolicyMapping) must reject the certificate. */
+/* RFC 5280 4.2.1.4/4.2.1.5/4.2.1.10/4.2.1.11: a known critical extension
+ * carrying a field this SDK does not process (policy qualifiers, subtree
+ * minimum/maximum) or that cannot be parsed must reject the certificate. */
 static int (*const unprocessed_critical[])(wired_span) = {
     x509_cp_unprocessed_critical,
     x509_nc_unprocessed_critical,
     x509_pc_unprocessed_critical,
+    x509_pm_unprocessed_critical,
 };
 #define PV_UNPROCESSED_COUNT \
   (sizeof(unprocessed_critical) / sizeof(unprocessed_critical[0]))

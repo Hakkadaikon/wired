@@ -121,6 +121,18 @@ static void test_reqexp_led_by_inhibit_mapping_is_none(void) {
           buf, pct_tbs_reqexp3, sizeof(buf), 29, 0x81)) == X509_SKIPCERTS_NONE);
 }
 
+/* RFC 5280 4.2.1.11: the same [1] field read as inhibitPolicyMapping is
+ * 3; the unmutated [0] carries no inhibitPolicyMapping. */
+static void test_inhibit_mapping_value_read(void) {
+  u8 buf[sizeof(pct_tbs_reqexp3)];
+  CHECK(
+      x509_inhibit_policy_mapping(
+          pct_mut(buf, pct_tbs_reqexp3, sizeof(buf), 29, 0x81)) == 3);
+  CHECK(
+      x509_inhibit_policy_mapping(wired_span_of(
+          pct_tbs_reqexp3, sizeof(pct_tbs_reqexp3))) == X509_SKIPCERTS_NONE);
+}
+
 /* RFC 5280 4.2.1.14: an inhibitAnyPolicy extnValue whose TLV overruns
  * (length octet [28] 1 -> 5) fails closed. */
 static void test_inhibit_any_truncated_rejects(void) {
@@ -144,8 +156,63 @@ static void test_pc_critical_malformed_is_unprocessed(void) {
   CHECK(x509_pc_unprocessed_critical(c.tbs) == 1);
 }
 
+/* Critical policyConstraints fixtures (same builder): { [0] with a length
+ * overrunning the SEQUENCE }, { [1] 0, [0] 0 } (out of order), { [0] 0,
+ * [0] 0 } (duplicate), and the well-formed { [0] 2, [1] 1 }. */
+static const u8 pct_tbs_crit_overrun[] = {
+    0x30, 0x21, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00,
+    0x05, 0x00, 0xa3, 0x13, 0x30, 0x11, 0x30, 0x0f, 0x06, 0x03, 0x55, 0x1d,
+    0x24, 0x01, 0x01, 0xff, 0x04, 0x05, 0x30, 0x03, 0x80, 0x05, 0x00,
+};
+
+static const u8 pct_tbs_crit_out_of_order[] = {
+    0x30, 0x24, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00,
+    0x05, 0x00, 0x05, 0x00, 0xa3, 0x16, 0x30, 0x14, 0x30, 0x12,
+    0x06, 0x03, 0x55, 0x1d, 0x24, 0x01, 0x01, 0xff, 0x04, 0x08,
+    0x30, 0x06, 0x81, 0x01, 0x00, 0x80, 0x01, 0x00,
+};
+
+static const u8 pct_tbs_crit_duplicate[] = {
+    0x30, 0x24, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00,
+    0x05, 0x00, 0x05, 0x00, 0xa3, 0x16, 0x30, 0x14, 0x30, 0x12,
+    0x06, 0x03, 0x55, 0x1d, 0x24, 0x01, 0x01, 0xff, 0x04, 0x08,
+    0x30, 0x06, 0x80, 0x01, 0x00, 0x80, 0x01, 0x00,
+};
+
+static const u8 pct_tbs_crit_both[] = {
+    0x30, 0x24, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00,
+    0x05, 0x00, 0x05, 0x00, 0xa3, 0x16, 0x30, 0x14, 0x30, 0x12,
+    0x06, 0x03, 0x55, 0x1d, 0x24, 0x01, 0x01, 0xff, 0x04, 0x08,
+    0x30, 0x06, 0x80, 0x01, 0x02, 0x81, 0x01, 0x01,
+};
+
+/* Both fields read MALFORMED and the critical extension is unprocessed. */
+static void pct_check_malformed(wired_span tbs) {
+  CHECK(x509_require_explicit_policy(tbs) == X509_SKIPCERTS_MALFORMED);
+  CHECK(x509_inhibit_policy_mapping(tbs) == X509_SKIPCERTS_MALFORMED);
+  CHECK(x509_pc_unprocessed_critical(tbs) == 1);
+}
+
+/* RFC 5280 4.2 / 4.2.1.11: a critical PolicyConstraints whose elements do
+ * not exactly fill the SEQUENCE, come out of order, or repeat a field
+ * cannot be processed and fails closed; { [0] 2, [1] 1 } reads both. */
+static void test_pc_strict_shape(void) {
+  wired_span ok = wired_span_of(pct_tbs_crit_both, sizeof(pct_tbs_crit_both));
+  pct_check_malformed(
+      wired_span_of(pct_tbs_crit_overrun, sizeof(pct_tbs_crit_overrun)));
+  pct_check_malformed(wired_span_of(
+      pct_tbs_crit_out_of_order, sizeof(pct_tbs_crit_out_of_order)));
+  pct_check_malformed(
+      wired_span_of(pct_tbs_crit_duplicate, sizeof(pct_tbs_crit_duplicate)));
+  CHECK(x509_require_explicit_policy(ok) == 2);
+  CHECK(x509_inhibit_policy_mapping(ok) == 1);
+  CHECK(x509_pc_unprocessed_critical(ok) == 0);
+}
+
 void test_policyconstraints(void) {
   test_reqexp_led_by_inhibit_mapping_is_none();
+  test_inhibit_mapping_value_read();
+  test_pc_strict_shape();
   test_inhibit_any_truncated_rejects();
   test_pc_critical_malformed_is_unprocessed();
   test_reqexp_absent_ext_is_none();

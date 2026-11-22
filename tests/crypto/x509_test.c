@@ -67,7 +67,7 @@ static const u8 x509t_tbs_no_ext[] = {0x30, 0x0c, X509T_DUMMY6};
   0x30, 0x07, 0x06, 0x03, 0x55, 0x1d, 0x63, 0x04, 0x00
 
 /* id-ce-certificatePolicies = 2.5.29.32, critical TRUE. This SDK interprets
- * certificatePolicies (RFC 5280 4.2.1.4, via x509_policy_tree), so a
+ * certificatePolicies (RFC 5280 4.2.1.4, via x509_policy_graph), so a
  * critical instance is a known extension and does not itself trigger
  * unknown-critical rejection. */
 #define X509T_EXT_CERT_POLICIES_CRIT \
@@ -175,7 +175,7 @@ static void test_unknown_critical_default_false(void) {
 }
 
 /* RFC 5280 4.2.1.4: a critical certificatePolicies extension is a known
- * extnID (this SDK interprets it via x509_policy_tree), so it does not
+ * extnID (this SDK interprets it via x509_policy_graph), so it does not
  * trigger unknown-critical rejection on its own. */
 static void test_critical_certificate_policies_known(void) {
   CHECK(

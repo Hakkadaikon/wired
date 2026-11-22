@@ -21,10 +21,13 @@
  * X509_SKIPCERTS_MALFORMED if the extension is present but malformed. */
 u64 x509_require_explicit_policy(wired_span tbs);
 
-/* RFC 5280 4.2.1.11: policy mapping is not supported, so an application
- * "MUST reject the certificate" whose critical policyConstraints carries
- * inhibitPolicyMapping. Returns 1 if tbs's policyConstraints is critical
- * and carries [1] inhibitPolicyMapping, or is critical and malformed; 0
+/* RFC 5280 4.2.1.11. inhibitPolicyMapping, with the same return values
+ * as x509_require_explicit_policy. */
+u64 x509_inhibit_policy_mapping(wired_span tbs);
+
+/* RFC 5280 4.2: 1 if tbs's policyConstraints is critical but malformed
+ * (not one SEQUENCE exactly filling extnValue, elements not exactly
+ * filling it, [1] before [0], a field repeated, or a bad SkipCerts); 0
  * otherwise. */
 int x509_pc_unprocessed_critical(wired_span tbs);
 

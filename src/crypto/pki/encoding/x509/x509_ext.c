@@ -112,11 +112,18 @@ static const u8 oid_iap_[] = {0x55, 0x1d, 0x36}; /* 2.5.29.54 inhibitAnyPol. */
 
 static const u8 oid_cp_[] = {0x55, 0x1d, 0x20}; /* 2.5.29.32 certPolicies */
 
+const u8 x509_oid_policy_mappings[3] = {0x55, 0x1d, 0x21}; /* 2.5.29.33 */
+
 static const wired_span known_ext_oids[] = {
-    {oid_bc_, sizeof(oid_bc_)},   {oid_san_, sizeof(oid_san_)},
-    {oid_ku_, sizeof(oid_ku_)},   {oid_eku_, sizeof(oid_eku_)},
-    {oid_nc_, sizeof(oid_nc_)},   {oid_pc_, sizeof(oid_pc_)},
-    {oid_iap_, sizeof(oid_iap_)}, {oid_cp_, sizeof(oid_cp_)},
+    {oid_bc_, sizeof(oid_bc_)},
+    {oid_san_, sizeof(oid_san_)},
+    {oid_ku_, sizeof(oid_ku_)},
+    {oid_eku_, sizeof(oid_eku_)},
+    {oid_nc_, sizeof(oid_nc_)},
+    {oid_pc_, sizeof(oid_pc_)},
+    {oid_iap_, sizeof(oid_iap_)},
+    {oid_cp_, sizeof(oid_cp_)},
+    {x509_oid_policy_mappings, sizeof(x509_oid_policy_mappings)},
 };
 
 /* extnID of one Extension. */

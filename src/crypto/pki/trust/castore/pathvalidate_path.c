@@ -1,6 +1,5 @@
 #include "crypto/pki/trust/castore/pathvalidate_impl.h"
 
-static int policy_wrapup_ok(u64 explicit_policy, const x509_policy_tree* tree);
 static int cert_seen_before(const wired_span* certs, usz i);
 static int no_duplicate_certs(const wired_span* certs, usz n_certs);
 static int certs_hygienic(const wired_span* certs, usz n_certs);
@@ -18,39 +17,6 @@ static usz policy_walk_len(
     const wired_span* certs, usz n_certs, wired_span root);
 static int path_anchored_ok(
     const castore* s, const wired_span* certs, usz n_certs, u64 now);
-
-/* RFC 5280 6.1.5 (g): if requireExplicitPolicy ever reached 0, the final
- * valid_policy_tree must be non-empty. inhibit_any's effect (anyPolicy
- * ignored once its counter is 0) is already realized by castore_policy_step
- * folding anyPolicy from certificatePolicies as this SDK does not special-case
- * anyPolicy recognition separately from the tree fold; recording the
- * counter here keeps its RFC-mandated bookkeeping visible even though this
- * SDK's caller (server-certificate verification with no explicit policy
- * request) never queries it beyond the tree-non-empty check. */
-static int policy_wrapup_ok(u64 explicit_policy, const x509_policy_tree* tree) {
-  if (explicit_policy != 0) {
-    return 1;
-  }
-  return x509_policy_tree_nonempty(tree);
-}
-
-/* RFC 5280 6.1.3(d)/6.1.4(h)-(j)/6.1.5(g): process certificates 1..n in
- * path order -- certs[n_walk-1] is the trust anchor's issued certificate
- * (6.1's "certificate 1"), certs[0] the leaf -- then check the wrap-up
- * condition. The caller leaves a presented copy of the anchor itself out of
- * n_walk (policy_walk_len). */
-int castore_policy_processing_ok(const wired_span* certs, usz n_walk) {
-  x509_policy_tree tree;
-  u64              explicit_policy = X509_SKIPCERTS_NONE;
-  u64              inhibit_any     = X509_SKIPCERTS_NONE;
-  x509_policy_tree_init(&tree);
-  for (usz i = n_walk; i-- > 0;) {
-    if (!castore_policy_step(certs[i], &tree, &explicit_policy, &inhibit_any)) {
-      return 0;
-    }
-  }
-  return policy_wrapup_ok(explicit_policy, &tree);
-}
 
 /* RFC 5280 6.1: certs[i] does not byte-equal any earlier certificate in the
  * path. */

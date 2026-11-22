@@ -34,6 +34,7 @@ static int policy_info_id(wired_span info, wired_span* oid) {
  * (X509_CERT_POLICY_MAX's header comment). */
 static void policy_set_add(x509_policy_set* out, wired_span oid) {
   if (out->n >= X509_CERT_POLICY_MAX) {
+    out->truncated = 1;
     return;
   }
   out->oid[out->n] = oid;
@@ -66,14 +67,18 @@ int x509_cert_policies(wired_span tbs, x509_policy_set* out) {
   if (!cp_locate(tbs, &seq)) {
     return 0;
   }
-  out->n = 0;
+  out->n         = 0;
+  out->truncated = 0;
   cp_scan(seq, out);
   return 1;
 }
 
+wired_span x509_any_policy_oid(void) {
+  return wired_span_of(x509_oid_any_policy, sizeof(x509_oid_any_policy));
+}
+
 int x509_policy_set_has_any(const x509_policy_set* set) {
-  wired_span any =
-      wired_span_of(x509_oid_any_policy, sizeof(x509_oid_any_policy));
+  wired_span any = x509_any_policy_oid();
   for (usz i = 0; i < set->n; i++) {
     if (der_oid_equal(set->oid[i], any)) {
       return 1;

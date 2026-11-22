@@ -384,12 +384,16 @@
 #include "crypto/pki/encoding/x509/nameconstraints_typed.c"
 #include "crypto/pki/encoding/x509/nameconstraints_bounds.c"
 #include "crypto/pki/encoding/x509/policyconstraints.c"
+#include "crypto/pki/encoding/x509/policymap.c"
 #include "crypto/pki/encoding/x509/policytree.c"
+#include "crypto/pki/encoding/x509/policytree_map.c"
+#include "crypto/pki/encoding/x509/policytree_node.c"
 #include "crypto/pki/trust/castore/castore.c"
 #include "crypto/pki/trust/castore/chainverify.c"
 #include "crypto/pki/trust/castore/chainverify_ecdsa.c"
 #include "crypto/pki/trust/castore/pathvalidate.c"
 #include "crypto/pki/trust/castore/pathvalidate_path.c"
+#include "crypto/pki/trust/castore/pathvalidate_policy.c"
 #include "crypto/pki/trust/castore/pathvalidate_skipcerts.c"
 #include "tls/handshake/core/sdrv/sdrv.c"
 #include "tls/handshake/core/sdrv/sdrv_certsig.c"
@@ -1117,7 +1121,9 @@
 #include "crypto/dirstring_test.c"
 #include "crypto/nameconstraints_test.c"
 #include "crypto/policyconstraints_test.c"
+#include "crypto/policymap_test.c"
 #include "crypto/policytree_test.c"
+#include "crypto/policytree_path_test.c"
 #include "crypto/keyusage_test.c"
 #include "crypto/eku_test.c"
 #include "crypto/spki_test.c"
@@ -1587,7 +1593,9 @@ int main(void) {
   test_dirstring();
   test_nameconstraints();
   test_policyconstraints();
+  test_policymap();
   test_policytree();
+  test_policytree_path();
   test_keyusage();
   test_eku();
   test_spki();
