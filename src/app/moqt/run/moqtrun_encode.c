@@ -33,7 +33,10 @@ void moqtrun_pubdone_arm(
     wired_span           body) {
   usz                 off = 0;
   moqctl_publish_done d;
-  if (moqctl_publish_done_take(body, &off, &d) != MOQCTL_OK) {
+  int                 r = moqctl_publish_done_take(body, &off, &d);
+  /* draft-23 8.5, 9 (draft-18/19 1.4.4, 10; draft-22 8.5, 9): a Reason
+   * Phrase past 1024 bytes or a body its Length does not match closes. */
+  if (!moqtrun_take_or_close(hub, p, moqctl_body_end(r, off, body))) {
     return;
   }
   t->pubdone_pending  = 1;

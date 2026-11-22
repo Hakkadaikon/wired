@@ -861,8 +861,9 @@ static void test_moqtrun_req_bad_first_message_closes(void) {
  * on TRACK_STATUS, is a PROTOCOL_VIOLATION; PUBLISH_DONE on a PUBLISH is
  * not (GOAWAY: test_moqtrun_req_goaway_receiver). */
 static void test_moqtrun_req_second_message_checked(void) {
-  static const u8 upd[] = {0x00, 0x00};
-  moqctl_ftn      f     = mtrq_setup();
+  static const u8 upd[]  = {0x00, 0x00};
+  static const u8 done[] = {0x00, 0x00, 0x00}; /* empty Reason Phrase */
+  moqctl_ftn      f      = mtrq_setup();
   mtst_subscribe(SESS_B, MTRQ_S1, &f);
   mtst_subscribe(SESS_B, MTRQ_S1, &f);
   CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
@@ -873,7 +874,7 @@ static void test_moqtrun_req_second_message_checked(void) {
   CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
   mtrq_setup();
   mtst_publish(SESS_B, MTRQ_S1, &f, 1);
-  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_PUBLISH_DONE, upd, sizeof upd);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_PUBLISH_DONE, done, sizeof done);
   CHECK(mtrq_closes() == 0);
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_OK);
   CHECK(moqtrun_test_count_kind(3) == 1); /* A's own REQUEST_OK only */

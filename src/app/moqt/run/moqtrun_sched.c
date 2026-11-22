@@ -66,13 +66,15 @@ void moqtrun_handle_subscribe(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz              off = 0;
   moqctl_subscribe m;
+  int              r = moqctl_subscribe_take(p->ver, body, &off, &m);
+  /* draft-18/19 10, draft-22/23 9: the Length is exact */
+  r = moqctl_body_end(r, off, body);
   if (!moqtrun_take_tok_or_close(
           hub, p,
           moqtss_take(
               hub,
               moqtsw_take( /* SWITCH_FROM (moqtswitch.c): off = violation */
-                  hub, moqctl_subscribe_take(p->ver, body, &off, &m),
-                  &m.params),
+                  hub, r, &m.params),
               &m.params),
           &m.params)){
     return;

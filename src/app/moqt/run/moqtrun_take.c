@@ -214,8 +214,9 @@ int moqtrun_reqerr_take(
     wired_span            body,
     moqctl_request_error* e) {
   usz off = 0;
-  if (!moqtrun_take_or_close(
-          hub, p, moqctl_request_error_take_v(p->ver, body, &off, e))) {
+  int r   = moqctl_request_error_take_v(p->ver, body, &off, e);
+  /* draft-18/19 10, draft-22/23 9: the Length is exact */
+  if (!moqtrun_take_or_close(hub, p, moqctl_body_end(r, off, body))) {
     return 0;
   }
   /* draft-23 13: an unknown code is INTERNAL_ERROR, the session stays */

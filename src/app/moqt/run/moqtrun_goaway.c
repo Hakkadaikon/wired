@@ -67,6 +67,8 @@ static moqtrun_cc moqtrun_goaway_body_cc(
     const wired_moqtrun_peer* p, wired_span body, moqctl_goaway* g) {
   usz off = 0;
   int r   = moqtrun_goaway_decoder(p->ver)(body, &off, g);
+  /* draft-18/19 10, draft-22/23 9: the Length is exact */
+  r = moqctl_body_end(r, off, body);
   if (r != MOQCTL_OK) {
     return moqtrun_cc_of_take(r);
   }
