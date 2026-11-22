@@ -12,7 +12,7 @@
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 219/248、間接 29、未テスト 0。**
+**カバレッジ: テスト済み 232/248、間接 16、未テスト 0。**
 
 ## SS1.4.1 可変長整数
 
@@ -75,18 +75,18 @@
 - [x] MQ18-018 実装は、Reason Phrase を、可変長整数の Length と、それに続くその長さの UTF-8 のバイト列としてデコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_reason_boundary`
   - vuln: V-0800
-- [~] MQ18-019 (§1.4.4) Reason Phrase の Length が 1024 バイトを超える場合、実装はプロトコル違反でセッションを閉じなければならない。
-  - evidence: コーデックは違反を報告し(`test_moqctl_reason_boundary`)、ハブはデコードに失敗したリクエストや SETUP に対して PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件を送るハブのテストはない。
+- [x] MQ18-019 (§1.4.4) Reason Phrase の Length が 1024 バイトを超える場合、実装はプロトコル違反でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 ## SS2.4.1 Track の命名
 
 - [x] MQ18-020 実装は、Track Namespace を、可変長整数のフィールド数と、それに続くその数の長さ付き Track Namespace Field としてデコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_ftn_decode_basic`
-- [~] MQ18-021 (§2.4.1) Track Namespace Field の Length が 0 の場合、実装はプロトコル違反でセッションを閉じなければならない。
-  - evidence: コーデックは違反を報告し(`test_moqctl_ns_field_len_zero_rejected`)、ハブはデコードに失敗したリクエストや SETUP に対して PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件を送るハブのテストはない。
-- [~] MQ18-022 (§2.4.1) Track Namespace の Track Namespace Field が 32 個を超える場合、実装はプロトコル違反でセッションを閉じなければならない。
-  - evidence: コーデックは違反を報告し(`test_moqctl_ns_fields_32_accept_33_reject`)、ハブはデコードに失敗したリクエストや SETUP に対して PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件を送るハブのテストはない。
-- [~] MQ18-023 (§2.4.1) Full Track Name(Track Namespace と Track Name)が 4096 バイトを超える場合、実装はプロトコル違反でセッションを閉じなければならない。
-  - evidence: コーデックは違反を報告し(`test_moqctl_ftn_4096_accept_4097_reject`)、ハブはデコードに失敗したリクエストや SETUP に対して PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件を送るハブのテストはない。
+- [x] MQ18-021 (§2.4.1) Track Namespace Field の Length が 0 の場合、実装はプロトコル違反でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_cc_test.c` — `test_moqtrun_cc`
+- [x] MQ18-022 (§2.4.1) Track Namespace の Track Namespace Field が 32 個を超える場合、実装はプロトコル違反でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_cc_test.c` — `test_moqtrun_cc`
+- [x] MQ18-023 (§2.4.1) Full Track Name(Track Namespace と Track Name)が 4096 バイトを超える場合、実装はプロトコル違反でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 - [x] MQ18-024 実装は、Track Namespace Field と Track Name をバイト列の完全一致で比較しなければならない。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_track_key_exact_match`
 
@@ -191,8 +191,8 @@
 - [x] MQ18-037a (§6.1) SUBSCRIBE_NAMESPACE のリクエストストリームの一方向が FIN で閉じられた場合、実装はそれをそのリクエストの取り消しとして扱わなければならない。draft-19 以降では、FIN は取り消しではない正常な片側クローズであり、この点が異なる。
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_fin_cancels_d18`
   - note: これは draft-18 固有のワイヤー上の動作(`MOQVER_CAP_FIN_CANCEL_NS`)。`draft18-vs-19-diff.md` の SS2 "Request-stream FIN semantics" を参照。
-- [~] MQ18-211 (§6.1) SUBSCRIBE_TRACKS のリクエストストリームの一方向が FIN で閉じられた場合、実装はそれをそのリクエストの取り消しとして扱わなければならない。
-  - evidence: `moqtrun_req_fin_kind` は、SUBSCRIBE_NAMESPACE と並べて SUBSCRIBE_TRACKS を同じ `MOQVER_CAP_FIN_CANCEL_NS` の判定の下に挙げている。その SUBSCRIBE_NAMESPACE の側は `test_moqtrun_ns_fin_cancels_d18` が確かめる。draft-18 の SUBSCRIBE_TRACKS の FIN のテストはない。
+- [x] MQ18-211 (§6.1) SUBSCRIBE_TRACKS のリクエストストリームの一方向が FIN で閉じられた場合、実装はそれをそのリクエストの取り消しとして扱わなければならない。
+  - test: `tests/app/moqtrun_bycons_test.c` — `test_moqtrun_bycons`
 
 ## SS3.3.3 ストリームリセットのエラーコード / SS3.5 終了(使っている部分)
 
@@ -346,8 +346,8 @@
 
 ## SS10.1 Request ID
 
-- [~] MQ18-060 (§10.1) サーバーは、1 から始め、新しいリクエストごとに 2 ずつ増やして、奇数の Request ID を生成しなければならない。
-  - evidence: ハブの上流の SUBSCRIBE と FETCH は、互いに異なる奇数の Request ID を持つ(`test_moqtrun_upsub_ok_after_upstream`、`test_moqtrun_upfetch_two_not_shared`)。1 から始めることと 2 ずつ増やすこと(`request_id_next`)はテストで固定していない。偶数側はクライアントの動作である。
+- [x] MQ18-060 (§10.1) サーバーは、1 から始め、新しいリクエストごとに 2 ずつ増やして、奇数の Request ID を生成しなければならない。
+  - test: `tests/app/moqtrun_bycons_test.c` — `test_moqtrun_bycons`
 - [x] MQ18-061 (§10.1) エンドポイントが、最下位ビットが送信側に対して正しくない Request ID を受信した場合、実装は INVALID_REQUEST_ID でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_parity_closes`
 - [x] MQ18-062 (§10.1) エンドポイントが重複した Request ID を受信した場合、実装は INVALID_REQUEST_ID でセッションを閉じなければならない。
@@ -361,16 +361,16 @@
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_forward_roundtrip`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_params_delivery_timeout_decode`
-- [~] MQ18-064 (§10.2) パラメーターは Type の昇順でシリアライズしなければならない。累積の Parameter Type が 2^64-1 を超えることになる場合、実装はプロトコル違反でセッションを閉じなければならない。
-  - evidence: コーデックは違反を報告し(`test_moqctl_params_type_overflow_violation`)、ハブはデコードに失敗したリクエストや SETUP に対して PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件を送るハブのテストはない。
+- [x] MQ18-064 (§10.2) パラメーターは Type の昇順でシリアライズしなければならない。累積の Parameter Type が 2^64-1 を超えることになる場合、実装はプロトコル違反でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 - [x] MQ18-065 エンドポイントが未知の Message Parameter Type を受信した場合、実装はプロトコル違反でセッションを閉じなければならない。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_params_unknown_type_violation`
   - note: draft-18 は Range Filter のパラメーター型 0x25-0x29(draft-19 で新設)を登録していない。draft-18 のセッションがこれらのどれかを受信すると、この同じ規則によりプロトコル違反で閉じる。「対象外」を参照。
   - test: `tests/app/moqtrun_fillfix_test.c` —
     `test_moqtrun_fillfix_malformed_subscribe`
-- [~] MQ18-066 (§10.2) 送信側が 1 つのメッセージで同じ Parameter Type を繰り返した場合、実装はプロトコル違反でセッションを閉じなければならない。
-  - evidence: コーデックは違反を報告し(`test_moqctl_params_duplicate_type_violation`)、ハブはデコードに失敗したリクエストや SETUP に対して PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件を送るハブのテストはない。
+- [x] MQ18-066 (§10.2) 送信側が 1 つのメッセージで同じ Parameter Type を繰り返した場合、実装はプロトコル違反でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 - [x] MQ18-067 Message Parameter が、現れたメッセージとは別のメッセージ型に対して定義されたものである場合、実装はプロトコル違反でセッションを閉じなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_scope_violation`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_registry_scope_per_draft`
@@ -461,8 +461,10 @@
   - test: `tests/app/moqctl_test.c` — `test_moqctl_goaway_roundtrip`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_goaway18_request_id`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_goaway18_vs_19_shape`
-- [~] MQ18-081 (§10.4) New Session URI Length が 8192 バイトを超える場合、実装はプロトコル違反でセッションを閉じなければならない。
-  - evidence: コーデックは違反を報告し(`test_moqctl_goaway_uri_boundary`)、ハブはデコードに失敗したリクエストや SETUP に対して PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件を送るハブのテストはない。
+- [x] MQ18-081 (§10.4) New Session URI Length が 8192 バイトを超える場合、実装はプロトコル違反でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_cc_test.c` — `test_moqtrun_cc`
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
+  - note: サーバー側では、空でない URI を拒否する役割の規則(PROTOCOL_VIOLATION)が長さの規則を包含します。8192 バイトの URI も 8193 バイトの URI も同じコードで閉じるので、このドラフトでは長さの検査を外してもテストは落ちません。
 ## SS10.5 REQUEST_OK
 
 - [x] MQ18-083 実装は、REQUEST_OK を Type(0x7)+ Length + Number of Parameters + Parameters + Track Properties(メッセージの残りのバイト)としてエンコード・デコードしなければならない。
@@ -548,8 +550,8 @@
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_done_track_ended`
   - test: `tests/app/moqtrun_upsub_test.c` —
     `test_moqtrun_upsub_publish_done_relayed`
-- [~] MQ18-102 (§10.11) 購読者が応答を送る前に PUBLISH_DONE が届いた場合、購読者は FIN を送る前に、後回しにした PUBLISH_OK をちょうど 1 つ送らなければならない。
-  - evidence: ハブは PUBLISH に同期して応答するので、この競合は起きない。これを固定するテストはない。
+- [x] MQ18-102 (§10.11) 購読者が応答を送る前に PUBLISH_DONE が届いた場合、購読者は FIN を送る前に、後回しにした PUBLISH_OK をちょうど 1 つ送らなければならない。
+  - test: `tests/app/moqtrun_bycons_test.c` — `test_moqtrun_bycons`
 - [x] MQ18-103 (§10.11) 実装は、自分が知らせる終わり方について、draft-18 の PUBLISH_DONE のステータスコード(INTERNAL_ERROR、TRACK_ENDED、SUBSCRIPTION_ENDED、GOING_AWAY、UPDATE_FAILED、MALFORMED_TRACK)を使わなければならない。
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_done_track_ended`
   - test: `tests/app/moqtrun_done_test.c` —
@@ -576,10 +578,10 @@
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_locfilter_abs_start_and_range_roundtrip`
   - note: draft-18 では "Subscription Filter" と呼ぶ(draft-19 で "Location Filter" に改名)。構造はバイト単位で同じ。
-- [~] MQ18-107 (§5.1.2) AbsoluteRange フィルターの End Group(Start.Group + End Group Delta)が 2^64-1 を超えることになる場合、実装はプロトコル違反でセッションを閉じなければならない。
-  - evidence: コーデックは違反を報告し(`test_moqctl_locfilter_end_group_overflow_violation`)、ハブはデコードに失敗したリクエストや SETUP に対して PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件を送るハブのテストはない。
-- [~] MQ18-108 (§5.1.2) エンドポイントが定義済みの 4 つ以外の Subscription Filter Type を受信した場合、実装はプロトコル違反でセッションを閉じなければならない。
-  - evidence: コーデックは違反を報告し(`test_moqctl_locfilter_unknown_type_violation`)、ハブはデコードに失敗したリクエストや SETUP に対して PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件を送るハブのテストはない。
+- [x] MQ18-107 (§5.1.2) AbsoluteRange フィルターの End Group(Start.Group + End Group Delta)が 2^64-1 を超えることになる場合、実装はプロトコル違反でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
+- [x] MQ18-108 (§5.1.2) エンドポイントが定義済みの 4 つ以外の Subscription Filter Type を受信した場合、実装はプロトコル違反でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 - [x] MQ18-109 パブリッシャーは、Forward State と Location Filter の組み合わせ(Pass = Forward AND Filters)を通過した Object だけを転送しなければならない。
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_upd_forward_toggles`
@@ -1130,8 +1132,8 @@
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_dg_unknown_alias_counts_bad`
 - [x] MQ18-234 (§11, §11.3.1) データグラムの Type が未知または無効(0b00X0XXXX の外、または END_OF_GROUP 付きの STATUS)である場合、PROPERTIES ビットが立っているのに Properties Length が 0 である場合、または Object Status が Normal でないのに Properties がある場合、サーバーは PROTOCOL_VIOLATION でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_datagram_invalid_closes`
-- [~] MQ18-240 (§11.5.2) サーバーは、パディングのデータグラム(型 0x132B3E29)で受信したデータをすべて捨てなければならない。
-  - evidence: データグラムのコーデックにはパディングの型がないので、ハブはほかの不正な形式のデータグラムと同じく、デコードできないものとして捨てる(`test_moqtrun_dg_malformed_counts_bad`)。パディングの型を送るテストはない。
+- [x] MQ18-240 (§11.5.2) サーバーは、パディングのデータグラム(型 0x132B3E29)で受信したデータをすべて捨てなければならない。
+  - test: `tests/app/moqtrun_bycons_test.c` — `test_moqtrun_bycons`
 
 ## 複数ドラフト対応の回で仕上げたハブの機能(台帳 10 章)
 

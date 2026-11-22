@@ -14,7 +14,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 267/299、間接 32、未テスト 0。**
+**カバレッジ: テスト済み 282/299、間接 17、未テスト 0。**
 
 
 ## SS8.1 可変長整数
@@ -100,8 +100,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-018 実装は、Reason Phrase を、可変長整数の Length と、それに続く Length バイトの UTF-8 としてデコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_reason_boundary`
   - vuln: V-0800
-- [~] MQ23-019 Reason Phrase の Length が 1024 バイトを超える場合、実装は FIELD_LENGTH_EXCEEDED (0x401) でセッションを閉じなければならない。
-  - evidence: コーデックは長さの超過を FIELD_LENGTH_EXCEEDED の分類で返します(`test_moqctl_reason_boundary`)。その分類から draft-23 のコードへの変換は `test_moqtrun_cc` がほかの長さの超過で確かめています。Reason Phrase を運ぶメッセージそのもので閉じるところは確かめていません。
+- [x] MQ23-019 Reason Phrase の Length が 1024 バイトを超える場合、実装は FIELD_LENGTH_EXCEEDED (0x401) でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 
 ## SS8.7 Track Namespace 構造
 
@@ -113,8 +113,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-022 Track Namespace の Track Namespace Field が 32 個を超える場合、実装は INVALID_TRACK_NAMESPACE (0x302) でセッションを閉じなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_ns_fields_32_accept_33_reject`
   - test: `tests/app/moqtrun_cc_test.c` — `test_moqtrun_cc`
-- [~] MQ23-023 Track Namespace または Full Track Name が 4096 バイトを超える場合、実装は FIELD_LENGTH_EXCEEDED (0x401) でセッションを閉じなければならない。
-  - evidence: コーデックは超過を FIELD_LENGTH_EXCEEDED の分類で返します(`test_moqctl_ftn_4096_accept_4097_reject`)。分類からコードへの変換は `test_moqtrun_cc` が確かめています。4097 バイトの名前を受けてセッションを閉じるところは確かめていません。
+- [x] MQ23-023 Track Namespace または Full Track Name が 4096 バイトを超える場合、実装は FIELD_LENGTH_EXCEEDED (0x401) でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 - [x] MQ23-024 実装は、Track Namespace Field と Track Name を、バイト列の完全一致で比較しなければならない。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_track_key_exact_match`
 - [x] MQ23-253 (SS2.4.1) Track Name は 1 バイト以上でなければならない。SUBSCRIBE、PUBLISH、FETCH、TRACK_STATUS で長さ 0 の Track Name を受信した場合、実装は PROTOCOL_VIOLATION でセッションを閉じなければならない。
@@ -419,13 +419,14 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqtrun_cc_test.c` — `test_moqtrun_cc`
   - test: `tests/app/moqfetch_test.c` — `test_moqfetch_length_mismatch`
   - test: `tests/app/moqns_test.c` — `test_moqns_length_mismatch`
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 
 ## SS6.4.2.1 Request ID
 
-- [~] MQ23-059 サーバーは、1 から始めて、自身が始める新しいリクエストごとに 2 ずつ増やした奇数の Request ID を生成しなければならない。
+- [x] MQ23-059 サーバーは、1 から始めて、自身が始める新しいリクエストごとに 2 ずつ増やした奇数の Request ID を生成しなければならない。
   - test: `tests/app/moqtrun_upsub_test.c` —
     `test_moqtrun_upsub_ok_after_upstream`
-  - evidence: テストは、上流の SUBSCRIBE の Request ID が奇数であることを確かめています。開始値 1 と +2 の刻み(`request_id_next`、moqtrun.h)は確かめていません。クライアントの偶数 ID の規則はクライアントだけのものです。
+  - test: `tests/app/moqtrun_bycons_test.c` — `test_moqtrun_bycons`
 - [x] MQ23-060 エンドポイントが受信した Request ID の最下位ビットが送信者にとって正しくない場合、実装は INVALID_REQUEST_ID でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_parity_closes`
 - [x] MQ23-061 エンドポイントが重複した Request ID を検出した場合、実装は INVALID_REQUEST_ID でセッションを閉じなければならない(すべての重複を検出することは求められない)。
@@ -440,15 +441,15 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_forward_roundtrip`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_params_delivery_timeout_decode`
-- [~] MQ23-063 パラメーターは Type の昇順にシリアライズしなければならない。累積の Parameter Type が 2^64-1 を超える場合、実装は DELTA_ENCODING_OVERFLOW (0x400) でセッションを閉じなければならない。
-  - evidence: コーデックはオーバーフローを DELTA_ENCODING_OVERFLOW の分類で返します(`test_moqctl_params_type_overflow_violation`)。分類からコードへの変換は `test_moqtrun_cc`(Setup Option の Delta Type)が確かめています。Message Parameter そのもので閉じるところは確かめていません。
+- [x] MQ23-063 パラメーターは Type の昇順にシリアライズしなければならない。累積の Parameter Type が 2^64-1 を超える場合、実装は DELTA_ENCODING_OVERFLOW (0x400) でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 - [x] MQ23-064 エンドポイントが未知の Message Parameter の Type を受信した場合、実装は INVALID_PARAMETER (0x305) でセッションを閉じなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_unknown_type_violation`
   - test: `tests/app/moqctl_d23_test.c` — `test_moqctl_d23_paused_take`
   - test: `tests/app/moqtrun_cc_test.c` — `test_moqtrun_cc`
   - note: draft-23 のセッションでは FORWARD (0x10) が未登録になり、未知のパラメーターとして扱います(`test_moqctl_d23_paused_take`)。
-- [~] MQ23-065 送信者が 1 つのメッセージで同じ Parameter Type を繰り返した場合、実装は INVALID_PARAMETER (0x305) でセッションを閉じなければならない。
-  - evidence: コーデックは INVALID_PARAMETER の分類で返します(`test_moqctl_params_duplicate_type_violation`)。分類からコードへの変換は `test_moqtrun_cc`(GROUP_ORDER の範囲外)が確かめています。重複そのもので閉じるところは確かめていません。
+- [x] MQ23-065 送信者が 1 つのメッセージで同じ Parameter Type を繰り返した場合、実装は INVALID_PARAMETER (0x305) でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 - [x] MQ23-066 Message Parameter が、それが現れてよいメッセージ以外に現れた場合、実装は INVALID_PARAMETER (0x305) でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_bad_and_control`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_scope_violation`
@@ -623,8 +624,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-092 実装が同じ SUBSCRIBE または PUBLISH への 2 つ目の応答(SUBSCRIBE_OK、PUBLISH_OK、REQUEST_ERROR)を受信した場合、実装は UNEXPECTED_MESSAGE (0x303) でセッションを閉じるべきである。
   - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_pub_second_ok_closes`
   - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_pub_error_after_ok_closes`
-- [~] MQ23-093 パブリッシャーが SUBSCRIBE を REQUEST_ERROR で拒否した場合、その購読には Object を 1 つも送信してはならない。
-  - evidence: 拒否した SUBSCRIBE は購読を作らない(`test_moqtrun_subscribe_without_publish_replies_error`、`test_moqtrun_sub_ns_must_match`)ので、そこへ何も中継しようがありません。その後に Object を送るテストはありません。
+- [x] MQ23-093 パブリッシャーが SUBSCRIBE を REQUEST_ERROR で拒否した場合、その購読には Object を 1 つも送信してはならない。
+  - test: `tests/app/moqtrun_bycons_test.c` — `test_moqtrun_bycons`
 - [x] MQ23-093a ピアは、同じ Track への同時の購読を、それぞれ固有の Request ID で複数持ってもよい(draft-18 とは異なる。`docs/features/draft-moq-transport-18.md` の MQ18-094a を参照)。
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_sub_duplicate_reanswered_d19_d22`
@@ -663,8 +664,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - note: 送信者自身の PUBLISH ストリーム上の REQUEST_UPDATE は、どのドラフトでも受け入れます(18/19 の SS10.9 と 22 の SS9.5 は、どちらも PUBLISH を挙げている)。SS9.5 の 2 つの場合(制御ストリーム、TRACK_STATUS ストリーム)の外にあるものは、PROTOCOL_VIOLATION でセッションを閉じます(台帳 12-17、`MOQVER_CAP_UPDATE_STRAY_CLOSE`)。
 - [~] MQ23-096 パブリッシャーは、PUBLISH から始まった購読で、PUBLISH_OK を受信する前に Object を送信し始めてもよい。
   - evidence: ハブは PUBLISH にすぐに応答し、その後に続く Object を中継します(`test_moqtrun_object_relay_to_subscriber`)。Object が REQUEST_OK より先に届く場合を固定するテストはありません。
-- [~] MQ23-097 購読者が PUBLISH を REQUEST_ERROR UNINTERESTED で拒否した場合、購読は Object を 1 つも送信せずに終了しなければならない。
-  - evidence: ハブが送った PUBLISH への REQUEST_ERROR はそのスロットを解放します(`test_subtracks_publish_error_frees_slot`)。その後に Object を送るテストはありません。
+- [x] MQ23-097 購読者が PUBLISH を REQUEST_ERROR UNINTERESTED で拒否した場合、購読は Object を 1 つも送信せずに終了しなければならない。
+  - test: `tests/app/moqtrun_bycons_test.c` — `test_moqtrun_bycons`
 - [x] MQ23-097a 認可されていないピアが、配信を許されていない名前空間を PUBLISH しようとした場合、実装はそれを REQUEST_ERROR UNAUTHORIZED で拒否しなければならない。これは、リレーが購読する側だけでなく配信する側の名前空間も認可することを求める、draft-22 の SS15.3.3「Preventing Impersonation」の要件に対応する。
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_publish_requires_authorization`
@@ -689,18 +690,18 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-100 購読は、PUBLISH_DONE を送り、購読の双方向ストリームを閉じることで終了しなければならない。その後、送信者は購読の状態を破棄してもよい。
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_fin_after`
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_one_sub`
-- [~] MQ23-101 購読者が応答を送る前に PUBLISH_DONE が届いた場合、購読者は FIN を送る前に、後回しにした PUBLISH_OK をちょうど 1 つ送らなければならない。
-  - evidence: ハブはすべての PUBLISH にすぐに応答するので、応答していない PUBLISH を抱えることはありません。この規則を固定するテストはありません。
+- [x] MQ23-101 購読者が応答を送る前に PUBLISH_DONE が届いた場合、購読者は FIN を送る前に、後回しにした PUBLISH_OK をちょうど 1 つ送らなければならない。
+  - test: `tests/app/moqtrun_bycons_test.c` — `test_moqtrun_bycons`
 - [x] MQ23-102 実装は、自身が使う PUBLISH_DONE のステータスコードを認識しなければならない: INTERNAL_ERROR、TRACK_ENDED、GOING_AWAY。Location Filter の終わりがもはや購読を終了させないので(MQ23-137a を参照)、draft-22 は SUBSCRIPTION_ENDED (0x3。未割り当て)を削除している。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
   - test: `tests/app/moqtrun_done_test.c` —
     `test_moqtrun_pubdone_unknown_status_is_internal`
   - note: いずれにせよ未知の PUBLISH_DONE のコードは INTERNAL_ERROR に正規化するので、この削除はワイヤー上は安全です。
-- [~] MQ23-103 パブリッシャーが購読のためにデータストリームを 1 本も開かなかった場合、PUBLISH_DONE の Stream Count を 0 にしなければならない。
+- [x] MQ23-103 パブリッシャーが購読のためにデータストリームを 1 本も開かなかった場合、PUBLISH_DONE の Stream Count を 0 にしなければならない。
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_relay_table_full_counts`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_done_track_ended`
-  - evidence: ハブは `moqtrun_sub_done`/`moqtrun_done_emit` で正確な Stream Count を送ります(台帳 3-9/10-3)。データストリームを開かなかったときはそれが 0 になります。ストリーム 0 本のエンコーディングを、一般の正確な数の経路から切り出して確かめる draft-22 専用のテストはありません。
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_datagram_only`
 - [x] MQ23-267 (SS9.9, SS12.4) 実装は、PUBLISH_DONE のステータス EXPIRED_AUTH_TOKEN (0x7) を認識し、上流から受けたら下流へそのまま伝えなければならない。
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_expired_auth_d23`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_codes_d23`
@@ -729,18 +730,18 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_rangeloc22_next_object_roundtrip`
   - note: コードポイント 0x01-0x04 は draft-19 と draft-22 の両方にあり、意味が異なります(`draft19-vs-22-diff.md` の §6.2 を参照)。デコードは `MOQVER_CAP_LOCFILTER_TYPED` でバージョンごとに切り替え、自動判別はしません。`moqctl_rangeloc22_take/_put` は、draft-19 のデコーダーと同じ内部の `moqctl_rangeloc` モデルに写します(台帳 3-6、コミット `fc97a2e5`)。
-- [~] MQ23-106 LOCATION_FILTER の StartGroup + EndGroupDelta が 2^64-1 を超える場合、実装は DELTA_ENCODING_OVERFLOW (0x400) でセッションを閉じなければならない。
-  - evidence: コーデックはオーバーフローを DELTA_ENCODING_OVERFLOW の分類で返します(`test_moqctl_rangeloc22_egd_overflow_violation`)。分類からコードへの変換は `test_moqtrun_cc` が確かめています。
-- [~] MQ23-107 エンドポイントが定義済みの 6 つの値以外の Location Filter Type を受信した場合、実装は INVALID_PARAMETER (0x305) でセッションを閉じなければならない。
-  - evidence: コーデックは INVALID_PARAMETER の分類で返します(`test_moqctl_rangeloc22_unknown_type_violation`)。分類からコードへの変換は `test_moqtrun_cc` が確かめています。
+- [x] MQ23-106 LOCATION_FILTER の StartGroup + EndGroupDelta が 2^64-1 を超える場合、実装は DELTA_ENCODING_OVERFLOW (0x400) でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
+- [x] MQ23-107 エンドポイントが定義済みの 6 つの値以外の Location Filter Type を受信した場合、実装は INVALID_PARAMETER (0x305) でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 - [x] MQ23-108 パブリッシャーは、一時停止の状態と Location Filter の組み合わせ(Pass = (NOT Paused) AND Location AND Range)を通過した Object だけを転送しなければならない。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_reattach_keeps_state`
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_filter22_starts`
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_filter22_ends`
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_filter22_inverted`
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_filter22_end_gates`
-- [~] MQ23-108a Location Filter の有効な範囲は、全体が Largest Object より前にあることによって無効になることはない(つねに有効)。draft-19 では、満たせないフィルターをパブリッシャーが拒否するべきである(SHOULD)点が異なる。
-  - evidence: `moqctl_rangeloc22_take` には「すでに過去」を理由に拒否する経路がありません。`moqtrun_sub_filter22_*` のテストのフィルター評価は、現在の Largest Object 以降のフィルターの受け入れを動かしていて、作りからしてこの「つねに有効」の規則と一致します(構造上は有効だが古いフィルターに INVALID_RANGE を出すコードの経路はない)。
+- [x] MQ23-108a Location Filter の有効な範囲は、全体が Largest Object より前にあることによって無効になることはない(つねに有効)。draft-19 では、満たせないフィルターをパブリッシャーが拒否するべきである(SHOULD)点が異なる。
+  - test: `tests/app/moqtrun_bycons_test.c` — `test_moqtrun_bycons`
 - [x] MQ23-108b Location Filter の終わりに達しても(Largest Object がフィルターの End を越えても)、購読を終了させてはならない。draft-19 の PUBLISH_DONE SUBSCRIPTION_ENDED(draft-22 で削除。MQ23-102 を参照)とは異なる。
   - test: `tests/app/moqtrun_drain_test.c` —
     `test_moqtrun_done_filter_end_keeps_sub`
@@ -801,8 +802,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-120 実装は、SUBGROUP_ID_MODE フィールド(ビット 1-2)を次のようにデコードしなければならない: 0b00 は Subgroup ID がなく 0、0b01 は Subgroup ID がなく最初の Object の Object ID と等しい、0b10 は Subgroup ID がヘッダーにある。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode2`
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
-- [~] MQ23-121 SUBGROUP_ID_MODE が 0b11 の場合、実装は INVALID_STREAM_HEADER (0x200) でセッションを閉じなければならない。
-  - evidence: `test_mtss_subgroup_mode3_closes` は既定のドラフトでセッションを閉じることを確かめます。ヘッダーの不正は MQ23-119 と同じ分類で INVALID_STREAM_HEADER に変換しますが、モード 0b11 を draft-23 のセッションで確かめるテストはありません。
+- [x] MQ23-121 SUBGROUP_ID_MODE が 0b11 の場合、実装は INVALID_STREAM_HEADER (0x200) でセッションを閉じなければならない。
+  - test: `tests/app/moqtrun_malformed_test.c` — `test_moqtrun_malformed`
 - [x] MQ23-122 実装は、SUBGROUP_HEADER の Type Flags フィールドの PROPERTIES ビット (0x01)、END_OF_GROUP ビット (0x08)、DEFAULT_PRIORITY ビット (0x20)、FIRST_OBJECT ビット (0x40) をデコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_eog_bit_fin_sets_group_end`
@@ -866,7 +867,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqfetch_test.c` —
     `test_moqfetch_req22_no_filter_defaults`
 - [~] MQ23-132 draft-22 以降のセッションの FETCH のリクエストストリームが draft-19 の Joining の構造(Joining Request ID / Joining Start を伴う Fetch Type フィールド)を運ぶ場合、実装はセッションを閉じなければならない。draft-23 のコードは INVALID_FIELD (0x301) である。
-  - evidence: `test_moqtrun_fetch_d22_joining_violation` は draft-22 のセッションで閉じることを確かめます。draft-23 では同じ経路(`moqtrun_live.c`)が INVALID_FIELD の分類で閉じますが、そのコードを確かめるテストはありません。
+  - evidence: ワイヤーからは構造上届きません。draft-22/23 の FETCH の本体には Fetch Type がなく、`moqfetch_req22_take` は `is_joining` を立てません。draft-19 の Joining のバイト列を draft-22/23 の FETCH として送っても、別のフィールドの不正として閉じます。`moqtrun_live.c` の INVALID_FIELD の経路は、組み立てた構造体を `moqtrun_fetch_route` へ直接渡したときだけ動きます(`test_moqtrun_fetch_d22_joining_violation`)。
 - [x] MQ23-133 FETCH にはキャッシュから応答しなければならない。その範囲は、LOCATION_FILTER パラメーターから、draft-19 の Standalone/Joining の形と共有する、バージョンに依存しない内部モデルへ正規化する。
   - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_d22_served`
 - [x] MQ23-134 FETCH の LOCATION_FILTER の範囲が無効な場合(Start が Largest Object より後にある、MQ23-106/MQ23-107 の構造上の違反など)、実装はセッションを閉じずに、それを REQUEST_ERROR INVALID_RANGE で拒否しなければならない。
@@ -923,8 +924,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-238 (SS11.5.1) 実装は、パディングのストリーム(型 0x132B3E28)のバイトを、中継も応答もせずにすべて捨てなければならない。
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_padding_stream_discarded`
   - test: `tests/app/moqdata_test.c` — `test_moqdata_classify_golden`
-- [~] MQ23-239 (SS11.5.2) 実装は、パディングのデータグラム(型 0x132B3E29)を捨てなければならない。
-  - evidence: ハブはこの型を認識しません。デコードできないものとして数え、不正なデータグラムと同じように落とします(`test_moqtrun_dg_malformed_counts_bad`)。結果として捨てています。
+- [x] MQ23-239 (SS11.5.2) 実装は、パディングのデータグラム(型 0x132B3E29)を捨てなければならない。
+  - test: `tests/app/moqtrun_bycons_test.c` — `test_moqtrun_bycons`
 
 ## SS7.7/11.4.2 リレーの FETCH の欠落の扱い
 
@@ -1339,8 +1340,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqtrun_tprops_test.c` — `test_moqtrun_tprops_prio`
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ok_bad_prop_closes`
   - test: `tests/app/moqtrun_upfetch_d23_test.c` — `test_moqtrun_upfetch_d23_props_close`
-- [~] MQ23-289 (SS9.19.19) 購読者は、Track の Properties を受信していて、それが DYNAMIC_GROUPS=1 を含まないときに限り、REQUEST_UPDATE で NEW_GROUP_REQUEST を送ってはならない。
-  - evidence: ハブは上流へ INCLUDE_PROPERTIES 0 を送らないので、Established の Track はつねに Properties を持ちます。そのため転送の関門(`moqtrun_ngr.c` の `moqtrun_ngr_wanted`)は draft-22 と同じ「DYNAMIC_GROUPS=1 を見たとき」で済み、`test_moqtrun_upsub_ngr_update` がそれを確かめています。draft-23 のセッションで確かめる専用のテストはありません。
+- [x] MQ23-289 (SS9.19.19) 購読者は、Track の Properties を受信していて、それが DYNAMIC_GROUPS=1 を含まないときに限り、REQUEST_UPDATE で NEW_GROUP_REQUEST を送ってはならない。
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ngr_update`
 
 ## ハブのリレー: 配送タイムアウト
 
