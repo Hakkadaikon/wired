@@ -471,13 +471,20 @@ typedef struct {
    * FETCH round (one fetch Object: MOQCACHE_OBJ_MAX payload plus at most
    * 64 bytes of framing) is staged here too, never during a relay round:
    * the transport copies each accepted round, so nothing outlives the
-   * call. */
-  u8 relay_scratch[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP];
+   * call. A stream head re-encoded for a subscriber cut per Object is
+   * built here too, hence WIRED_MOQTRUN_OFILT_SLACK. */
+  u8 relay_scratch
+      [WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP +
+       WIRED_MOQTRUN_OFILT_SLACK];
   /** Scratch for moqtrun_alias_splice: one relayed stream head or
    * datagram (at most a relay_scratch round) re-spelled with its
    * destination's Track Alias, which may take up to 8 more bytes. Used
-   * per io call only (the transport copies each accepted round). */
-  u8 alias_scratch[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP + 8];
+   * per io call only (the transport copies each accepted round). A round
+   * re-chained for a subscriber cut per Object (moqtrun_ofilt_round) is
+   * built here too, hence WIRED_MOQTRUN_OFILT_SLACK. */
+  u8 alias_scratch
+      [WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP +
+       WIRED_MOQTRUN_OFILT_SLACK + 8];
   /** Cumulative undelivered tails dropped because they exceeded
    * WIRED_MOQTRUN_RELAY_FRAG_MAX (each degrades to a torn frame on that one
    * stream -- moqtrun_relay_save_frag). Diagnostic only, never reset. */

@@ -6,7 +6,8 @@ static void moqtrun_relay_object_one(
     wired_moqtrun_sub*   s,
     wired_span           wire,
     u64                  group,
-    u64                  sg);
+    u64                  sg,
+    u8                   prio);
 static int moqtrun_relay_matches(
     const wired_moqtrun_relay* r, u64 pub_stream_id);
 static wired_moqtrun_relay* moqtrun_track_relay_by_stream(
@@ -58,16 +59,18 @@ wired_span moqtrun_head_startobj_cut(
 }
 
 /* One-shot relay of a whole stream to s, cut to its Location Filter's
- * start and End Objects; nothing at all when no Object is left. */
+ * start and End Objects and, per Object, its Range Filters
+ * (moqtrun_sub_head); nothing at all when no Object is left. */
 static void moqtrun_relay_object_one(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_sub*   s,
     wired_span           wire,
     u64                  group,
-    u64                  sg) {
+    u64                  sg,
+    u8                   prio) {
   int        bare;
-  wired_span w = moqtrun_head_startobj_cut(hub, s, wire, group, sg, &bare);
+  wired_span w = moqtrun_sub_head(hub, s, wire, group, sg, prio, &bare);
   if (bare || moqtrun_dd_dup(hub, s, 0, group, sg)) {
     return;
   }
@@ -88,7 +91,8 @@ void moqtrun_relay_object(
   moqtss_prime(hub, track, group); /* SSTS (moqtssts_run.c) */
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
     if (moqtrun_sub_gets_stream(&track->subs[i], group, sg, prio)) {
-      moqtrun_relay_object_one(hub, track, &track->subs[i], wire, group, sg);
+      moqtrun_relay_object_one(
+          hub, track, &track->subs[i], wire, group, sg, prio);
     }
   }
 }

@@ -1807,9 +1807,9 @@ static void mtst_rngf_param(
   it->bytes = wired_span_of(b, n);
 }
 
-/* OBJECTID_FILTER gates each Object at the per-Object (datagram) gate:
- * {0,5} reaches only the subscriber whose ranges admit Object 5. Stream
- * relays stay group-granular and pass (the Location Filter precedent). */
+/* OBJECTID_FILTER gates each Object: datagram Object 5 reaches only the
+ * subscriber whose ranges admit it, stream Object 0 only the other one
+ * (moqtrun_ofilt.c). */
 static void test_moqtrun_sub_objectid_filter_gates_datagram(void) {
   moqctl_params      lo = {0}, hi = {0};
   moqctl_rangefilter f0 = mtst_rngf1(0, 0, 4, 1);
@@ -1832,7 +1832,8 @@ static void test_moqtrun_sub_objectid_filter_gates_datagram(void) {
       wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
   CHECK(moqtrun_test_count_kind(9) == 1);
   CHECK(moqtrun_test_last_kind(9)->s == SESS_C);
-  CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 2); /* streams pass */
+  CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 1);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
 }
 
 /* SetIDs OR together (10.2.10): a failing set 0 plus a passing set 1

@@ -34,7 +34,7 @@ int moqtrun_rel_late_wanted(
     const wired_moqtrun_relay* relay,
     const moqtrel_buf*         rb,
     usz                        i) {
-  return moqtrun_sub_forwards(&track->subs[i]) && !relay->sub_stream_set[i] &&
+  return moqtrun_sub_rides_ring(&track->subs[i]) && !relay->sub_stream_set[i] &&
          !rb->subs[i].active;
 }
 

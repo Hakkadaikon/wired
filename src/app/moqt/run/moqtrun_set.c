@@ -8,17 +8,6 @@ static void moqtrun_sub_pub_order(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t);
 static int moqtrun_sub_in_range(const wired_moqtrun_sub* s, u64 g);
 
-/* SetIDs OR together (10.2.10): the Object passes when any set's
- * evaluable params all admit it; no rows at all is unfiltered. */
-int moqtrun_sub_rngf_pass(const wired_moqtrun_sub* s, u64 oid) {
-  int pass = !s->rngf_n; /* no rows: unfiltered */
-  for (usz i = 0; i < s->rngf_n; i++) {
-    pass |= moqtrun_set_dim_pass(
-        s, s->rngf[i].set_id, MOQCTL_PARAM_OBJECTID_FILTER, oid);
-  }
-  return pass;
-}
-
 /* One set's SUBGROUP_FILTER and PRIORITY_FILTER (d22 9.20.10/9.20.12,
  * AND'd within the set) for a stream of Subgroup sg, Publisher Priority
  * prio. */
@@ -30,8 +19,8 @@ static int moqtrun_set_stream_pass(
 
 /* The stream-level Range Filter gate, evaluated when a stream opens
  * toward s: Subgroup ID and Publisher Priority are the stream header's.
- * Object-level filters are not cut on streams (OBJECTID gates datagrams
- * only), so a set with only those passes here. */
+ * Object-level filters pass here; they cut the stream's Objects one by
+ * one (moqtrun_ofilt.c). */
 int moqtrun_sub_rngf_stream(const wired_moqtrun_sub* s, u64 sg, u64 prio) {
   int pass = !s->rngf_n;
   for (usz i = 0; i < s->rngf_n; i++) {

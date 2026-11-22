@@ -3,6 +3,70 @@
 
 #include "app/moqt/run/moqtrun_impl_protos9.h"
 
+int moqtrun_sub_cuts_objects(const wired_moqtrun_sub* s);
+int moqtrun_sub_rides_ring(const wired_moqtrun_sub* s);
+int moqtrun_ofilt_waits(const wired_moqtrun_sub* s, int bare);
+int moqtrun_sub_dg_pass(
+    const wired_moqtrun_sub* s, const moqdg_obj* o, u8 dflt);
+int moqtrun_ofilt_cutting(
+    const wired_moqtrun_relay* relay, usz i, const wired_moqtrun_sub* s);
+int moqtrun_ofilt_ring_cut(const wired_moqtrun_relay* relay, usz i);
+int moqtrun_ofilt_refused(
+    wired_moqt_hub*      hub,
+    wired_wt_session*    wt,
+    wired_moqtrun_relay* relay,
+    usz                  i);
+int moqtrun_rechain_put(
+    wired_mspan out, usz* n, moqdata_objseq* d, u64 id, wired_span rest);
+wired_span moqtrun_sub_head(
+    wired_moqt_hub*          hub,
+    const wired_moqtrun_sub* s,
+    wired_span               wire,
+    u64                      group,
+    u64                      sg,
+    u8                       prio,
+    int*                     bare);
+void moqtrun_ofilt_sent(
+    wired_moqtrun_relay* relay, usz i, wired_span wire, moqdata_objseq seq);
+void moqtrun_ofilt_opened(
+    wired_moqtrun_relay*     relay,
+    usz                      i,
+    const wired_moqtrun_sub* sub,
+    wired_span               out);
+int moqtrun_ofilt_keeps(
+    const wired_moqtrun_sub*   s,
+    const wired_moqtrun_relay* relay,
+    usz                        i,
+    moqtrun_round              r);
+moqtrun_round moqtrun_ofilt_round(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_sub*   s,
+    const wired_moqtrun_relay* relay,
+    usz                        i,
+    moqtrun_round              r);
+void moqtrun_ofilt_deliver(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_peer*  dst,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    moqtrun_round        r);
+void moqtrun_relay_append_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    moqtrun_round        r,
+    u64                  born_ms);
+void moqtrun_relay_append_cut(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    wired_span           wire,
+    moqdata_objseq       seq0,
+    int                  fin,
+    u64                  born_ms);
+
 void moqtrun_relay_fin_note(
     wired_moqtrun_track* t, const wired_moqtrun_relay* r, int fin);
 u64  moqtrun_relay_hdr_type(const wired_moqtrun_relay* r);

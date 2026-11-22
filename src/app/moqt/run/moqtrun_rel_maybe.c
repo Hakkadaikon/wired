@@ -118,8 +118,9 @@ static void moqtrun_rel_cut_all(
 
 /* A later delivery on a ring-backed relay: append the whole-Object bytes
  * (the Object-boundary rounding is shared with the lossy path), cut them
- * per cursor (moqtrun_rel_cut_all), record the publisher's FIN, drain
- * this ring now, and decide the hold. */
+ * per cursor (moqtrun_rel_cut_all), hand them to the subscribers cut
+ * per Object (moqtrun_relay_append_cut), record the publisher's FIN,
+ * drain this ring now, and decide the hold. */
 void moqtrun_rel_continue(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
@@ -133,6 +134,7 @@ void moqtrun_rel_continue(
   moqtrun_rel_take(hub, rb, whole, born_ms);
   moqtrun_cut_ring_take(relay, rb, whole.n, hub->live.last_now_ms);
   moqtrun_rel_cut_all(track, relay, rb, whole, seq0, base);
+  moqtrun_relay_append_cut(hub, track, relay, whole, seq0, fin, born_ms);
   if (fin) {
     rb->fin_seen = 1;
     hub->stat_rel_fin_in++;

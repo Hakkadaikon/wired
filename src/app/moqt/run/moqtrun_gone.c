@@ -46,16 +46,9 @@ static wired_span moqtrun_gone_filter(
  * re-chained from c->dseq, appended to hub->alias_scratch; 0 when it
  * does not fit in a relay round. */
 static int moqtrun_gone_put(moqtrun_gone_ctx* c, u64 id, wired_span rest) {
-  u64 delta = c->dseq.have_prev ? id - c->dseq.prev_id - 1 : id;
-  if (sizeof c->hub->relay_scratch - c->n < 8 + rest.n) {
-    return 0;
-  }
-  c->n += moqvi_encode(c->hub->alias_scratch + c->n, delta);
-  bytes_memcpy(c->hub->alias_scratch + c->n, rest.p, rest.n);
-  c->n += rest.n;
-  c->dseq.have_prev = 1;
-  c->dseq.prev_id   = id;
-  return 1;
+  return moqtrun_rechain_put(
+      wired_mspan_of(c->hub->alias_scratch, sizeof c->hub->relay_scratch),
+      &c->n, &c->dseq, id, rest);
 }
 
 /* The Object with ID id is cut: recorded nonexistent and not already

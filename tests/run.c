@@ -774,6 +774,9 @@
 #include "app/moqt/run/moqtrun_cut.c"
 #include "app/moqt/run/moqtrun_cut_round.c"
 #include "app/moqt/run/moqtrun_gone.c"
+#include "app/moqt/run/moqtrun_ofilt.c"
+#include "app/moqt/run/moqtrun_ofilt_round.c"
+#include "app/moqt/run/moqtrun_ofilt_sel.c"
 #include "app/moqt/run/moqtrun_fsel.c"
 #include "app/moqt/run/moqtrun_fsel_fetch.c"
 #include "app/moqt/run/moqtrun_fwin.c"
@@ -1343,6 +1346,7 @@
 #include "app/moqtrun_ns_test.c"
 #include "app/moqtrun_subtracks_test.c"
 #include "app/moqtrun_upd_test.c"
+#include "app/moqtrun_ofilt_test.c"
 #include "app/moqtrun_fill_test.c"
 #include "app/moqtrun_drain_test.c"
 #include "app/moqtrun_xver_test.c"
@@ -1854,6 +1858,7 @@ int main(void) {
   test_moqsess();
   test_moqtrun();
   test_moqtrun_sub();
+  test_moqtrun_ofilt();
   test_moqtrun_fetch();
   test_moqtrun_fetch_d23();
   test_moqtrun_fill();

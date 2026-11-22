@@ -81,6 +81,7 @@ static void moqtrun_relay_opened(
     i64                  sid,
     wired_span           out) {
   moqtrun_prio_set(hub, dst->wt, sid, sub, out, relay->default_pub_prio);
+  moqtrun_ofilt_opened(relay, i, sub, out);
   sub->stream_count++;
   moqtrun_sub_note_open(hub, dst->wt, sub, relay, (u64)sid);
   relay->sub_stream_id[i]   = (u64)sid;
@@ -123,8 +124,10 @@ void moqtrun_relay_open_one(
 }
 
 /* The opening round to sub slot i, cut to its start Object
- * (moqtrun_head_startobj_cut): a cut that left no Object opens the stream
- * head-only, its first Object re-framed later (sub_reframe). */
+ * (moqtrun_sub_head): a cut that left no Object opens the stream
+ * head-only, its first Object re-framed later (sub_reframe) -- unless
+ * sub is cut per Object, whose stream waits for a kept Object
+ * (moqtrun_ofilt_deliver). */
 static void moqtrun_relay_open_sub(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,
@@ -132,8 +135,12 @@ static void moqtrun_relay_open_sub(
     usz                  i,
     wired_span           wire) {
   int        bare;
-  wired_span w = moqtrun_head_startobj_cut(
-      hub, sub, wire, relay->group_id, relay->subgroup_id, &bare);
+  wired_span w = moqtrun_sub_head(
+      hub, sub, wire, relay->group_id, relay->subgroup_id, relay->pub_prio,
+      &bare);
+  if (moqtrun_ofilt_waits(sub, bare)) {
+    return;
+  }
   moqtrun_relay_open_one(hub, sub, relay, i, w);
   relay->sub_reframe |= (u32)(bare & relay->sub_stream_set[i]) << i;
 }

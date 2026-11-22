@@ -85,15 +85,14 @@ usz moqtrun_startobj_cut(
   return moqtrun_startobj_scan(s, wire, off, seq);
 }
 
-/* moqtrun_sub_gets for one Object at l (a datagram): also not before the
- * start Object nor past an End Object. */
+/* moqtrun_sub_gets for one Object at l (a datagram, a cut-through
+ * Object): also not before the start Object nor past an End Object. */
 static int moqtrun_sub_in_objects(const wired_moqtrun_sub* s, moqctl_loc l) {
   return !moqctl_loc_less(l, s->start) && !moqtrun_sub_past_end_object(s, l);
 }
 
 int moqtrun_sub_gets_loc(const wired_moqtrun_sub* s, moqctl_loc l) {
-  return moqtrun_sub_gets(s, l.group) && moqtrun_sub_in_objects(s, l) &&
-         moqtrun_sub_rngf_pass(s, l.object);
+  return moqtrun_sub_gets(s, l.group) && moqtrun_sub_in_objects(s, l);
 }
 
 static int moqtrun_late_by(u64 timeout_ms, u64 age_ms) {

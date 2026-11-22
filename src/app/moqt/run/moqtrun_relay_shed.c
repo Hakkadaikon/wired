@@ -102,14 +102,18 @@ static void moqtrun_relay_note_busy(
   moqtrun_relay_shed_one(hub, wt, sub, relay, i);
 }
 
-/* A refused round: the stream reset if it was partway into an Object
- * (moqtrun_cut_refused), else counted toward a shed. */
+/* A refused round: the stream reset if it is cut per Object on a
+ * ring-backed relay (moqtrun_ofilt_refused) or was partway into an
+ * Object (moqtrun_cut_refused), else counted toward a shed. */
 static void moqtrun_relay_refused(
     wired_moqt_hub*          hub,
     wired_wt_session*        wt,
     const wired_moqtrun_sub* sub,
     wired_moqtrun_relay*     relay,
     usz                      i) {
+  if (moqtrun_ofilt_refused(hub, wt, relay, i)) {
+    return;
+  }
   if (!moqtrun_cut_refused(hub, wt, relay, i)) {
     moqtrun_relay_note_busy(hub, wt, sub, relay, i);
   }
@@ -160,6 +164,7 @@ void moqtrun_relay_forward_one(
     relay->sub_busy_streak[i] = 0;
     relay->sub_reframe &= ~((u32)1 << i);
     relay->sub_part[i] = 0; /* the round ends at an Object boundary */
+    moqtrun_ofilt_sent(relay, i, wire, r.seq0);
     return;
   }
   moqtrun_relay_refused(hub, wt, sub, relay, i);

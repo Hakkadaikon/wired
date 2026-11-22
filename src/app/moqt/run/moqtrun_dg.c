@@ -18,16 +18,19 @@ static wired_moqtrun_track* moqtrun_dg_track(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     wired_span          data,
-    moqctl_loc*         loc);
+    moqdg_obj*          obj);
 static void moqtrun_dg_to_one(
     wired_moqt_hub* hub, const wired_moqtrun_sub* sub, wired_span data);
 static void moqtrun_dg_fanout(
     wired_moqt_hub*            hub,
     const wired_moqtrun_track* track,
     wired_span                 data,
-    moqctl_loc                 loc);
+    const moqdg_obj*           obj);
 static int moqtrun_dg_wants(
-    wired_moqt_hub* hub, const wired_moqtrun_sub* sub, moqctl_loc loc);
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_track* track,
+    const wired_moqtrun_sub*   sub,
+    const moqdg_obj*           obj);
 static void moqtrun_sw_sweep(wired_moqt_hub* hub);
 static void moqtrun_rel_clear_sub(
     wired_moqt_hub* hub, const wired_moqtrun_relay* r, usz si);
@@ -112,30 +115,29 @@ static wired_moqtrun_track* moqtrun_dg_mode_gate(
  * the datagram is padding -- the caller drops it whole -- when a
  * Mandatory Object Property made the track malformed
  * (moqtrun_obj_mand_gate), or when it closed the session
- * (moqtrun_dg_refused, moqtrun_dg_prop_violates). */
+ * (moqtrun_dg_refused, moqtrun_dg_prop_violates). The decode in *obj. */
 static wired_moqtrun_track* moqtrun_dg_track(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     wired_span          data,
-    moqctl_loc*         loc) {
-  usz       off = 0;
-  moqdg_obj obj;
-  int       r = moqdg_take(data, &off, &obj);
+    moqdg_obj*          obj) {
+  usz off = 0;
+  int r   = moqdg_take(data, &off, obj);
   if (r != MOQDATA_OK) {
     moqtrun_dg_refused(hub, p, data, r);
     return 0;
   }
-  if (moqtrun_dg_prop_violates(p, &obj)) {
+  if (moqtrun_dg_prop_violates(p, obj)) {
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return 0;
   }
-  *loc                   = moqctl_loc_of(obj.group_id, obj.object_id);
-  wired_moqtrun_track* a = moqtrun_track_by_alias(p, obj.track_alias);
-  wired_moqtrun_track* t = moqtrun_gone_gate(
-      hub, moqtrun_dg_mode_gate(hub, moqtrun_obj_mand_gate(a, obj.props), *loc),
-      *loc); /* draft-18/19 9.1 */
+  moqctl_loc           loc = moqctl_loc_of(obj->group_id, obj->object_id);
+  wired_moqtrun_track* a   = moqtrun_track_by_alias(p, obj->track_alias);
+  wired_moqtrun_track* t   = moqtrun_gone_gate(
+      hub, moqtrun_dg_mode_gate(hub, moqtrun_obj_mand_gate(a, obj->props), loc),
+      loc); /* draft-18/19 9.1 */
   moqtrun_dg_malformed_end(hub, a);
-  moqtrun_track_note(t, obj.group_id, obj.object_id);
+  moqtrun_track_note(t, obj->group_id, obj->object_id);
   return t;
 }
 
@@ -168,16 +170,22 @@ static void moqtrun_dg_to_one(
   }
 }
 
-/* sub takes the Object at loc, and no sibling mirror sent it (draft-18
- * 9.3 dedup, moqtrun_dd_dup). */
+/* sub takes the datagram obj of track: its Location and Range Filters
+ * pass, and no sibling mirror sent it (draft-18 9.3 dedup,
+ * moqtrun_dd_dup). */
 static int moqtrun_dg_wants(
-    wired_moqt_hub* hub, const wired_moqtrun_sub* sub, moqctl_loc loc) {
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_track* track,
+    const wired_moqtrun_sub*   sub,
+    const moqdg_obj*           obj) {
+  moqctl_loc loc = moqctl_loc_of(obj->group_id, obj->object_id);
   return moqtrun_sub_gets_loc(sub, loc) &&
+         moqtrun_sub_dg_pass(sub, obj, track->default_pub_prio) &&
          !moqtrun_dd_dup(hub, sub, 1, loc.group, loc.object);
 }
 
 /* Stateless fan-out to every active subscriber of the track whose
- * Location Filter takes the Object at loc -- the datagram twin of
+ * filters take the datagram obj -- the datagram twin of
  * moqtrun_relay_object. A deactivated (closed) subscription is skipped;
  * late subscribers get nothing retroactively. Sent the moment it arrives,
  * a datagram is never past an OBJECT_DELIVERY_TIMEOUT (draft 8). */
@@ -185,9 +193,9 @@ static void moqtrun_dg_fanout(
     wired_moqt_hub*            hub,
     const wired_moqtrun_track* track,
     wired_span                 data,
-    moqctl_loc                 loc) {
+    const moqdg_obj*           obj) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
-    if (moqtrun_dg_wants(hub, &track->subs[i], loc)) {
+    if (moqtrun_dg_wants(hub, track, &track->subs[i], obj)) {
       moqtrun_dg_to_one(hub, &track->subs[i], data);
     }
   }
@@ -208,16 +216,16 @@ void wired_moqt_on_datagram(
   if (!moqtrun_dg_ready(hub, p)) {
     return;
   }
-  moqctl_loc           loc   = {0, 0};
-  wired_moqtrun_track* track = moqtrun_dg_track(hub, p, data, &loc);
+  moqdg_obj            obj   = {0};
+  wired_moqtrun_track* track = moqtrun_dg_track(hub, p, data, &obj);
   /* Unknown alias, padding, or a malformed datagram (whose session
    * moqtrun_dg_track closed): dropped whole. */
   if (!track) {
     hub->stat_dg_bad++;
     return;
   }
-  moqtss_prime(hub, track, loc.group); /* SSTS (moqtssts_run.c) */
-  moqtrun_dg_fanout(hub, track, data, loc);
+  moqtss_prime(hub, track, obj.group_id); /* SSTS (moqtssts_run.c) */
+  moqtrun_dg_fanout(hub, track, data, &obj);
   moqtrun_sw_sweep(hub); /* SWITCH_FROM: a datagram of B's G cuts Hard */
 }
 

@@ -53,6 +53,7 @@ static void moqtrun_relay_claim_init(
     relay->sub_stream_set[i]  = 0;
     relay->sub_busy_streak[i] = 0; /* freestanding memory starts unzeroed */
     relay->sub_part[i]        = 0;
+    relay->sub_dprev[i]       = 0;
   }
   moqtrun_frag_release(relay);
 }
@@ -66,6 +67,8 @@ static void moqtrun_relay_head_init(
     usz                  whole_end) {
   relay->sub_expired = 0;
   relay->sub_reframe = 0;
+  relay->sub_cut     = 0;
+  relay->sub_dhave   = 0;
   relay->subgroup_id = 0;
   relay->pub_prio    = relay->default_pub_prio;
   moqtrun_relay_save_frag(

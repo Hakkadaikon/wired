@@ -113,7 +113,7 @@ void moqtrun_rel_attach_sub(
     usz                        i,
     u64                        sent,
     u64                        now_ms) {
-  if (!moqtrun_sub_forwards(&track->subs[i]) || !relay->sub_stream_set[i]) {
+  if (!moqtrun_sub_rides_ring(&track->subs[i]) || !relay->sub_stream_set[i]) {
     return;
   }
   rb->subs[i].active       = 1;

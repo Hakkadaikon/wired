@@ -231,11 +231,12 @@ static void test_moqtrun_stream_header_then_gone_object(void) {
 /* draft-18/19 9.1 / 11.4.2: after the hub cut nonexistent Object 2 from
  * A's stream (Group 1 closed, 0, 1 and 5 cached), its next round is one
  * re-chained Object 5 of 65532 bytes -- a fragment just under
- * WIRED_MOQTRUN_RELAY_FRAG_MAX plus one full WT delivery. moqtrun_gone_put
- * budgets 8 bytes for the new Object ID Delta, so an Object that fills
- * relay_scratch to within that is not re-framed: the round is poisoned and
- * B's stream reset, never sent torn. */
-static void test_moqtrun_stream_gone_round_too_big(void) {
+ * WIRED_MOQTRUN_RELAY_FRAG_MAX plus one full WT delivery. The re-chained
+ * Delta (3) takes the room it needs (moqtrun_rechain_put) and the
+ * scratch holds a whole round past it (WIRED_MOQTRUN_OFILT_SLACK), so it
+ * goes out whole on B's stream, not poisoned. (Its payload differs from
+ * the cached Object 5, so the track is Malformed, 12.1, and ends.) */
+static void test_moqtrun_stream_gone_round_full(void) {
   static const u64 ids[2] = {0, 1}, five[1] = {5};
   static u8 big[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP + 64];
   static u8 pl[sizeof big];
@@ -260,9 +261,10 @@ static void test_moqtrun_stream_gone_round_too_big(void) {
   mt_feed(
       &mtst_hub, SESS_A, MCUT_SID,
       wired_span_of(big + at + frag, n - at - frag), 0);
-  const moqtrun_test_call* r = moqtrun_test_last_kind(7);
+  const moqtrun_test_call* r = moqtrun_test_last_kind(3);
   CHECK(n - at - frag <= WIRED_SRVLOOP_WT_BUF_CAP + 1);
-  CHECK(r && r->stream_id == sid && moqtrun_test_count_kind(3) == 0);
+  CHECK(r && r->stream_id == sid && !r->refused && r->wire_len == n - at);
+  CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].malformed);
 }
 
 /* A mode-0b01 stream (Subgroup ID = its first Object's ID, draft-22
@@ -286,7 +288,7 @@ static void test_moqtrun_stream_mode1_torn_first_object(void) {
 }
 
 static void test_moqtrun_cut(void) {
-  test_moqtrun_stream_gone_round_too_big();
+  test_moqtrun_stream_gone_round_full();
   test_moqtrun_stream_header_then_gone_object();
   test_moqtrun_stream_mode1_torn_first_object();
   test_moqtrun_cut_reset_refused_expires();

@@ -20,13 +20,6 @@ static wired_span moqtrun_relay_end_cut(
     moqdata_objseq           seq0,
     const wired_moqtrun_sub* sub,
     int*                     fin);
-static void moqtrun_relay_append_one(
-    wired_moqt_hub*      hub,
-    wired_moqtrun_sub*   sub,
-    wired_moqtrun_relay* relay,
-    usz                  i,
-    moqtrun_round        r,
-    u64                  born_ms);
 
 /* relay is a lossy stream of a Group older than the newest sub was
  * opened a stream in (wired_moqtrun_sub.newest_sid). */
@@ -97,7 +90,7 @@ static wired_span moqtrun_relay_end_cut(
  * round starts at the stream's first Object sent: it follows a head-only
  * open, so moqtrun_relay_reframe makes it absolute) and End Object
  * (moqtrun_relay_end_cut) when wire's Objects cross them. */
-static void moqtrun_relay_append_one(
+void moqtrun_relay_append_one(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,
     wired_moqtrun_relay* relay,
@@ -115,7 +108,7 @@ static void moqtrun_relay_append_one(
   r.wire  = wired_span_of(r.wire.p + cut, r.wire.n - cut);
   r.wire  = moqtrun_relay_end_cut(relay, i, r.wire, r.seq0, sub, &r.fin);
   r.wire  = moqtrun_cut_skip(relay, i, r.wire);
-  moqtrun_relay_deliver_one(hub, sub, dst, relay, i, r);
+  moqtrun_ofilt_deliver(hub, sub, dst, relay, i, r);
 }
 
 void moqtrun_relay_append_all(

@@ -316,10 +316,9 @@ typedef struct {
   u8 has_filter;
   /** Range Filter rows (10.2.10-10.2.14), one Range per row; capacity
    * is the advertised MAX_FILTER_RANGES. SUBGROUP/PRIORITY rows gate
-   * each stream as it opens (moqtrun_sub_rngf_stream); OBJECTID_FILTER
-   * rows gate each Object at the per-Object (datagram) gate.
-   * ponytail: property filter rows are validated and stored but pass at
-   * delivery; evaluate them if the hub ever reads properties there. */
+   * each stream as it opens (moqtrun_sub_rngf_stream); with OBJECTID or
+   * OBJECT_PROPERTY rows every Object is judged on its own, on streams
+   * (moqtrun_ofilt.c) and datagrams (moqtrun_sub_dg_pass). */
   wired_moqtrun_rngrow rngf[WIRED_MOQTRUN_MAX_FILTER_RANGES];
   /** Rows of rngf in use; 0 = no Range Filter. */
   u8 rngf_n;
@@ -397,6 +396,13 @@ typedef struct {
  * attachment chunk or a small media frame. Datagram Objects are bounded
  * by the QUIC datagram size instead. */
 #define WIRED_MOQTRUN_RELAY_FRAG_MAX 16384
+
+/** Room a relay round may grow by when re-chained for a subscriber cut
+ * per Object (moqtrun_ofilt.c), past a late head: its first kept
+ * Object's ID Delta grows from 1 to at most 9 bytes (+8, a moqvi carries
+ * 7 bits a byte). A cut Object never grows it: the next Delta gains at
+ * most one byte per 7 bits while the cut Object drops at least three. */
+#define WIRED_MOQTRUN_OFILT_SLACK (WIRED_MOQTRUN_RELAY_HDR_MAX + 8)
 
 /** Hub-wide buffers for held-back Object fragments, shared by every relay
  * (a relay holds one only while an Object is torn across deliveries). A
@@ -503,6 +509,15 @@ typedef struct {
    * after an Object dropped as nonexistent (moqtrun_gone.c), whose
    * successor's ID Delta is re-chained from here. */
   moqdata_objseq dseq;
+  /** Per sub slot i cut per Object (sub_cut, moqtrun_ofilt.c): the last
+   * Object ID sent on its stream, valid while sub_dhave bit i is set --
+   * the next kept Object's ID Delta chains from it. */
+  u64 sub_dprev[WIRED_MOQTRUN_MAX_SUBS];
+  /** Bit i: sub_dprev[i] holds an Object sent on sub slot i's stream. */
+  u32 sub_dhave;
+  /** Bit i: sub slot i's rounds are re-encoded per Object, its Range
+   * Filters cutting Objects (moqtrun_ofilt.c). */
+  u32 sub_cut;
 } wired_moqtrun_relay;
 
 /** Consecutive refused relay rounds (io.stream_send returning busy) after

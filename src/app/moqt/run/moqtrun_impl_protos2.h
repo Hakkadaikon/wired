@@ -122,7 +122,6 @@ void moqtrun_sub_rngf_update(wired_moqtrun_sub* s, const moqctl_params* params);
 int  moqtrun_row_in(const wired_moqtrun_rngrow* r, u64 v);
 int  moqtrun_row_dim_of_set(const wired_moqtrun_rngrow* r, u8 set, u64 ptype);
 int  moqtrun_set_dim_pass(const wired_moqtrun_sub* s, u8 set, u64 ptype, u64 v);
-int  moqtrun_sub_rngf_pass(const wired_moqtrun_sub* s, u64 oid);
 int  moqtrun_sub_rngf_stream(const wired_moqtrun_sub* s, u64 sg, u64 prio);
 u64  moqtrun_timeout_min(u64 pub_ms, u64 sub_ms);
 void moqtrun_sub_open(

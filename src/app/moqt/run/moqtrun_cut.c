@@ -26,6 +26,8 @@ static int moqtrun_cut_ready(
 static int moqtrun_cut_at_end(const moqtrel_sub* c, const moqtrel_buf* rb);
 static int moqtrun_cut_ring_ok(
     const wired_moqt_hub* hub, const wired_moqtrun_relay* relay, usz i);
+static int moqtrun_cut_whole(
+    const wired_moqtrun_sub* s, const wired_moqtrun_relay* relay, usz i);
 static int moqtrun_cut_stream_ok(
     const wired_moqtrun_sub* s, const wired_moqtrun_relay* relay, usz i);
 static int moqtrun_cut_takes(
@@ -122,12 +124,19 @@ static int moqtrun_cut_ring_ok(
   return moqtrun_rel_sub_open(rb, i) && moqtrun_cut_at_end(&rb->subs[i], rb);
 }
 
-/* Sub slot i's relay stream is open and its first Object needs no
- * re-framing (sub_reframe: that one is sent whole). */
+/* Sub slot i takes Objects whole: its first one needs re-framing
+ * (sub_reframe), or its Objects are cut and re-chained one by one
+ * (moqtrun_ofilt.c). */
+static int moqtrun_cut_whole(
+    const wired_moqtrun_sub* s, const wired_moqtrun_relay* relay, usz i) {
+  return (relay->sub_reframe >> i & 1) || moqtrun_ofilt_cutting(relay, i, s);
+}
+
+/* Sub slot i's relay stream is open and takes Objects as they come. */
 static int moqtrun_cut_stream_ok(
     const wired_moqtrun_sub* s, const wired_moqtrun_relay* relay, usz i) {
   return moqtrun_sub_gets_relay(s, relay) && relay->sub_stream_set[i] &&
-         !(relay->sub_reframe >> i & 1);
+         !moqtrun_cut_whole(s, relay, i);
 }
 
 /* Sub slot i (its stream open) is served, takes the Object at l and,
