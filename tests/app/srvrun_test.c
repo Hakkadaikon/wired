@@ -13,6 +13,7 @@
 #include "app/http3/request/h3reqdrive/request_drive_impl.h"
 #include "app/http3/request/h3resp/field_encode.h"
 #include "app/http3/server/srvloop/dispatch.h"
+#include "app/moqt/run/moqtrun.h"
 #include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/fieldline.h"
 #include "app/qpack/qpack/huffman.h"
@@ -31013,6 +31014,63 @@ static void test_srvrun_serve_env_salts_reset_seed_with_core_id(void) {
   CHECK(ct_diffn(g_srvrun_env.reset_seed + 1, seed + 1, 31) == 0);
 }
 
+/* One serve_env start with the shutdown word pre-set: the loop exits right
+ * after start-up, so the result is the start-up verdict alone. */
+static int sr_start_once(wired_srvboot_id* id, const wired_srvrun_opt* opt) {
+  int ok;
+  __atomic_store_n(wired_srvrun_shutdown_word(), 1, __ATOMIC_RELEASE);
+  ok = wired_srvrun_serve_env(
+      &g_srvrun_env, 0, id, (wired_srvrun_handler){0}, (wired_srvrun_obs){0},
+      opt);
+  __atomic_store_n(wired_srvrun_shutdown_word(), 0, __ATOMIC_RELEASE);
+  return ok;
+}
+
+/* draft-ietf-moq-transport-22/-23 6.2 (-18/-19 3.1): the QUIC DATAGRAM
+ * extension MUST be negotiated on a connection carrying MOQT;
+ * draft-ietf-webtrans-http3 3.1: a WebTransport server sends a
+ * non-zero max_datagram_frame_size. A run wired to a MoQT hub (or any
+ * WebTransport / raw-QUIC session consumer) with the server's own
+ * max_datagram_frame_size at 0 refuses to start; a non-zero value starts;
+ * a plain HTTP/3 run with 0 still starts. */
+/* Each session callback ALONE is refused at max_datagram_frame_size 0, so
+ * dropping any one term of the consumer test turns a case red. */
+static void sr_check_each_consumer_refused(wired_srvboot_id* id) {
+  wired_srvrun_opt o[4]  = {{0}};
+  o[0].wt_on_session     = wired_moqt_on_session;
+  o[1].wt_on_stream_data = wired_moqt_on_stream_data;
+  o[2].wt_on_datagram    = wired_moqt_on_datagram;
+  o[3].raw_on_session    = wired_moqt_on_session_raw;
+  for (usz i = 0; i < 4; i++) {
+    o[i].incoming_cpu       = -1;
+    o[i].no_signal_handlers = 1;
+    CHECK(sr_start_once(id, &o[i]) == 0);
+  }
+  g_srvrun_env.raw_on_session = 0; /* a wrongly accepted start keeps it */
+}
+
+static void test_srvrun_session_consumer_needs_datagram(void) {
+  static wired_moqt_hub hub;
+  wired_srvboot_id      id;
+  u8                    priv[32], pub[32], seed[32], rnd[32];
+  wired_srvrun_opt      opt = {0};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  opt.incoming_cpu       = -1;
+  opt.no_signal_handlers = 1;
+  CHECK(sr_start_once(&id, &opt) == 1);
+  opt.wt_on_session      = wired_moqt_on_session;
+  opt.wt_session_ctx     = &hub;
+  opt.wt_on_stream_data  = wired_moqt_on_stream_data;
+  opt.wt_stream_data_ctx = &hub;
+  opt.wt_on_datagram     = wired_moqt_on_datagram;
+  opt.wt_datagram_ctx    = &hub;
+  CHECK(sr_start_once(&id, &opt) == 0);
+  id.max_datagram_frame_size = 65535;
+  CHECK(sr_start_once(&id, &opt) == 1);
+  id.max_datagram_frame_size = 0;
+  sr_check_each_consumer_refused(&id);
+}
+
 /* RFC 9000 12.3: once the sending packet number reaches 2^62-1 the
  * connection is dropped silently by the next sweep (no CONNECTION_CLOSE). */
 static void test_srvrun_pn_exhausted_reaped(void) {
@@ -31515,6 +31573,7 @@ void test_srvrun(void) {
   test_srvrun_spin_off_opt_applies_on_accept();
   test_srvrun_refuses_bad_scid_len();
   test_srvrun_serve_env_salts_reset_seed_with_core_id();
+  test_srvrun_session_consumer_needs_datagram();
   test_srvrun_pn_exhausted_reaped();
   test_srvrun_resp_claim_starts_with_empty_send_state();
   test_srvrun_peer_reset_leaves_response();

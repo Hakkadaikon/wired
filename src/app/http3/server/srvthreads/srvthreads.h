@@ -56,7 +56,9 @@ typedef struct {
  *   optional AF_XDP config
  * @return 1 once every worker has exited and cleanup is complete; 0 if
  *   the ticket/Retry seed draw (srvkeys), opening the shared BPF filter or
- * allocating per-worker env storage fails before any worker starts. */
+ * allocating per-worker env storage fails before any worker starts. Each
+ * worker's run is wired_server_run_opt's, so a configuration it refuses
+ * (logged) ends every worker at start. */
 int wired_srvthreads_run(
     u16                         port,
     wired_srvboot_id*           id,

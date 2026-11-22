@@ -42,7 +42,36 @@ int srvrun_can_serve(const wired_srvboot_id* id) {
          id->scid_len <= WIRED_MAX_CID_LEN;
 }
 
-/* The id is servable (srvrun_can_serve), and the run's own copy of it, of
+/* opt feeds WebTransport sessions (a MoQT hub wires all three). */
+static int srvrun_wt_consumer(const wired_srvrun_opt* opt) {
+  return opt->wt_on_session != 0 || opt->wt_on_stream_data != 0 ||
+         opt->wt_on_datagram != 0;
+}
+
+/* opt feeds WebTransport or raw-QUIC (MoQT, draft-22 6.2.2) sessions. */
+static int srvrun_session_consumer(const wired_srvrun_opt* opt) {
+  return srvrun_wt_consumer(opt) || opt->raw_on_session != 0;
+}
+
+/* draft-ietf-moq-transport-22/-23 6.2 (-18/-19 3.1): the QUIC DATAGRAM
+ * extension (RFC 9221) MUST be negotiated on a connection carrying MOQT;
+ * draft-ietf-webtrans-http3 3.1: a WebTransport server sends a non-zero
+ * max_datagram_frame_size. A session-serving run whose own value is 0
+ * would never advertise WebTransport (RFC 9297 2.1.1) nor carry
+ * OBJECT_DATAGRAM, so it is a configuration error, not a silent default. */
+static int srvrun_datagram_ok(
+    const wired_srvboot_id* id, const wired_srvrun_opt* opt) {
+  if (id->max_datagram_frame_size != 0 || !srvrun_session_consumer(opt)) {
+    return 1;
+  }
+  WIRED_LOG(
+      "refusing to run: session callbacks set, "
+      "max_datagram_frame_size is 0\n");
+  return 0;
+}
+
+/* The id is servable (srvrun_can_serve) and datagram-capable for opt's
+ * session callbacks (srvrun_datagram_ok), and the run's own copy of it, of
  * obs's paths and of opt's WebTransport list is taken (srvrun_own_config);
  * opt is read only past the first check. */
 static int srvrun_start_config(
@@ -51,7 +80,7 @@ static int srvrun_start_config(
     wired_srvrun_obs*       obs,
     const char**            wt,
     const wired_srvrun_opt* opt) {
-  if (!srvrun_can_serve(*id)) {
+  if (!srvrun_can_serve(*id) || !srvrun_datagram_ok(*id, opt)) {
     return 0;
   }
   *wt = opt->wt_protocols;

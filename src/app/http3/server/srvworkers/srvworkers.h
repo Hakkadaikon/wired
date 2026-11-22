@@ -69,7 +69,8 @@ typedef struct {
  * @param opt worker count / pinning policy; 0 workers means auto-detect
  * @return negative if the ticket/Retry seed draw or the initial fork()
  *   fails; 0 once every worker has been reaped (after SIGTERM, or when all
- *   exited 0). */
+ *   exited 0). Each worker's run is wired_server_run_opt's, so a
+ *   configuration it refuses (logged) makes every worker exit at start. */
 int wired_srvworkers_run(
     u16                         port,
     wired_srvboot_id*           id,

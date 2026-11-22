@@ -94,7 +94,9 @@ int wired_srvdriver_parse(int argc, char** argv, wired_srvdriver_opt* opt);
  * @param opt the resolved selection from wired_srvdriver_parse (or built by
  *   hand); opt->port is the port bound/served, see wired_srvdriver_opt's doc
  * @return the selected driver's own return value (see each driver's own
- *   wired_*_run doc for its exact convention) */
+ *   wired_*_run doc for its exact convention); every driver's run is
+ *   wired_server_run_opt's, so it refuses (logged) the same
+ *   configurations */
 int wired_srvdriver_run(
     wired_srvboot_id*          id,
     wired_srvrun_handler       h,

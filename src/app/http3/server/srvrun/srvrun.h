@@ -513,7 +513,12 @@ typedef struct {
  * @param obs optional qlog/keylog file paths and cert reload paths, each 0
  *   to disable
  * @param opt busy_poll / so_busy_poll_us knobs, see wired_srvrun_opt
- * @return same as wired_server_run. */
+ * @return same as wired_server_run, and also 0 (logged) when opt sets a
+ *   WebTransport or raw-QUIC session callback (wt_on_session,
+ *   wt_on_stream_data, wt_on_datagram, raw_on_session) while
+ *   id->max_datagram_frame_size is 0: draft-ietf-moq-transport-22 6.2 and
+ *   draft-ietf-webtrans-http3 3.1 require QUIC DATAGRAM on such a
+ *   connection. */
 int wired_server_run_opt(
     u16                     port,
     wired_srvboot_id*       id,
@@ -562,7 +567,7 @@ void wired_srvrun_env_wt_usage(
  * @param obs optional qlog/keylog file paths and cert reload paths, each 0
  *   to disable
  * @param opt busy_poll / so_busy_poll_us / no_signal_handlers knobs
- * @return same as wired_server_run. On return the run's sockets are
+ * @return same as wired_server_run_opt. On return the run's sockets are
  *   closed, so the port is free for a later run in the same process. */
 int wired_srvrun_serve_env(
     wired_srvrun_env*       env,
