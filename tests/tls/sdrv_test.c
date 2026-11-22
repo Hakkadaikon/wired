@@ -2359,17 +2359,23 @@ static usz sdrv_test_flight_types(const u8* fl, usz len, u8* types, usz cap) {
   return n;
 }
 
+/* The extension_data of the first type-want extension in e, or a 0-length
+ * span at 0 if absent. */
+static wired_span sdrv_test_ext_data(wired_span e, unsigned want) {
+  usz off = 0;
+  while (off + 4 <= e.n) {
+    usz dlen = (usz)e.p[off + 2] << 8 | e.p[off + 3];
+    if (((unsigned)e.p[off] << 8 | e.p[off + 1]) == want) {
+      return wired_span_of(e.p + off + 4, dlen);
+    }
+    off += 4 + dlen;
+  }
+  return wired_span_of(0, 0);
+}
+
 /* 1 if the extension block p[0..n) carries extension_type want. */
 static int sdrv_test_exts_have(const u8* p, usz n, unsigned want) {
-  usz off = 0;
-  while (off + 4 <= n) {
-    unsigned t = (unsigned)p[off] << 8 | p[off + 1];
-    if (t == want) {
-      return 1;
-    }
-    off += 4 + ((usz)p[off + 2] << 8 | p[off + 3]);
-  }
-  return 0;
+  return sdrv_test_ext_data(wired_span_of(p, n), want).p != 0;
 }
 
 /* The ServerHello's extension block: header(4) + version(2) + random(32) +
@@ -3408,11 +3414,11 @@ static void test_sdrv_0rtt_datagram_not_shrunk(void) {
 
 /* f's ticket sealed bound to ticket_sni (n 0: no server_name) and offered
  * (PSK + early_data) by a ClientHello carrying sni. Returns psk_accepted;
- * *ee_sni is whether EncryptedExtensions echoed server_name. */
+ * *ee_sni is whether EncryptedExtensions echoed server_name; *s is the
+ * driver after its flight. */
 static int sdrv_test_psk_sni(
-    wired_span ticket_sni, wired_span sni, int* ee_sni) {
+    wired_span ticket_sni, wired_span sni, int* ee_sni, sdrv* s) {
   sdrv_psk_fixture f;
-  sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32], ch2[900];
   u8               sh[256], flight[2048];
   wired_obuf       sh_ob = obuf_of(sh, sizeof(sh));
@@ -3435,12 +3441,12 @@ static int sdrv_test_psk_sni(
   sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
   {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
-    sdrv_init(&s, &in);
+    sdrv_init(s, &in);
   }
-  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
-  CHECK(sdrv_build_server_flight(&s, f.srv_random, &fo));
+  CHECK(sdrv_recv_client_hello(s, ch2, ch2_len));
+  CHECK(sdrv_build_server_flight(s, f.srv_random, &fo));
   *ee_sni = ee_find(flight, 0x0000, &d);
-  return s.psk_accepted;
+  return s->psk_accepted;
 }
 
 /* RFC 6066 3: a ticket resumes only under the server_name it was issued
@@ -3454,14 +3460,15 @@ static void test_sdrv_psk_bound_to_sni(void) {
   wired_span other = wired_span_of((const u8*)"other.example", 13);
   wired_span none  = wired_span_of(0, 0);
   int        ee    = -1;
-  CHECK(sdrv_test_psk_sni(lh, lh, &ee) == 1);
+  sdrv       s;
+  CHECK(sdrv_test_psk_sni(lh, lh, &ee, &s) == 1);
   CHECK(ee == 0);
-  CHECK(sdrv_test_psk_sni(lh_uc, lh, &ee) == 1);
-  CHECK(sdrv_test_psk_sni(none, none, &ee) == 1);
-  CHECK(sdrv_test_psk_sni(other, lh, &ee) == 0);
+  CHECK(sdrv_test_psk_sni(lh_uc, lh, &ee, &s) == 1);
+  CHECK(sdrv_test_psk_sni(none, none, &ee, &s) == 1);
+  CHECK(sdrv_test_psk_sni(other, lh, &ee, &s) == 0);
   CHECK(ee == 1);
-  CHECK(sdrv_test_psk_sni(none, lh, &ee) == 0);
-  CHECK(sdrv_test_psk_sni(lh, none, &ee) == 0);
+  CHECK(sdrv_test_psk_sni(none, lh, &ee, &s) == 0);
+  CHECK(sdrv_test_psk_sni(lh, none, &ee, &s) == 0);
   CHECK(ee == 0);
 }
 
@@ -3875,7 +3882,7 @@ static void test_sdrv_psk_no_binder_aborts(void) {
 
 /* RFC 8446 4.2.11: a well-formed offer of two identities is not malformed;
  * this server only resumes a single-identity offer, so it falls back to a
- * full handshake (8446-053), never aborts. */
+ * full handshake, never aborts. */
 static void test_sdrv_psk_two_identities_falls_back(void) {
   u8   psk[4 + 2 + 2 * 10 + 2 + 2 * 33] = {0x00, 0x29, 0x00, 0x5a, 0x00, 0x14};
   u8   modes[8], ch[700];
@@ -3896,7 +3903,7 @@ static void test_sdrv_psk_two_identities_falls_back(void) {
   CHECK(s.psk_accepted == 0);
 }
 
-/* RFC 8446 4.2.3 / 9.2 (8446-124): signature_algorithms_cert is recognized
+/* RFC 8446 4.2.3 / 9.2: signature_algorithms_cert is recognized
  * -- a well-formed list is accepted (the single chain is sent regardless,
  * as 4.4.2.2 allows), a malformed one is decode_error. */
 static void test_sdrv_ch_sig_algs_cert(void) {
@@ -3912,7 +3919,7 @@ static void test_sdrv_ch_sig_algs_cert(void) {
   CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(50));
 }
 
-/* RFC 8446 4.2.1 (8446-107): unknown versions listed alongside 0x0304
+/* RFC 8446 4.2.1: unknown versions listed alongside 0x0304
  * (a GREASE value first) are ignored and TLS 1.3 is selected. The original
  * single-version extension is blotted to an unknown type. */
 static void test_sdrv_ch_versions_unknown_ignored(void) {
@@ -4148,6 +4155,348 @@ static void test_sdrv_set_retry_scid(void) {
   CHECK(s.rscid_len == 8 && s.rscid[7] == 8);
   CHECK(sdrv_set_retry_scid(&s, wired_span_of(cid, 21)) == 0);
   CHECK(s.rscid_len == 8);
+}
+
+/* RFC 8446 8.2: the replay store is keyed only from the verified
+ * part of the ClientHello. A 0-RTT offer whose binder fails (its last byte
+ * flipped: the binder ends the ClientHello, pre_shared_key being the last
+ * extension) aborts with decrypt_error and leaves no record, so the same
+ * ticket offered with its true binder still gets 0-RTT on first use. */
+static void test_sdrv_bad_binder_not_recorded_in_seen(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch2[800];
+  usz              n, off;
+  sdrv_psk_fixture_init(&f);
+  n = sdrv_test_0rtt_ch(&f, ch2, sizeof ch2, &off);
+  CHECK(n != 0);
+  ch2[n - 1] ^= 0x01;
+  sdrv_test_psk_init_srv(&s, &f);
+  sdrv_set_early_data(&s, 1);
+  CHECK(sdrv_test_ch_error(&s, ch2, n) == err_crypto(51));
+  ch2[n - 1] ^= 0x01;
+  sdrv_test_psk_init_srv(&s, &f);
+  sdrv_set_early_data(&s, 1);
+  CHECK(sdrv_test_ch_error(&s, ch2, n) == 0);
+  CHECK(s.psk_accepted == 1);
+  CHECK(s.early_data_accepted == 1);
+}
+
+/* RFC 8446 4.1.1: supported_groups and key_share both
+ * name only x448 (0x001e, a group this server does not implement). There is
+ * no share to use and no common group to retry in, so the handshake aborts
+ * with handshake_failure (alert 40): no HelloRetryRequest is armed and the
+ * ClientHello is refused; no flight can be built from the driver either
+ * (srv_accept_client_hello already stops on the refusal). The single
+ * supported_groups entry sits at GROUPS_TYPE_OFF + 6 (type 2, ext len 2,
+ * list len 2) and the KeyShareEntry group at KEYSHARE_TYPE_OFF + 6 (type 2,
+ * ext len 2, client_shares len 2). */
+static void test_sdrv_ch_no_common_group_handshake_failure(void) {
+  static const u8 rnd[32] = {0xa0};
+  sdrv            s;
+  u8              ch[600], sh[256], fl[2048];
+  wired_obuf      sh_ob = obuf_of(sh, sizeof sh);
+  wired_obuf      fl_ob = obuf_of(fl, sizeof fl);
+  sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  usz             n     = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  be_put_be16(ch + SDRV_TEST_GROUPS_TYPE_OFF + 6, 0x001e);
+  be_put_be16(ch + SDRV_TEST_KEYSHARE_TYPE_OFF + 6, 0x001e);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(40));
+  CHECK(sdrv_hrr_pending(&s) == 0);
+  CHECK(!sdrv_build_server_flight(&s, rnd, &fo));
+}
+
+/* sdrv_recv_client_hello then sdrv_build_server_flight into sh (256) and fl
+ * (2048); returns the flight length. */
+static usz sdrv_test_flight_of(sdrv* s, const u8* ch, usz n, u8* sh, u8* fl) {
+  static const u8 rnd[32] = {0xa0};
+  wired_obuf      sh_ob   = obuf_of(sh, 256);
+  wired_obuf      fl_ob   = obuf_of(fl, 2048);
+  sdrv_flight_out fo      = {&sh_ob, &fl_ob};
+  CHECK(sdrv_test_ch_error(s, ch, n) == 0);
+  CHECK(sdrv_build_server_flight(s, rnd, &fo));
+  return fl_ob.len;
+}
+
+/* RFC 8446 4.1.2 / 4.2.1: with supported_versions present,
+ * legacy_version (the first two body bytes, ch[4..5]) plays no part --
+ * 0x0300, 0x0304 and 0xffff all negotiate TLS 1.3: the ServerHello carries
+ * legacy_version 0x0303 and supported_versions selected_version 0x0304. */
+static void test_sdrv_ch_legacy_version_ignored(void) {
+  static const u16 vers[] = {0x0300, 0x0304, 0xffff};
+  for (usz i = 0; i < sizeof vers / sizeof *vers; i++) {
+    sdrv       s;
+    u8         ch[600], sh[256], fl[2048];
+    usz        n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+    wired_span sv;
+    be_put_be16(ch + 4, vers[i]);
+    sdrv_test_flight_of(&s, ch, n, sh, fl);
+    CHECK(sh[4] == 0x03 && sh[5] == 0x03);
+    sv = sdrv_test_ext_data(sdrv_test_sh_exts(sh), 0x002b);
+    CHECK(sv.n == 2 && sv.p[0] == 0x03 && sv.p[1] == 0x04);
+  }
+}
+
+/* RFC 8446 4.1.2: legacy_session_id<0..32>. A ClientHello with a
+ * 33-byte one, every length around it consistent (length byte at ch[38],
+ * the bytes spliced in after it, handshake length patched), is
+ * decode_error; the same splice of 32 bytes passes that gate and meets only
+ * the QUIC rule (RFC 9001 8.4: PROTOCOL_VIOLATION), so the 33-byte refusal is
+ * the length bound itself. */
+static void test_sdrv_ch_session_id_overlong_rejected(void) {
+  for (usz len = 32; len <= 33; len++) {
+    sdrv s;
+    u8   ch[600], ch2[700];
+    usz  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+    bytes_memcpy(ch2, ch, 39);
+    for (usz i = 0; i < len; i++) {
+      ch2[39 + i] = 0x5a;
+    }
+    bytes_memcpy(ch2 + 39 + len, ch + 39, n - 39);
+    ch2[38] = (u8)len;
+    hs_finish(ch2, n + len);
+    CHECK(
+        sdrv_test_ch_error(&s, ch2, n + len) ==
+        (len == 32 ? ERR_PROTOCOL_VIOLATION : err_crypto(50)));
+  }
+}
+
+/* The ClientHello's extension block (after its 2-byte length field). */
+static wired_span sdrv_test_ch_exts(const u8* ch) {
+  return wired_span_of(
+      ch + SDRV_TEST_EXTS_LEN_OFF + 2,
+      (usz)ch[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch[SDRV_TEST_EXTS_LEN_OFF + 1]);
+}
+
+/* Every extension in got is one offered carries, or extra; the walk ends
+ * exactly at got's end. *count is the number of extensions in got. */
+static int sdrv_test_exts_within(
+    wired_span got, wired_span offered, unsigned extra, usz* count) {
+  usz off = 0;
+  *count  = 0;
+  while (off + 4 <= got.n) {
+    unsigned t = (unsigned)got.p[off] << 8 | got.p[off + 1];
+    if (t != extra && !sdrv_test_exts_have(offered.p, offered.n, t)) {
+      return 0;
+    }
+    off += 4 + ((usz)got.p[off + 2] << 8 | got.p[off + 3]);
+    (*count)++;
+  }
+  return off == got.n;
+}
+
+/* EncryptedExtensions' extension block within the flight. */
+static wired_span sdrv_test_ee_exts(const u8* fl, usz len) {
+  wired_span ee = sdrv_test_flight_msg(fl, len, HS_ENCRYPTED_EXT);
+  CHECK(ee.n >= 2);
+  return wired_span_of(ee.p + 2, (usz)ee.p[0] << 8 | ee.p[1]);
+}
+
+/* RFC 8446 4.1.3 / 4.2: a full handshake's
+ * ServerHello carries exactly supported_versions and key_share, and every
+ * EncryptedExtensions extension answers one the ClientHello offered --
+ * including the conditional server_name echo, sent here because the
+ * ClientHello names "localhost", the self-signed certificate's SAN. */
+static void test_sdrv_full_handshake_ext_sets(void) {
+  static const u8 host[] = "localhost";
+  sdrv            s;
+  u8              cli_pub[32], rnd[32], ch[600], sh[256], fl[2048];
+  usz             n, fl_len, cnt;
+  wired_span      she;
+  sdrv_dgram_test_setup(&s, cli_pub, rnd);
+  n = tls_client_hello(
+      &(clienthello_in){
+          rnd, cli_pub, wired_span_of(host, sizeof host - 1),
+          wired_span_of(0, 0)},
+      &(wired_obuf){ch, sizeof ch, 0});
+  CHECK(n != 0);
+  fl_len = sdrv_test_flight_of(&s, ch, n, sh, fl);
+  she    = sdrv_test_sh_exts(sh);
+  CHECK(sdrv_test_exts_within(she, sdrv_test_ch_exts(ch), 0x10000, &cnt));
+  CHECK(cnt == 2);
+  CHECK(sdrv_test_exts_have(she.p, she.n, 0x002b)); /* supported_versions */
+  CHECK(sdrv_test_exts_have(she.p, she.n, 0x0033)); /* key_share */
+  CHECK(sdrv_test_ext_data(sdrv_test_ee_exts(fl, fl_len), 0x0000).p != 0);
+  CHECK(sdrv_test_exts_within(
+      sdrv_test_ee_exts(fl, fl_len), sdrv_test_ch_exts(ch), 0x10000, &cnt));
+}
+
+/* RFC 8446 4.1.3 / 4.2 / 4.2.11 / 4.4:
+ * an accepted PSK + 0-RTT offer. The ServerHello carries exactly
+ * supported_versions, key_share and pre_shared_key, whose
+ * extension_data is selected_identity 0 (the one identity offered, 2 bytes
+ * 00 00); EncryptedExtensions answers only offered extensions (early_data
+ * among them); the flight is EncryptedExtensions then Finished, with no
+ * Certificate or CertificateVerify. */
+static void test_sdrv_psk_handshake_ext_sets(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch2[800], sh[256], fl[2048], types[8];
+  usz              n, off, fl_len, cnt;
+  wired_span       she, psk, ee;
+  sdrv_psk_fixture_init(&f);
+  n = sdrv_test_0rtt_ch(&f, ch2, sizeof ch2, &off);
+  CHECK(n != 0);
+  sdrv_test_psk_init_srv(&s, &f);
+  sdrv_set_early_data(&s, 1);
+  fl_len = sdrv_test_flight_of(&s, ch2, n, sh, fl);
+  CHECK(s.psk_accepted == 1 && s.early_data_accepted == 1);
+  she = sdrv_test_sh_exts(sh);
+  CHECK(sdrv_test_exts_within(she, sdrv_test_ch_exts(ch2), 0x10000, &cnt));
+  CHECK(cnt == 3);
+  CHECK(sdrv_test_exts_have(she.p, she.n, 0x002b));
+  CHECK(sdrv_test_exts_have(she.p, she.n, 0x0033));
+  psk = sdrv_test_ext_data(she, 0x0029);
+  CHECK(psk.n == 2 && psk.p[0] == 0 && psk.p[1] == 0);
+  ee = sdrv_test_ee_exts(fl, fl_len);
+  CHECK(sdrv_test_ext_data(ee, 0x002a).p != 0);
+  CHECK(sdrv_test_exts_within(ee, sdrv_test_ch_exts(ch2), 0x10000, &cnt));
+  CHECK(sdrv_test_flight_types(fl, fl_len, types, 8) == 2);
+  CHECK(types[0] == HS_ENCRYPTED_EXT && types[1] == HS_FINISHED);
+}
+
+/* RFC 8446 4.1.4 / 4.2: the HelloRetryRequest for a
+ * ClientHello whose only share is relabelled secp256r1 (no usable share,
+ * x25519 still in supported_groups) carries only extensions the ClientHello
+ * offered, plus the cookie (0x002c) 4.1.4 allows. */
+static void test_sdrv_hrr_ext_set(void) {
+  sdrv       s;
+  u8         ch[600], hrr[256];
+  wired_obuf hob = obuf_of(hrr, sizeof hrr);
+  usz        n   = sdrv_test_ch_setup(&s, ch, sizeof ch), cnt;
+  wired_span he;
+  be_put_be16(ch + SDRV_TEST_KEYSHARE_TYPE_OFF + 6, GROUP_SECP256R1);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == 0);
+  CHECK(sdrv_hrr_pending(&s) == 1);
+  CHECK(sdrv_build_hrr(&s, &hob) == 1);
+  he = sdrv_test_sh_exts(hrr);
+  CHECK(sdrv_test_exts_have(he.p, he.n, 0x002c));
+  CHECK(sdrv_test_exts_within(he, sdrv_test_ch_exts(ch), 0x002c, &cnt));
+  CHECK(cnt == 3); /* supported_versions, key_share, cookie */
+}
+
+/* RFC 8446 4.4.2: Certificate = empty request context,
+ * certificate_list<3> of {cert_data<3>, extensions<2>} entries. With a
+ * ClientHello that offered no status_request or signed_certificate_timestamp,
+ * every entry's extensions block is empty, and the entries fill the list
+ * exactly. */
+static void test_sdrv_cert_entry_exts_empty(void) {
+  sdrv       s;
+  u8         ch[600], sh[256], fl[2048];
+  usz        n = sdrv_test_ch_setup(&s, ch, sizeof ch), off = 4, entries = 0;
+  usz        fl_len = sdrv_test_flight_of(&s, ch, n, sh, fl);
+  wired_span cm     = sdrv_test_flight_msg(fl, fl_len, 11); /* Certificate */
+  CHECK(cm.n >= 4 && cm.p[0] == 0);
+  CHECK(4 + ((usz)cm.p[1] << 16 | (usz)cm.p[2] << 8 | cm.p[3]) == cm.n);
+  while (off + 3 <= cm.n) {
+    off += 3 + ((usz)cm.p[off] << 16 | (usz)cm.p[off + 1] << 8 | cm.p[off + 2]);
+    CHECK(off + 2 <= cm.n);
+    CHECK(cm.p[off] == 0 && cm.p[off + 1] == 0);
+    off += 2;
+    entries++;
+  }
+  CHECK(off == cm.n && entries >= 1);
+}
+
+/* A fresh 0-RTT offer of f's ticket (sealed under TLS_AES_128_GCM_SHA256)
+ * from a ClientHello whose only cipher suite is suite. Returns
+ * psk_accepted; *early is early_data_accepted. */
+static int sdrv_test_0rtt_suite(u16 suite, int* early) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch2[800];
+  usz              n, off;
+  sdrv_psk_fixture_init(&f);
+  sdrv_test_set_suite(f.ch, suite);
+  n = sdrv_test_0rtt_ch(&f, ch2, sizeof ch2, &off);
+  CHECK(n != 0);
+  sdrv_test_psk_init_srv(&s, &f);
+  sdrv_set_early_data(&s, 1);
+  CHECK(sdrv_test_ch_error(&s, ch2, n) == 0);
+  *early = s.early_data_accepted;
+  return s.psk_accepted;
+}
+
+/* pre_shared_key with two identities (2 + TICKET_SEALED_LEN + 4 bytes each:
+ * length, ticket, age 0) and two all-zero 32-byte binders (1 + 32 each); f's
+ * real ticket sits at index real_at, the other is junk. Returns its length. */
+static usz sdrv_test_psk_two_ids(
+    const sdrv_psk_fixture* f, int real_at, u8* out) {
+  usz id = 2 + TICKET_SEALED_LEN + 4, p = 6;
+  be_put_be16(out, 0x0029);
+  be_put_be16(out + 2, (u16)(2 + 2 * id + 2 + 2 * 33));
+  be_put_be16(out + 4, (u16)(2 * id));
+  for (int i = 0; i < 2; i++, p += id) {
+    be_put_be16(out + p, TICKET_SEALED_LEN);
+    for (usz j = 0; j < TICKET_SEALED_LEN; j++) {
+      out[p + 2 + j] = i == real_at ? f->sealed[j] : (u8)(0xee ^ j);
+    }
+    be_put_be32(out + p + 2 + TICKET_SEALED_LEN, 0);
+  }
+  be_put_be16(out + p, 2 * 33);
+  p += 2;
+  for (int i = 0; i < 2; i++, p += 33) {
+    out[p] = 32;
+    bytes_memset(out + p + 1, 0, 32);
+  }
+  return p;
+}
+
+/* f's ClientHello + early_data + psk_key_exchange_modes + a two-identity
+ * pre_shared_key with the real ticket at real_at, into a fresh server with
+ * 0-RTT enabled; returns the recorded error (0: accepted). */
+static u64 sdrv_test_two_ids_0rtt(int real_at, sdrv* s) {
+  static const u8  ed[4] = {0x00, 0x2a, 0x00, 0x00};
+  sdrv_psk_fixture f;
+  u8               ch2[1200], psk[600], modes[8];
+  usz              n, modes_len;
+  sdrv_psk_fixture_init(&f);
+  bytes_memcpy(ch2, f.ch, f.ch_len);
+  n = sdrv_test_append_raw_ext(ch2, f.ch_len, ed, sizeof ed);
+  CHECK(tlsext_psk_modes(modes, sizeof modes, &modes_len));
+  n = sdrv_test_append_raw_ext(ch2, n, modes, modes_len);
+  n = sdrv_test_append_raw_ext(
+      ch2, n, psk, sdrv_test_psk_two_ids(&f, real_at, psk));
+  sdrv_test_psk_init_srv(s, &f);
+  sdrv_set_early_data(s, 1);
+  return sdrv_test_ch_error(s, ch2, n);
+}
+
+/* RFC 8446 4.2.10 / 4.2.11: 0-RTT needs the ticket's
+ * exact cipher suite and the first (only) identity. An AES-128-GCM ticket
+ * offered under TLS_CHACHA20_POLY1305_SHA256 alone (same SHA-256 hash, so
+ * the PSK itself resumes) gets no 0-RTT; under its own suite it does. With
+ * two identities -- the real ticket first or second, the binders all zero
+ * -- no PSK is selected and so no binder is checked (no decrypt_error):
+ * neither PSK nor 0-RTT is accepted. */
+static void test_sdrv_0rtt_needs_exact_suite_and_first_psk(void) {
+  int  early = -1;
+  sdrv s;
+  CHECK(sdrv_test_0rtt_suite(TLS_CHACHA20_POLY1305_SHA256, &early) == 1);
+  CHECK(early == 0);
+  CHECK(sdrv_test_0rtt_suite(TLS_AES_128_GCM_SHA256, &early) == 1);
+  CHECK(early == 1);
+  for (int at = 0; at < 2; at++) {
+    CHECK(sdrv_test_two_ids_0rtt(at, &s) == 0);
+    CHECK(s.psk_accepted == 0 && s.early_data_accepted == 0);
+  }
+}
+
+/* RFC 8446 4.6.1 / RFC 6066 3: a resumption still reports the server_name
+ * check to the application -- a "localhost" ticket resumed under
+ * "LocalHost" reports MATCH and the digest a re-issued ticket is sealed with
+ * (respond_ticket.c). The digest is of the lowercased name, so it does not
+ * tell the ticket's name from the ClientHello's. */
+static void test_sdrv_resumption_reports_sni_match(void) {
+  wired_span lh    = wired_span_of((const u8*)"localhost", 9);
+  wired_span lh_uc = wired_span_of((const u8*)"LocalHost", 9);
+  u8         want[SALPN_SNI_DIGEST];
+  int        ee = -1;
+  sdrv       s;
+  CHECK(sdrv_test_psk_sni(lh, lh_uc, &ee, &s) == 1);
+  CHECK(sdrv_sni_outcome(&s) == SALPN_SNI_MATCH);
+  salpn_sni_digest(lh_uc, want);
+  CHECK(ct_diffn(s.sni_digest, want, SALPN_SNI_DIGEST) == 0);
 }
 
 void test_sdrv(void) {
@@ -4452,6 +4801,16 @@ void test_sdrv(void) {
     transcript_hash(&tr, fin_th); /* through CertificateVerify */
     CHECK(tls_finished_check(s_traffic, fin_th, fin + 4));
   }
+  test_sdrv_bad_binder_not_recorded_in_seen();
+  test_sdrv_ch_no_common_group_handshake_failure();
+  test_sdrv_ch_legacy_version_ignored();
+  test_sdrv_ch_session_id_overlong_rejected();
+  test_sdrv_full_handshake_ext_sets();
+  test_sdrv_psk_handshake_ext_sets();
+  test_sdrv_hrr_ext_set();
+  test_sdrv_cert_entry_exts_empty();
+  test_sdrv_0rtt_needs_exact_suite_and_first_psk();
+  test_sdrv_resumption_reports_sni_match();
   test_sdrv_pref_addr_tp();
   test_sdrv_ee_tp_no_duplicates();
   test_sdrv_zerortt_shared_across_fork();
