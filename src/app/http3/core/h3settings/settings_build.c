@@ -9,10 +9,6 @@
 
 /* RFC 9297 2.1.1. */
 #define H3_SETTINGS_H3_DATAGRAM 0x33
-/* draft-ietf-webtrans-http3 8.2 SETTINGS_WEBTRANSPORT_MAX_SESSIONS (quiche's
- * SETTINGS_WEBTRANS_MAX_SESSIONS_DRAFT07) -- the identifier current-draft
- * peers key WebTransport support on. */
-#define H3_SETTINGS_WT_MAX_SESSIONS 0xc671706a
 /* draft-ietf-webtrans-http3-02 SETTINGS_ENABLE_WEBTRANSPORT (quiche's
  * SETTINGS_WEBTRANS_DRAFT00). Chrome negotiates WebTransport only when this
  * draft-02 pair is present in addition to the draft-07 identifier, so both

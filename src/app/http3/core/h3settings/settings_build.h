@@ -4,6 +4,11 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
+/** draft-ietf-webtrans-http3 8.2 SETTINGS_WEBTRANSPORT_MAX_SESSIONS (quiche's
+ * SETTINGS_WEBTRANS_MAX_SESSIONS_DRAFT07) -- the identifier current-draft
+ * peers key WebTransport support on. */
+#define H3_SETTINGS_WT_MAX_SESSIONS 0xc671706a
+
 /** The common HTTP/3 + QPACK settings values to encode. */
 typedef struct {
   /** RFC 9114 7.2.4.1: SETTINGS_MAX_FIELD_SECTION_SIZE value. */
