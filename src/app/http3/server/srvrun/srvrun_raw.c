@@ -5,7 +5,6 @@ static int srvrun_close_on_h3(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_qpack(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_step_violation_rest(
     const srvrun_cfg* cfg, srvrun_conn* c);
-static int srvrun_close_on_hs_error(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_hs_or_datagram(
     const srvrun_cfg* cfg, srvrun_conn* c);
 
@@ -53,13 +52,14 @@ static int srvrun_close_on_step_violation_rest(
 }
 
 /* Reason phrases for latched handshake error codes: RFC 9000 7.5
- * CRYPTO_BUFFER_EXCEEDED, else CRYPTO_ERROR 0x100 + TLS alert (RFC 9001 4.8,
- * RFC 8446 6). */
+ * CRYPTO_BUFFER_EXCEEDED, RFC 9001 4.1.3 PROTOCOL_VIOLATION, else
+ * CRYPTO_ERROR 0x100 + TLS alert (RFC 9001 4.8, RFC 8446 6). */
 static const struct {
   u64         code;
   const char* reason;
 } srvrun_hs_reasons[] = {
     {ERR_CRYPTO_BUFFER_EXCEEDED, "crypto buffer exceeded"},
+    {ERR_PROTOCOL_VIOLATION, "crypto data past an earlier level's end"},
     {ERR_CRYPTO_BASE + 10, "unexpected handshake message"},
     {ERR_CRYPTO_BASE + 42, "bad certificate"},
     {ERR_CRYPTO_BASE + 51, "decrypt error"},
@@ -79,9 +79,11 @@ static wired_span srvrun_hs_reason(u64 code) {
 
 /* RFC 8446 4 / 4.4.4: a handshake message latched an alert (an
  * out-of-order or wrong-level message, a forged client Finished) -- close
- * with that CRYPTO_ERROR (RFC 9001 4.8), or CRYPTO_BUFFER_EXCEEDED for a
- * Handshake CRYPTO stream past the buffer (RFC 9000 7.5). */
-static int srvrun_close_on_hs_error(const srvrun_cfg* cfg, srvrun_conn* c) {
+ * with that CRYPTO_ERROR (RFC 9001 4.8), CRYPTO_BUFFER_EXCEEDED for a
+ * Handshake CRYPTO stream past the buffer (RFC 9000 7.5), or
+ * PROTOCOL_VIOLATION for CRYPTO past an earlier level's end (RFC 9001
+ * 4.1.3). */
+int srvrun_close_on_hs_error(const srvrun_cfg* cfg, srvrun_conn* c) {
   u64 code = wired_server_take_hs_error(&c->s);
   if (!code) {
     return 0;

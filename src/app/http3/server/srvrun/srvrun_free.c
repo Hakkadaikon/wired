@@ -6,6 +6,7 @@ static void srvrun_zero_release(void* p, usz n);
 static int  srvrun_pkts_all_initial(wired_mspan dg, const usz* offs, usz n);
 static int  srvrun_dgram_all_initial(wired_mspan dg);
 static int  srvrun_idle_due(const srvrun_conn* c, u64 now_ms);
+static int  srvrun_boot_answers_initial(const srvrun_conn* c);
 
 /* RFC 8446 4.1.4: a HelloRetryRequest went out (its Initial is cached in
  * boot_ini) while the connection is not up yet. The flight-retransmission
@@ -69,8 +70,14 @@ int srvrun_initial_live(const srvrun_conn* c) {
  * hasn't reached it yet -- not a new connection attempt. A datagram that
  * coalesces anything beyond Initials (srvrun_dgram_all_initial says no)
  * carries handshake progress and takes the step path instead. */
+/* RFC 9000 10.2.1: a closing slot processes nothing -- its Initial takes
+ * the step path, where srvrun_closing_rx answers with the close. */
+static int srvrun_boot_answers_initial(const srvrun_conn* c) {
+  return srvrun_initial_live(c) && !c->closing;
+}
+
 int srvrun_is_boot_retransmit(const srvrun_conn* c, wired_mspan dg) {
-  if (!srvrun_initial_live(c)) {
+  if (!srvrun_boot_answers_initial(c)) {
     return 0;
   }
   if (c->boot_ini_len == 0) {

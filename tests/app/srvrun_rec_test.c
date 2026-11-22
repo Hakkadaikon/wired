@@ -743,15 +743,13 @@ static u64 srvrec_hs_bytes(const srvrun_conn* c, u32 skip, usz max) {
 /* Client role: one ACK-only packet acknowledging server pn `acked`, sealed
  * toward c's SCID under keys k -- an Initial (byte0 0xc0, padded to the
  * RFC 9000 14.1 1200-byte floor) or a Handshake packet (byte0 0xe0). */
-static usz srvrec_client_ack(
-    const srvrun_conn* c, const initial_keys* k, u8 byte0, u64 acked, u8* out) {
-  ack_frame f        = {0};
-  u8        pl[1170] = {0};
-  aes128    hp;
-  int       ini = byte0 == 0xc0;
-  f.n_ranges    = 1;
-  f.ranges[0]   = (ack_range){.hi = acked, .lo = acked};
-  CHECK(ack_encode(pl, sizeof pl, &f) != 0);
+static usz srvrec_client_pkt(
+    const srvrun_conn*  c,
+    const initial_keys* k,
+    u8                  byte0,
+    wired_span          pl,
+    u8*                 out) {
+  aes128 hp;
   aes128_init(&hp, k->hp);
   {
     protect_keys pk = {k, &hp, 0};
@@ -759,21 +757,49 @@ static usz srvrec_client_ack(
         byte0,
         wired_span_of(c->s.sdrv.iscid, c->s.sdrv.iscid_len),
         wired_span_of(g_cli_scid, 6),
-        ini,
+        byte0 == 0xc0,
         wired_span_of((const u8*)0, 0),
         1,
-        wired_span_of(pl, ini ? sizeof pl : 24),
+        pl,
         0};
     return tx_packet(&pk, &t, wired_mspan_of(out, PMTU_MAX));
   }
 }
 
-/* The client's Initial ACK of the server's ServerHello Initial (RFC 9001
- * 5.2: client keys from the original DCID). */
-static usz srvrec_client_ini_ack(const srvrun_conn* c, u8* out) {
+static usz srvrec_client_ack(
+    const srvrun_conn* c, const initial_keys* k, u8 byte0, u64 acked, u8* out) {
+  ack_frame f        = {0};
+  u8        pl[1170] = {0};
+  f.n_ranges         = 1;
+  f.ranges[0]        = (ack_range){.hi = acked, .lo = acked};
+  CHECK(ack_encode(pl, sizeof pl, &f) != 0);
+  return srvrec_client_pkt(
+      c, k, byte0, wired_span_of(pl, byte0 == 0xc0 ? sizeof pl : 24), out);
+}
+
+/* The client's Initial keys (RFC 9001 5.2: from the original DCID). */
+static initial_keys srvrec_client_ini_keys(void) {
   initial_keys ck, sk;
   initpkt_derive_ver(wired_span_of(g_sr_odcid, 8), VERSION_1, &ck, &sk);
+  return ck;
+}
+
+/* The client's Initial ACK of the server's ServerHello Initial. */
+static usz srvrec_client_ini_ack(const srvrun_conn* c, u8* out) {
+  initial_keys ck = srvrec_client_ini_keys();
   return srvrec_client_ack(c, &ck, 0xc0, c->ini_next_pn - 1, out);
+}
+
+/* A padded client Initial whose one CRYPTO frame carries 8 bytes at Initial
+ * stream offset `off`. */
+static usz srvrec_client_ini_crypto(const srvrun_conn* c, u64 off, u8* out) {
+  static const u8       data[8]  = {1, 0, 0, 4, 3, 3, 0, 0};
+  u8                    pl[1170] = {0};
+  wired_obuf            ob       = obuf_of(pl, sizeof pl);
+  crypto_stream_emit_in ein      = {off, 1024};
+  initial_keys          ck       = srvrec_client_ini_keys();
+  CHECK(crypto_stream_emit(wired_span_of(data, sizeof data), &ein, &ob));
+  return srvrec_client_pkt(c, &ck, 0xc0, wired_span_of(pl, sizeof pl), out);
 }
 
 /* The client's Handshake ACK of server Handshake pn `acked`. */
@@ -1064,6 +1090,35 @@ static void test_srvrun_boot_ack_only_initial_releases_tail(void) {
   CHECK(f.c->boot_ini_acked == 1);
   CHECK(f.c->boot_dgram_sent == 1);
   CHECK(srvrun_test_send_count() == 1);
+}
+
+/* RFC 9001 4.1.3: a client Initial reaching a slot whose Handshake keys are
+ * installed, with CRYPTO past the ClientHello, closes the connection with
+ * PROTOCOL_VIOLATION; RFC 9000 13.3: one inside the ClientHello is a
+ * retransmission and is answered with the flight, not closed. */
+static void test_srvrun_late_initial_crypto_past_ch_closes(void) {
+  srvrec_bootfix f;
+  u8             dg[PMTU_MAX];
+  int            is_app = -1;
+  srvrec_boot(&f, 3 * 1220, 0, 0);
+  f.c->boot_rx_bytes = 100000;
+  srvrun_test_reset_send_count();
+  srvrun_serve(
+      &f.ctx, wired_mspan_of(dg, srvrec_client_ini_crypto(f.c, 0, dg)));
+  CHECK(f.c->closing == 0);
+  CHECK(srvrun_test_send_count() != 0);
+  srvrun_serve(
+      &f.ctx,
+      wired_mspan_of(dg, srvrec_client_ini_crypto(f.c, f.c->s.ini_rx_end, dg)));
+  CHECK(sr_close_code(f.c, &is_app) == ERR_PROTOCOL_VIOLATION);
+  CHECK(is_app == 0);
+  /* RFC 9000 10.2.1: the close was lost and the client sends an Initial
+   * again -- it is not processed (its ACK is not taken) and the
+   * CONNECTION_CLOSE answers it */
+  srvrun_test_reset_send_count();
+  srvrun_serve(&f.ctx, wired_mspan_of(dg, srvrec_client_ini_ack(f.c, dg)));
+  CHECK(f.c->boot_ini_acked == 0);
+  CHECK(srvrun_test_send_count() != 0);
 }
 
 /* One srvrun_pto_slot tick of c at now_ms. */
@@ -1479,6 +1534,7 @@ void test_srvrun_rec(void) {
   test_srvrun_boot_pto_prefers_held_tail();
   test_srvrun_boot_pto_skips_partially_acked();
   test_srvrun_boot_ack_only_initial_releases_tail();
+  test_srvrun_late_initial_crypto_past_ch_closes();
   test_srvrun_pto_restarts_on_send();
   test_srvrun_pto_count_resets_on_ack();
   test_srvrun_pto_probe_sends_new_data();

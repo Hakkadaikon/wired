@@ -145,8 +145,11 @@ static int srvrun_boot_ini_newly_acked(
 }
 
 /* RFC 9002 A.7: dg is a client Initial; if it opens, note whether it
- * acknowledges the ServerHello Initial (pn ini_next_pn - 1, srvrun_boot_up).
- * Opening decrypts dg in place -- it is consumed here.
+ * acknowledges the ServerHello Initial (pn ini_next_pn - 1, srvrun_boot_up)
+ * and latch CRYPTO past the ClientHello(s) (RFC 9001 4.1.3,
+ * wired_server_crypto_level_ok) -- the packet is opened here anyway, so the
+ * check costs no extra decryption. Opening decrypts dg in place -- it is
+ * consumed here.
  * shortcut: only numbers below 32 are seen (srvloop_acked_bits); a flight
  * Initial past 31 partial ACKs stays in flight until the Initial keys go,
  * record the Largest Acknowledged if that ever happens. */
@@ -157,6 +160,7 @@ static int srvrun_boot_ini_ack_only(srvrun_conn* c, wired_mspan dg) {
   if (!wired_srvloop_recv(&c->s, &in, &out)) {
     return 0;
   }
+  wired_server_crypto_level_ok(&c->s, LEVEL_INITIAL, out.payload);
   if (srvrun_boot_ini_newly_acked(c, out.payload, pn)) {
     c->boot_ini_acked = 1;
     c->boot_pto_count = 0; /* RFC 9002 6.2.1: reset on an acknowledgment */
@@ -167,14 +171,18 @@ static int srvrun_boot_ini_ack_only(srvrun_conn* c, wired_mspan dg) {
 /* A client Initial on a slot whose flight is out: an ACK-only one is no
  * retransmission request (RFC 9002 6.2: loss detection and the PTO drive
  * retransmission), anything else (a ClientHello retransmit, a PING) is
- * answered with the flight (srvrun_resend_boot_flight). An Initial that
- * does not open is treated as a retransmit, as before. */
+ * answered with the flight (srvrun_resend_boot_flight), unless its CRYPTO
+ * ran past the ClientHello(s) -- then the connection closes instead. An
+ * Initial that does not open is treated as a retransmit. */
 void srvrun_boot_on_client_initial(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg) {
   srvrun_boot_flip_from_dcid(ctx, c, dg);
   if (srvrun_boot_ini_ack_only(c, dg)) {
     /* RFC 9000 8.1: its bytes raised the budget a held tail may need */
     srvrun_boot_release_pending(ctx, c);
+    return;
+  }
+  if (srvrun_close_on_hs_error(ctx->cfg, c)) {
     return;
   }
   srvrun_resend_boot_flight(ctx, c);

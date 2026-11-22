@@ -30467,6 +30467,8 @@ static int sr_hs_reason_is(u64 code, const char* want) {
 static void test_srvrun_hs_reason_matches_code(void) {
   CHECK(sr_hs_reason_is(ERR_CRYPTO_BUFFER_EXCEEDED, "crypto buffer exceeded"));
   CHECK(sr_hs_reason_is(0x10a, "unexpected handshake message"));
+  CHECK(sr_hs_reason_is(
+      ERR_PROTOCOL_VIOLATION, "crypto data past an earlier level's end"));
   CHECK(sr_hs_reason_is(0x100 + 42, "bad certificate"));
   CHECK(sr_hs_reason_is(0x100 + 51, "decrypt error"));
   CHECK(sr_hs_reason_is(0x100 + 116, "certificate required"));

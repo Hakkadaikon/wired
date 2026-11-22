@@ -116,6 +116,7 @@ void srvrun_wt_app_pending_slot(const srvrun_step_ctx* ctx, int slot);
 void srvrun_dg_slot(const srvrun_step_ctx* ctx, int slot);
 void srvrun_step_and_reap(const srvrun_step_ctx* ctx, int slot, wired_mspan dg);
 void srvrun_boot_partial_ack(const srvrun_step_ctx* ctx, int slot);
+int  srvrun_close_on_hs_error(const srvrun_cfg* cfg, srvrun_conn* c);
 void srvrun_boot_flip_from_dcid(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg);
 void srvrun_cold_start(const srvrun_step_ctx* ctx, int slot, wired_mspan dg);

@@ -1411,6 +1411,42 @@ static void test_srvrun_hrr_lost_ch1_retransmit_resends_hrr(void) {
   }
 }
 
+/* RFC 9001 4.1.3 x RFC 8446 4.1.4: after an HRR the accepted Initial
+ * stream spans ClientHello1 + ClientHello2, so a retransmitted ClientHello2
+ * reaching the late-Initial path (srvrun_boot_on_client_initial) lies
+ * inside it -- answered with the flight, never closed. */
+static void test_srvrun_hrr_ch2_retransmit_not_closed(void) {
+  client           c;
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               ch1[512], ch2[512], dg[1400], dup[1400];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, sr_test_conns()};
+  usz              n1, n2, nd;
+  srvrun_cfg       cfg = {
+      -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+      0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+  sb_make_id(&id, priv, pub, seed, rnd);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  n1 = sb_build_raw_ch(&c, ch1, sizeof ch1);
+  CHECK(sb_break_keyshare_group(ch1, n1) == 1);
+  nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch1, n1), 0, 3);
+  srvrun_serve(&ctx, wired_mspan_of(dg, nd)); /* the HRR */
+  n2 = sb_build_raw_ch(&c, ch2, sizeof ch2);
+  nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch2, n2), n1, 4);
+  bytes_memcpy(dup, dg, nd); /* rx unprotects in place */
+  srvrun_serve(&ctx, wired_mspan_of(dg, nd));
+  CHECK(st.conns[0].up == 1);
+  CHECK(st.conns[0].s.ini_rx_end == n1 + n2);
+  st.conns[0].boot_rx_bytes = 100000; /* the antiamp budget is not under test */
+  srvrun_test_reset_send_count();
+  srvrun_serve(&ctx, wired_mspan_of(dup, nd));
+  CHECK(st.conns[0].closing == 0);
+  CHECK(srvrun_test_send_count() != 0); /* the flight again */
+}
+
 /* RFC 9000 13.4.1: ECN codepoints counted into the boot accumulator surface
  * on the accept flight's Initial ACK as a type-0x03 ACK with the cumulative
  * counts -- the peer (ngtcp2) validates ECN against the FIRST
@@ -1819,6 +1855,7 @@ void test_h3_loopback(void) {
   test_srvboot_hrr_then_ch2_accepts();
   test_srvboot_hrr_v2_switch_accepts_ch2_with_v1_chosen();
   test_srvrun_hrr_lost_ch1_retransmit_resends_hrr();
+  test_srvrun_hrr_ch2_retransmit_not_closed();
   test_srvboot_initial_ack_carries_ecn_counts();
   test_srvboot_refusal_reports_missing_tp_ext();
   test_srvboot_split_flight_datagrams();
