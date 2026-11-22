@@ -205,9 +205,9 @@ QUIC のパケット保護の鍵は AES-128-GCM と AES-256-GCM(`gcm256.h`。Bor
 
 影響: ほかの指数の証明書と、RSA で署名するアプリケーション。
 
-PKCS#1 v1.5 の検証は SHA-256/384/512 の DigestInfo を受け付ける。RSA-PSS は SHA-256、ソルト長 32、MGF1-SHA-256 の組み合わせだけである(TLS 1.3 の `rsa_pss_rsae_sha256`)。RSA の署名、暗号化、鍵生成、秘密鍵の型はなく、BoringSSL の RSA のベクターもない。
+PKCS#1 v1.5 の検証は SHA-256/384/512 の DigestInfo を受け付ける。RSA-PSS の検証器は SHA-256/384/512 と、同じハッシュの MGF1 と、任意のソルト長を扱う。使う側はもっと狭い。CertificateVerify は SHA-256、ソルト長 32、MGF1-SHA-256 の組み合わせ(TLS 1.3 の `rsa_pss_rsae_sha256`)だけを受け付ける。証明書の署名(RFC 4055 の id-RSASSA-PSS)はパラメーターを明示したものだけを受け付ける。ハッシュは SHA-256/384/512、MGF1 は同じハッシュ、ソルト長はハッシュ長に限り、trailerField は省略しなければならない(既定値の 1 を明示すると DER に反する)。SHA-1 の既定値のパラメーターは拒否する。発行者の鍵は rsaEncryption に限り、id-RSASSA-PSS の SPKI は拒否する。RSA の署名、暗号化、鍵生成、秘密鍵の型はなく、BoringSSL の RSA のベクターもない。
 
-参照: `rsa_verify.h`、`pss.c`、[rfc8017.md](../../features/rfc8017.md)
+参照: `rsa_verify.h`、`pss.c`、`sigalgoid.h`、[rfc8017.md](../../features/rfc8017.md)
 
 ### 3.7 ECDSA の nonce は FIPS 186-4 B.5 ではなく RFC 6979 の決定的な方式
 
