@@ -20,6 +20,12 @@
  * ever built from it on raw). */
 #define RAWQ_NO_CONNECT_ID ((u64) - 1)
 
+/** PROTOCOL_VIOLATION, 0x3 in every supported draft's Session Termination
+ * Error Codes (draft-ietf-moq-transport-18 15.10.1, -19 15.11.1, -22
+ * 16.11.1, -23 16.12.1): the application CONNECTION_CLOSE code a raw-QUIC
+ * connection is closed with when it cannot carry MOQT. */
+#define RAWQ_PROTOCOL_VIOLATION 0x3
+
 /** RFC 9000 2.1: first server-initiated uni stream id on raw QUIC. Nothing
  * else claims ids 3/7, so the application's first uni stream is 3. */
 #define RAWQ_UNI_FIRST_RAW 3

@@ -1,5 +1,6 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
+static int  srvrun_raw_refused(const srvrun_cfg* cfg, srvrun_conn* c);
 static void srvrun_raw_start(const srvrun_cfg* cfg, srvrun_conn* c);
 static void srvrun_note_stream_limits(
     const srvrun_step_ctx* ctx, srvrun_conn* c);
@@ -18,8 +19,23 @@ static void srvrun_live_streams(const srvrun_step_ctx* ctx, srvrun_conn* c);
  * never-on-the-wire RAWQ_NO_CONNECT_ID and flow_control stays 0
  * (wired_wt_session_init): only RFC 9000's own credit applies, there are
  * no WT_MAX_* capsules. */
+/* draft-ietf-moq-transport-22/-23 6.2 (-18/-19 3.1): QUIC DATAGRAM MUST be
+ * negotiated on the connection carrying MOQT, so a client that omitted
+ * max_datagram_frame_size gets no session; -22 6.6 (-19 3.5): a raw session
+ * closes with an application CONNECTION_CLOSE carrying the MoQT code. */
+static int srvrun_raw_refused(const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "no QUIC DATAGRAM";
+  if (c->s.sdrv.peer_max_datagram_frame_size != 0) {
+    return 0;
+  }
+  srvrun_send_app_close(
+      cfg, c, RAWQ_PROTOCOL_VIOLATION,
+      wired_span_of(reason, sizeof reason - 1));
+  return 1;
+}
+
 static void srvrun_raw_start(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (!srvrun_raw_start_due(c)) {
+  if (!srvrun_raw_start_due(c) || srvrun_raw_refused(cfg, c)) {
     return;
   }
   wired_wt_session_init(&c->wt, RAWQ_NO_CONNECT_ID);

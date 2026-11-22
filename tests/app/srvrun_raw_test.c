@@ -299,6 +299,31 @@ static void test_srvrun_raw_close_session_frame(void) {
   CHECK(srr_close_pl_is(c, want, sizeof want));
 }
 
+/* draft-ietf-moq-transport-22/-23 6.2 (-18/-19 3.1): QUIC DATAGRAM MUST be
+ * negotiated on the connection carrying MOQT. Pinned, RFC 9000 19.19: a
+ * raw client whose transport parameters omit max_datagram_frame_size gets
+ * no session and an application CONNECTION_CLOSE `1d 03 10 "no QUIC
+ * DATAGRAM"` (-22 6.6: a raw session closes with the connection;
+ * PROTOCOL_VIOLATION 0x3 in every draft's Session Termination Error Codes).
+ * A client that sends it gets the session (test_srvrun_raw_session_at_
+ * confirm, fixture value 1500). */
+static void test_srvrun_raw_peer_without_datagram_closed(void) {
+  static const u8 want[] = {0x1d, 0x03, 0x10, 'n', 'o', ' ', 'Q', 'U', 'I', 'C',
+                            ' ',  'D',  'A',  'T', 'A', 'G', 'R', 'A', 'M'};
+  srvrun_conn*    c      = srr_fixture(SALPN_RAW);
+  c->s.sdrv.peer_max_datagram_frame_size = 0;
+  srr_ping(c);
+  CHECK(srr_close_pl_is(c, want, sizeof want));
+  CHECK(c->closing == 1 && c->wt_active == 0);
+  CHECK(g_srr_logn == 0);
+  srr_ping(c);
+  CHECK(g_srr_logn == 0);
+  c                                      = srr_fixture(SALPN_RAW);
+  c->s.sdrv.peer_max_datagram_frame_size = 1; /* smallest non-zero */
+  srr_ping(c);
+  CHECK(srr_log_is("S") && c->wt_active == 1 && c->closing == 0);
+}
+
 /* RFC 9000 19.19 (pinned): code 0x8 INVALID_PATH with reason "bad path". */
 static void test_srvrun_raw_close_session_reason(void) {
   static const u8 want[] = {0x1d, 0x08, 0x08, 'b', 'a', 'd',
@@ -599,6 +624,9 @@ static void test_srvrun_raw_coalesced_finished_setup(void) {
   n    = srr_finished_plus_setup(&f, dg, sizeof dg);
   c->s = f.s;
   c->l = f.l;
+  /* the shared lp ClientHello carries no max_datagram_frame_size; a raw
+   * MoQT client must send one (-22 6.2), as if its TP had */
+  c->s.sdrv.peer_max_datagram_frame_size = 1500;
   sr_rebind_server(&c->s);
   c->up = 1;
   cc_init(&c->cc);
@@ -659,6 +687,7 @@ void test_srvrun_raw(void) {
   test_srvrun_raw_datagram_rx_whole();
   test_srvrun_raw_datagram_rx_no_qsid_check();
   test_srvrun_raw_close_session_frame();
+  test_srvrun_raw_peer_without_datagram_closed();
   test_srvrun_raw_close_session_reason();
   test_srvrun_raw_close_long_reason();
   test_srvrun_raw_reset_code_verbatim();
