@@ -28909,12 +28909,59 @@ static void test_srvrun_origin_misdirected_421(void) {
   CHECK(srvrun_origin_status(c, 404) == 404);
   sr_origin_auth(c, "127.0.0.1:443");
   CHECK(srvrun_origin_status(c, 0) == 421);
-  sr_origin_auth(c, "[::1]:443"); /* shortcut: IPv6 literals not checked */
-  CHECK(srvrun_origin_status(c, 0) == 0);
+  sr_origin_auth(c, "[::1]:443");
+  CHECK(srvrun_origin_status(c, 0) == 421);
+  sr_origin_auth(c, "[localhost]:443"); /* not an IPv6address */
+  CHECK(srvrun_origin_status(c, 0) == 421);
   sr_origin_auth(c, "evil.example");
   c->l.req.scheme     = (const u8*)"http";
   c->l.req.scheme_len = 4;
   CHECK(srvrun_origin_status(c, 0) == 0);
+}
+
+/* RFC 9110 7.4 with an RFC 3986 3.2.2 IP-literal authority: against a leaf
+ * whose only SAN is iPAddress 2001:db8::1 (16 octets), the bracketed
+ * address, with or without a port and in any RFC 4291 2.2 text form, is
+ * served; another address, a zone ID, an unclosed bracket, bracket contents
+ * that are no IPv6address, or anything but ":port" after "]" get 421. The
+ * leaf is a structural stand-in: x509_parse checks shape, not signature. */
+static void test_srvrun_origin_ipv6_421(void) {
+  static const u8 leaf[] = {
+      0x30, 0x37, 0x30, 0x2d, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00,
+      0x05, 0x00, 0x05, 0x00, 0xa3, 0x1f, 0x30, 0x1d, 0x30, 0x1b, 0x06, 0x03,
+      0x55, 0x1d, 0x11, 0x04, 0x14, 0x30, 0x12, 0x87, 0x10, 0x20, 0x01, 0x0d,
+      0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x01, 0x30, 0x03, 0x06, 0x01, 0x2a, 0x03, 0x01, 0x00,
+  };
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  srvrun_conn*  c  = sr_test_conns();
+  sr_make_confirmed_conn(c, &f, &ob);
+  sr_set_req(c, 0, 0, 0);
+  c->s.sdrv.certs[0] = wired_span_of(leaf, sizeof leaf);
+  sr_origin_auth(c, "[2001:db8::1]:443");
+  CHECK(srvrun_origin_status(c, 0) == 0);
+  sr_origin_auth(c, "[2001:DB8:0:0:0:0:0:1]");
+  CHECK(srvrun_origin_status(c, 0) == 0);
+  sr_origin_auth(c, "[2001:db8::2]:443");
+  CHECK(srvrun_origin_status(c, 0) == 421);
+  sr_origin_auth(c, "[2001:db8::1%25eth0]:443");
+  CHECK(srvrun_origin_status(c, 0) == 421);
+  sr_origin_auth(c, "[2001:db8::1");
+  CHECK(srvrun_origin_status(c, 0) == 421);
+  sr_origin_auth(c, "[]:443");
+  CHECK(srvrun_origin_status(c, 0) == 421);
+  sr_origin_auth(c, "[2001:db8::1]junk");
+  CHECK(srvrun_origin_status(c, 0) == 421);
+  sr_origin_auth(c, "[2001:db8::1]:");
+  CHECK(srvrun_origin_status(c, 0) == 0);
+  sr_origin_auth(c, "[example.com]");
+  CHECK(srvrun_origin_status(c, 0) == 421);
+  sr_origin_auth(c, "[1.2.3.4]");
+  CHECK(srvrun_origin_status(c, 0) == 421);
+  sr_origin_auth(c, "localhost");
+  CHECK(srvrun_origin_status(c, 0) == 421);
 }
 
 /* 9110-037 end to end: the handler never runs and the armed response is
@@ -30996,6 +31043,7 @@ void test_srvrun(void) {
   test_srvrun_http_field_count_limit();
   test_srvrun_http_peer_field_section_limit();
   test_srvrun_origin_misdirected_421();
+  test_srvrun_origin_ipv6_421();
   test_srvrun_origin_421_wt_connect();
   test_srvrun_origin_421_armed();
   test_srvrun_http_field_bytes_limit();
