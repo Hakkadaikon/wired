@@ -236,8 +236,9 @@ export async function connectClient(
 	// headless Chrome) on a shared box is a test-environment CPU artifact,
 	// and the transport gates (loss/jitter/plc) must measure the network
 	// path, not worklet CPU (see noiseSuppressionDefault in joinPrefs.ts).
+	// E2E_RNNOISE=1 keeps the production default (RNNoise on) instead.
 	const nsOffUrl = new URL(pageUrl);
-	nsOffUrl.searchParams.set("ns", "0");
+	if (process.env.E2E_RNNOISE !== "1") nsOffUrl.searchParams.set("ns", "0");
 	await page.goto(nsOffUrl.href);
 	await page.waitForFunction(
 		(h) => document.querySelector('input[data-testid="certHash"]')?.value === h,

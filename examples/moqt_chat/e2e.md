@@ -43,6 +43,16 @@
 WIRED_E2E_PORT=14833 just e2e-stability s21-sigterm-goaway
 ```
 
+### 2.4 RNNoise
+
+e2e は既定で RNNoise を切って(`?ns=0`)参加する。伝送の基準(損失・ジッター・PLC)をワークレットの CPU から切り離すためである。本番の既定(RNNoise を有効)で確かめるときは `E2E_RNNOISE=1` を付ける。
+
+```sh
+E2E_RNNOISE=1 just e2e-stability s9-survivor-hears-rejoin
+```
+
+4 コアのマシンで 4 人のシナリオを流すと、伝送の損失が 0 でも PLC の基準で落ちることがある。4 つのワークレットが CPU を取り合うためで、2 人のシナリオで判定する。
+
 ### 2.3 Chrome のバージョン
 
 `run-stability.sh` は、`CHROME_PATH` が未設定で `~/.cache/puppeteer/chrome/linux-146.0.7680.153/` に Chrome があるとき、それを使う。Chrome 150 以降はこのサーバーの証明書のハッシュの固定(`serverCertificateHashes`)で `CERTIFICATE_VERIFY_FAILED` になる。
