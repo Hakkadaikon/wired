@@ -28,9 +28,12 @@ static void test_derval_uint(void) {
   /* full 8 octets */
   const u8 max8[] = {0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
   CHECK(der_uint(max8, 8, &out) == 1 && out == 0x7fffffffffffffffULL);
-  /* 9 significant octets after pad strip -> too wide */
-  const u8 wide[] = {0x00, 0x01, 0, 0, 0, 0, 0, 0, 0, 0};
+  /* 9 significant octets -> too wide */
+  const u8 wide[] = {0x01, 0, 0, 0, 0, 0, 0, 0, 0};
   CHECK(der_uint(wide, sizeof(wide), &out) == 0);
+  /* a pad before a top-bit octet, 8 significant octets: 2^63 */
+  const u8 top8[] = {0x00, 0x80, 0, 0, 0, 0, 0, 0, 0};
+  CHECK(der_uint(top8, sizeof(top8), &out) == 1 && out == 1ULL << 63);
 }
 
 static void test_derval_uint_reject(void) {
@@ -40,6 +43,13 @@ static void test_derval_uint_reject(void) {
   CHECK(der_uint(neg, 1, &out) == 0);
   /* empty value */
   CHECK(der_uint(neg, 0, &out) == 0);
+  /* X.690 8.3.2: a leading 0x00 before an octet whose top bit is clear is
+   * not minimal (02 02 00 20 is 32 in BER only), and 00 00 neither. */
+  const u8 pad32[] = {0x00, 0x20}, pad0[] = {0x00, 0x00};
+  CHECK(der_uint(pad32, 2, &out) == 0);
+  CHECK(der_uint(pad0, 2, &out) == 0);
+  /* a lone 0x00 is the minimal zero */
+  CHECK(der_uint(pad0, 1, &out) == 1 && out == 0);
 }
 
 void test_derval(void) {

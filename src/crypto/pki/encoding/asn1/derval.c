@@ -20,10 +20,16 @@ int der_oid_equal(wired_span oid, wired_span expected) {
 /* X.690 8.3.2. A leading 0x00 is a pad only when more octets follow. */
 static int der_has_pad(wired_span val) { return val.n > 1 && val.p[0] == 0x00; }
 
-/* Empty or negative (top bit of the first octet set, X.690 8.3.2 two's
- * complement) integers have no unsigned magnitude. */
+/* X.690 8.3.2: the first nine bits are neither all zero nor all one -- a
+ * leading 0x00 must precede an octet whose top bit is set. */
+static int der_int_nonminimal(wired_span val) {
+  return der_has_pad(val) && !(val.p[1] & 0x80);
+}
+
+/* Empty, negative (top bit of the first octet set, X.690 8.3.2 two's
+ * complement) or non-minimal integers have no DER unsigned magnitude. */
 static int der_int_bad(wired_span val) {
-  return val.n == 0 || (val.p[0] & 0x80);
+  return val.n == 0 || (val.p[0] & 0x80) || der_int_nonminimal(val);
 }
 
 /* Point m at the unsigned magnitude. 1 if usable, else 0. */
