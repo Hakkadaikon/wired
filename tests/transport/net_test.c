@@ -7,6 +7,18 @@ static void test_checksum_rfc1071(void) {
   CHECK(cksum(d, 8) == 0x220d);
 }
 
+/* RFC 1071 1: an odd count is summed as if padded with one zero octet.
+ * The 3 example's first seven octets: 0001 + f203 + f4f5 + f600 = 2dcf9,
+ * folded dcf9 + 2 = dcfb, complemented 2304. d[7] is the example's nonzero
+ * f7, so reading past the seventh octet cannot give 2304; padded is the
+ * explicit zero-padded form. */
+static void test_checksum_rfc1071_odd(void) {
+  const u8 d[8]      = {0x00, 0x01, 0xf2, 0x03, 0xf4, 0xf5, 0xf6, 0xf7};
+  const u8 padded[8] = {0x00, 0x01, 0xf2, 0x03, 0xf4, 0xf5, 0xf6, 0x00};
+  CHECK(cksum(d, 7) == 0x2304);
+  CHECK(cksum(d, 7) == cksum(padded, 8));
+}
+
 /* A built IPv4 header verifies; flipping a byte breaks verification. */
 static void test_ipv4_checksum(void) {
   u8 hdr[IPV4_HDR];
@@ -111,6 +123,7 @@ static void test_net_datagram_build(void) {
 
 void test_net(void) {
   test_checksum_rfc1071();
+  test_checksum_rfc1071_odd();
   test_ipv4_checksum();
   test_ipv4_ihl_min5();
   test_ipv4_df_and_id();

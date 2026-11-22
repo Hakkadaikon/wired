@@ -3235,6 +3235,84 @@ static void test_sdrv_0rtt_alpn_gate(void) {
   CHECK(sdrv_test_0rtt_alpn(SALPN_NONE, 0) == 1);
 }
 
+/* The EncryptedExtensions' first extension (flight[6..]) is the ALPN echo
+ * of the protocol the connection dispatches on (s->alpn, s->alpn_tok):
+ * 00 10, ext len, list len, name len, name (RFC 7301 3.1). */
+static int sdrv_test_ee_alpn_is(const sdrv* s, const u8* flight) {
+  wired_span name = salpn_choice_name(s->alpn, s->alpn_tok);
+  u8 head[7] = {0x00,      0x10, 0x00, (u8)(name.n + 3), 0x00, (u8)(name.n + 1),
+                (u8)name.n};
+  int d      = 0;
+  for (usz i = 0; i < sizeof head; i++) {
+    d |= flight[6 + i] ^ head[i];
+  }
+  for (usz i = 0; i < name.n; i++) {
+    d |= flight[6 + sizeof head + i] ^ name.p[i];
+  }
+  return d == 0;
+}
+
+/* RFC 7301 3.1: on resumption ALPN is negotiated from the new ClientHello
+ * alone. The ticket was issued on an "h3" connection; the resuming
+ * ClientHello offers only "m9", so the accepted resumption speaks "m9" and
+ * the EncryptedExtensions say so. */
+static void test_sdrv_resumption_alpn_from_new_ch(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch2[800];
+  u8               sh[256], flight[2048];
+  usz              ch2_len, psk_ext_off;
+  wired_obuf       sh_ob = obuf_of(sh, sizeof(sh));
+  wired_obuf       fl_ob = obuf_of(flight, sizeof(flight));
+  sdrv_flight_out  fo    = {&sh_ob, &fl_ob};
+  sdrv_psk_fixture_init(&f);
+  sdrv_psk_fixture_reseal(&f, SALPN_H3);
+  sdrv_test_alpn_to_m9(f.ch, f.ch_len);
+  sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &psk_ext_off);
+  CHECK(ch2_len != 0);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
+    sdrv_init(&s, &in);
+    sdrv_set_raw_alpns(&s, "m9");
+  }
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(s.psk_accepted == 1);
+  CHECK(s.alpn == SALPN_RAW);
+  CHECK(s.alpn_tok.n == 2 && s.alpn_tok.p[0] == 'm' && s.alpn_tok.p[1] == '9');
+  CHECK(sdrv_build_server_flight(&s, f.srv_random, &fo));
+  CHECK(sdrv_test_ee_alpn_is(&s, flight));
+}
+
+/* RFC 7301 3.2: the protocol the EncryptedExtensions name is the one the
+ * connection keeps -- after the flight is built s->alpn (what srvrun and
+ * srvloop dispatch on) is still "h3" and matches the echo byte for byte. */
+static void test_sdrv_ee_alpn_fixed_for_connection(void) {
+  static const u8  want[9] = {0x00, 0x10, 0x00, 0x05, 0x00,
+                              0x03, 0x02, 'h',  '3'};
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32];
+  u8               sh[256], flight[2048];
+  wired_obuf       sh_ob = obuf_of(sh, sizeof(sh));
+  wired_obuf       fl_ob = obuf_of(flight, sizeof(flight));
+  sdrv_flight_out  fo    = {&sh_ob, &fl_ob};
+  sdrv_psk_fixture_init(&f);
+  sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
+    sdrv_init(&s, &in);
+  }
+  CHECK(sdrv_recv_client_hello(&s, f.ch, f.ch_len));
+  CHECK(s.alpn == SALPN_H3);
+  CHECK(sdrv_build_server_flight(&s, f.srv_random, &fo));
+  CHECK(s.alpn == SALPN_H3);
+  for (usz i = 0; i < sizeof want; i++) {
+    CHECK(flight[6 + i] == want[i]);
+  }
+  CHECK(sdrv_test_ee_alpn_is(&s, flight));
+}
+
 /* A 0-RTT offer of a ticket issued on `version` with t.tp = issued (the
  * limits its connection advertised), to a server on `current` whose limits
  * are lim. Returns psk_accepted; *early receives early_data_accepted. */
@@ -4178,6 +4256,8 @@ void test_sdrv(void) {
   test_sdrv_raw_alpn_selected();
   test_sdrv_no_alpn_match_is_0x178();
   test_sdrv_0rtt_alpn_gate();
+  test_sdrv_resumption_alpn_from_new_ch();
+  test_sdrv_ee_alpn_fixed_for_connection();
   test_sdrv_ticket_version_bound();
   test_sdrv_0rtt_limits_not_reduced();
   test_sdrv_0rtt_datagram_not_shrunk();
