@@ -1,25 +1,25 @@
 #include "crypto/pki/encoding/x509/san_impl.h"
 
-static int ipv4_names_match(wired_span gn, const u8 want[SAN_IPV4_LEN]);
+static int ip_names_match(wired_span gn, wired_span want);
 static int atv_cn_value(wired_span atv, wired_span* val);
 static int rdn_cn_value(wired_span rdn, wired_span* val);
 static int name_cn_value(wired_span name_seq, wired_span* val);
 static int subject_cursor(wired_span tbs, derseq* c);
 static int cn_id_matches(wired_span tbs, wired_span host);
-static int ipv4_san_matches(
-    wired_span tbs, wired_span hostname, const u8 want[SAN_IPV4_LEN]);
+static int ip_san_matches(wired_span tbs, wired_span want);
+static int ipv6_san_matches(wired_span tbs, wired_span hostname);
 static int dns_san_matches(wired_span tbs, wired_span hostname);
 
 /* RFC 5280 4.2.1.6: scan the GeneralNames for iPAddress entries only. Never
- * considers dNSName entries -- an IPv4-literal hostname is matched solely
+ * considers dNSName entries -- an IP-literal hostname is matched solely
  * against iPAddress SAN entries, with no fallback to a dNSName entry. */
-static int ipv4_names_match(wired_span gn, const u8 want[SAN_IPV4_LEN]) {
+static int ip_names_match(wired_span gn, wired_span want) {
   derseq     names;
   u8         tag;
   wired_span e;
   derseq_init(&names, gn);
   while (derseq_next(&names, &tag, &e)) {
-    if (x509_ipv4_names_one(tag, e, want)) {
+    if (x509_ip_names_one(tag, e, want)) {
       return 1;
     }
   }
@@ -103,19 +103,13 @@ static int cn_id_matches(wired_span tbs, wired_span host) {
   return x509_entry_matches(cn, host);
 }
 
-/* RFC 5280 4.2.1.6: an IPv4-literal hostname is matched against a
- * certificate's iPAddress SAN entries only. When the certificate carries a
- * SAN extension at all (dNSName-only or otherwise), a missing/non-matching
- * iPAddress entry is a hard mismatch -- there is no dNSName fallback. When
- * the certificate carries no SAN extension at all, RFC 6125 6.4.4's CN-ID
- * fallback still applies (matched as a literal string). */
-static int ipv4_san_matches(
-    wired_span tbs, wired_span hostname, const u8 want[SAN_IPV4_LEN]) {
+/* RFC 5280 4.2.1.6 / RFC 9525 6.3 / RFC 2818 3.1: an IP-literal hostname
+ * is matched against a certificate's iPAddress SAN entries only -- no
+ * dNSName fallback, and no CN-ID fallback either (RFC 6125 6.4.4 applies
+ * it to DNS names only), so a certificate without a SAN never matches. */
+static int ip_san_matches(wired_span tbs, wired_span want) {
   wired_span gn;
-  if (!san_names(tbs, &gn)) {
-    return cn_id_matches(tbs, hostname);
-  }
-  return ipv4_names_match(gn, want);
+  return san_names(tbs, &gn) && ip_names_match(gn, want);
 }
 
 /* RFC 5280 4.2.1.6: dNSName-based matching, with the RFC 6125 6.4.4 CN-ID
@@ -130,10 +124,22 @@ static int dns_san_matches(wired_span tbs, wired_span hostname) {
   return found_id ? match : cn_id_matches(tbs, hostname);
 }
 
+/* RFC 9525 6.3: a reference identity holding a ':' is an IPv6 address (no
+ * DNS name has one), compared with 16-octet iPAddress entries only; one
+ * that does not parse (an RFC 6874 zone ID included) matches nothing. */
+static int ipv6_san_matches(wired_span tbs, wired_span hostname) {
+  u8 ip[SAN_IPV6_LEN];
+  return san_ipv6_parse(hostname, ip) &&
+         ip_san_matches(tbs, wired_span_of(ip, SAN_IPV6_LEN));
+}
+
 int x509_san_matches(wired_span tbs, wired_span hostname) {
   u8 ipv4[SAN_IPV4_LEN];
   if (san_ipv4_parse(hostname, ipv4)) {
-    return ipv4_san_matches(tbs, hostname, ipv4);
+    return ip_san_matches(tbs, wired_span_of(ipv4, SAN_IPV4_LEN));
+  }
+  if (san_ipv6_shaped(hostname)) {
+    return ipv6_san_matches(tbs, hostname);
   }
   return dns_san_matches(tbs, hostname);
 }

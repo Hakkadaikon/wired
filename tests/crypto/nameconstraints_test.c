@@ -4,6 +4,7 @@
 #include "common/bytes/util/bytes.h"
 #include "crypto/pki/cert/selfcert/derenc.h"
 #include "crypto/pki/encoding/x509/nameconstraints_impl.h"
+#include "crypto/pki/encoding/x509/san.h"
 #include "crypto/pki/encoding/x509/x509.h"
 #include "test.h"
 
@@ -303,6 +304,13 @@ static const u8 nct_child_cn_plain[] = {
     0x07, 0x53, 0x6f, 0x6d, 0x65, 0x20, 0x43, 0x41, 0x05, 0x00,
 };
 
+/* No SAN; subject CN "2001:db9::1" (outside nct_tbs_perm_ip6). */
+static const u8 nct_child_cn_ip6_out[] = {
+    0x30, 0x22, 0x05, 0x00, 0x05, 0x00, 0x30, 0x00, 0x05, 0x00, 0x30, 0x16,
+    0x31, 0x14, 0x30, 0x12, 0x06, 0x03, 0x55, 0x04, 0x03, 0x13, 0x0b, 0x32,
+    0x30, 0x30, 0x31, 0x3a, 0x64, 0x62, 0x39, 0x3a, 0x3a, 0x31, 0x05, 0x00,
+};
+
 static const u8 nct_child_san_sub_cn_evil[] = {
     0x30, 0x3e, 0x05, 0x00, 0x05, 0x00, 0x30, 0x00, 0x05, 0x00, 0x30,
     0x14, 0x31, 0x12, 0x30, 0x10, 0x06, 0x03, 0x55, 0x04, 0x03, 0x13,
@@ -485,6 +493,20 @@ static void test_ncsan_cn_not_dns_shaped_ok(void) {
   CHECK(
       x509_name_constraints_admit(
           NCT(nct_tbs_perm_dns), NCT(nct_child_cn_plain)) == 1);
+}
+
+/* An IP-literal CN is not a name the iPAddress subtrees constrain, and it
+ * cannot bypass them either: x509_san_matches gives an IP reference
+ * identity no CN-ID fallback (RFC 9525 6.3), so the SAN-less leaf under
+ * the permitted 2001:db8::/64 is admitted yet covers no address. */
+static void test_ncsan_ip_cn_not_a_bypass(void) {
+  CHECK(
+      x509_name_constraints_admit(
+          NCT(nct_tbs_perm_ip6), NCT(nct_child_cn_ip6_out)) == 1);
+  CHECK(
+      x509_san_matches(
+          NCT(nct_child_cn_ip6_out),
+          wired_span_of((const u8*)"2001:db9::1", 11)) == 0);
 }
 
 /* A SAN dNSName entry rules out the CN fallback (RFC 6125 6.4.4): the CN
@@ -707,6 +729,7 @@ void test_nameconstraints(void) {
   test_ncsan_cn_fallback_outside_rejects();
   test_ncsan_cn_fallback_inside_ok();
   test_ncsan_cn_not_dns_shaped_ok();
+  test_ncsan_ip_cn_not_a_bypass();
   test_ncsan_san_present_cn_ignored();
   test_ncsan_absent_extension_admits();
   test_ncsan_dns_label_boundary_rejects();

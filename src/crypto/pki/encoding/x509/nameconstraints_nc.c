@@ -80,10 +80,9 @@ static int nc_dns_shaped(wired_span cn) {
 /* RFC 6125 6.4.4 / RFC 9525 fallback practice: with no SAN dNSName entry, a
  * DNS-shaped subject commonName is the name x509_san_matches would fall
  * back to, so the dNSName subtrees apply to it. A CN that is not DNS-shaped
- * (or absent) is constrained by directoryName subtrees only.
- * ponytail: iPAddress subtrees are not applied to an IP-literal CN; extend
- * here if a CA constrained by iPAddress-only subtrees must also pin
- * SAN-less IP-literal-CN leaves. */
+ * (or absent) is constrained by directoryName subtrees only. An
+ * IP-literal CN needs no iPAddress subtree check: x509_san_matches never
+ * matches an IP reference identity against the CN (RFC 9525 6.3). */
 static int cn_fallback_ok(wired_span seq, wired_span child_tbs) {
   wired_span cn;
   if (!x509_subject_cn(child_tbs, &cn)) {

@@ -3,13 +3,10 @@
 static int  octet_len_ok(wired_span d);
 static int  no_leading_zero(wired_span d);
 static int  octet_digits_shape_ok(wired_span d);
-static int  digit_value(u8 c);
 static int  digits_value(wired_span d, u32* out);
 static int  octet_digits_value(wired_span d, u32* out);
-static usz  next_dot(wired_span s, usz from);
-static usz  skip_dot(wired_span s, usz end);
 static int  ipv4_octet(wired_span s, usz* off, u8* out);
-static int  ipv4_entry_matches(wired_span e, const u8 want[SAN_IPV4_LEN]);
+static int  ip_entry_matches(wired_span e, wired_span want);
 static void names_match_one(
     u8 tag, wired_span e, wired_span host, int* found_id, int* match);
 
@@ -27,15 +24,12 @@ static int octet_digits_shape_ok(wired_span d) {
   return no_leading_zero(d);
 }
 
-/* One ASCII decimal digit's value, or -1 if c is not a digit. */
-static int digit_value(u8 c) { return (c >= '0' && c <= '9') ? c - '0' : -1; }
-
 /* Decimal value of d's digits, requiring every octet to be a digit.
  * Returns 1 ok, 0 on a non-digit. */
 static int digits_value(wired_span d, u32* out) {
   u32 v = 0;
   for (usz i = 0; i < d.n; i++) {
-    int dv = digit_value(d.p[i]);
+    int dv = ascii_dec(d.p[i]);
     if (dv < 0) {
       return 0;
     }
@@ -54,29 +48,14 @@ static int octet_digits_value(wired_span d, u32* out) {
   return digits_value(d, out);
 }
 
-/* Offset of the next '.' in s starting at from, or s.n if none. */
-static usz next_dot(wired_span s, usz from) {
-  usz i = from;
-  while (i < s.n && s.p[i] != '.') {
-    i++;
-  }
-  return i;
-}
-
-/* Offset just past the separating '.' at s[end] if one is there, else end. */
-static usz skip_dot(wired_span s, usz end) {
-  if (end < s.n) {
-    return end + 1;
-  }
-  return end;
-}
-
 /* One dot-separated IPv4 octet starting at *off, ending at a '.' or the
- * span's end. Advances *off past the value and its separating '.' (if any).
- * Returns 1 ok, 0 if the digits are malformed or out of range. */
+ * span's end. Advances *off one past that end, as if a '.' always followed,
+ * so the whole text is consumed exactly when *off reaches s.n + 1 (a
+ * trailing '.' after the fourth octet leaves it at s.n). Returns 1 ok, 0
+ * if the digits are malformed or out of range. */
 static int ipv4_octet(wired_span s, usz* off, u8* out) {
   usz start = *off;
-  usz end   = next_dot(s, start);
+  usz end   = bytes_find(s, start, '.');
   u32 v;
   if (!octet_digits_value(wired_span_of(s.p + start, end - start), &v)) {
     return 0;
@@ -84,7 +63,7 @@ static int ipv4_octet(wired_span s, usz* off, u8* out) {
   if (v > 255) {
     return 0;
   }
-  *off = skip_dot(s, end);
+  *off = end + 1;
   *out = (u8)v;
   return 1;
 }
@@ -99,13 +78,14 @@ int san_ipv4_parse(wired_span host, u8 out[SAN_IPV4_LEN]) {
       return 0;
     }
   }
-  return off == host.n;
+  return off == host.n + 1;
 }
 
-/* One GeneralName iPAddress entry (raw 4-octet value) matches the parsed
- * IPv4 hostname. */
-static int ipv4_entry_matches(wired_span e, const u8 want[SAN_IPV4_LEN]) {
-  return e.n == SAN_IPV4_LEN && ct_diffn(e.p, want, SAN_IPV4_LEN) == 0;
+/* RFC 9525 6.3: one GeneralName iPAddress entry (raw octets, 4 for IPv4,
+ * 16 for IPv6 per RFC 5280 4.2.1.6) equals the parsed reference identity
+ * octet for octet; a length mismatch never matches. */
+static int ip_entry_matches(wired_span e, wired_span want) {
+  return e.n == want.n && ct_diffn(e.p, want.p, want.n) == 0;
 }
 
 /* RFC 5280 4.2.1.6. The GeneralNames SEQUENCE value inside the extnValue. */
@@ -148,6 +128,6 @@ int x509_names_match(wired_span gn, wired_span host, int* found_id) {
 }
 
 /* One GeneralNames element is an iPAddress entry matching want. */
-int x509_ipv4_names_one(u8 tag, wired_span e, const u8 want[SAN_IPV4_LEN]) {
-  return tag == SAN_IPADDR_TAG && ipv4_entry_matches(e, want);
+int x509_ip_names_one(u8 tag, wired_span e, wired_span want) {
+  return tag == SAN_IPADDR_TAG && ip_entry_matches(e, want);
 }

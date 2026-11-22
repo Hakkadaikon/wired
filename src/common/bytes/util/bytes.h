@@ -173,6 +173,32 @@ static inline u8 ascii_lower(u8 c) {
 }
 
 /**
+ * Value of one ASCII decimal digit.
+ *
+ * @param c input octet
+ * @return 0-9, or -1 if c is not '0'-'9'.
+ */
+static inline int ascii_dec(u8 c) {
+  return (c >= '0' && c <= '9') ? c - '0' : -1;
+}
+
+/**
+ * Offset of the first c in s at or after from.
+ *
+ * @param s span to search
+ * @param from first offset to look at
+ * @param c octet to find
+ * @return its offset; if absent, s.n, or from itself when from > s.n.
+ */
+static inline usz bytes_find(wired_span s, usz from, u8 c) {
+  usz i = from;
+  while (i < s.n && s.p[i] != c) {
+    i++;
+  }
+  return i;
+}
+
+/**
  * RFC 6125 6.4.1: ASCII case-insensitive equality of two DNS-name-shaped byte
  * spans (host names, SNI values). Non-ASCII bytes compare bytewise (no
  * folding applied outside A-Z).

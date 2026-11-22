@@ -365,6 +365,8 @@
 #include "crypto/pki/encoding/x509/basicconstraints.c"
 #include "crypto/pki/encoding/x509/san.c"
 #include "crypto/pki/encoding/x509/san_ipv4.c"
+#include "crypto/pki/encoding/x509/san_ipv6.c"
+#include "crypto/pki/encoding/x509/san_ipv6_list.c"
 #include "crypto/pki/encoding/x509/san_x509.c"
 #include "app/qpack/qpack/dyntable.c"
 #include "app/qpack/qpack/dynget.c"
@@ -1145,6 +1147,7 @@
 #include "crypto/chain_test.c"
 #include "crypto/basicconstraints_test.c"
 #include "crypto/san_test.c"
+#include "crypto/san_ipv6_test.c"
 #include "app/dyntable_test.c"
 #include "app/dynget_test.c"
 #include "app/dynfind_test.c"
@@ -1617,6 +1620,7 @@ int main(void) {
   test_chain();
   test_basicconstraints();
   test_san();
+  test_san_ipv6();
   test_dyntable();
   test_dynget();
   test_dynfind();

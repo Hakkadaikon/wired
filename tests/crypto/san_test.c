@@ -222,21 +222,11 @@ static void test_san_ipv6_hostname_mismatch(void) {
           sizeof(host) - 1) == 0);
 }
 
-/* RFC 6125 6.4.4: a cert without any SAN extension falls back to the CN-ID,
- * and that fallback also applies when the hostname is an IPv4 literal and
- * the CN's value is the same literal string. */
-static void test_san_ipv4_cn_id_fallback(void) {
+/* RFC 6125 6.4.4 / RFC 9525 6.3: the CN-ID fallback is for DNS names
+ * only. An IPv4-literal hostname needs an iPAddress SAN, so a SAN-less
+ * certificate whose CN spells the same literal does not match. */
+static void test_san_ipv4_no_cn_id_fallback(void) {
   const u8 host[] = "127.0.0.1";
-  CHECK(
-      san_match_tbs(
-          san_cn_only_ipv4_tbs, sizeof(san_cn_only_ipv4_tbs), host,
-          sizeof(host) - 1) == 1);
-}
-
-/* The CN-ID fallback for an IPv4-literal hostname still requires an exact
- * string match against the CN value. */
-static void test_san_ipv4_cn_id_fallback_no_match(void) {
-  const u8 host[] = "127.0.0.2";
   CHECK(
       san_match_tbs(
           san_cn_only_ipv4_tbs, sizeof(san_cn_only_ipv4_tbs), host,
@@ -333,8 +323,7 @@ void test_san(void) {
   test_san_ipv4_multi_match();
   test_san_ipv4_multi_no_match();
   test_san_ipv6_hostname_mismatch();
-  test_san_ipv4_cn_id_fallback();
-  test_san_ipv4_cn_id_fallback_no_match();
+  test_san_ipv4_no_cn_id_fallback();
   test_san_uri_srv_suppress_cn_fallback();
   test_san_alabel_wildcard_no_match();
 }

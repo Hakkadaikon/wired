@@ -58,6 +58,8 @@
 #include "crypto/pki/encoding/asn1/derval.c"
 #include "crypto/pki/encoding/x509/san.c"
 #include "crypto/pki/encoding/x509/san_ipv4.c"
+#include "crypto/pki/encoding/x509/san_ipv6.c"
+#include "crypto/pki/encoding/x509/san_ipv6_list.c"
 #include "crypto/pki/encoding/x509/san_x509.c"
 #include "crypto/pki/encoding/x509/sigalgoid.c"
 #include "crypto/pki/encoding/x509/sigalgoid_pss.c"
