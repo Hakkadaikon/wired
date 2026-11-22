@@ -6,12 +6,14 @@
 
 /* RFC 8446 4 / RFC 9001 4.1.3: which encryption level may carry which
  * handshake message. Initial carries the ClientHello(s) only (taken at
- * boot), Handshake the client Finished (wired_server_feed), and 1-RTT none
+ * boot), Handshake the client's flight through its Finished
+ * (wired_server_feed), and 1-RTT none
  * at all -- a server that sends no CertificateRequest gets no post-handshake
  * message from a QUIC client (RFC 9001 6 forbids KeyUpdate). */
 
 static usz srv_crypto_frame_end(const framewalk_item* fr);
 static usz srv_crypto_end(wired_span pl);
+static int srv_level_within(wired_server* s, wired_span pl, usz end);
 static int srv_level_initial(wired_server* s, wired_span pl);
 static int srv_level_handshake(wired_server* s, wired_span pl);
 static int srv_level_onertt(wired_server* s, wired_span pl);
@@ -41,20 +43,36 @@ static usz srv_crypto_end(wired_span pl) {
   return end;
 }
 
-/* RFC 8446 4.1.2: CRYPTO data past the ClientHello(s) is a second
- * handshake message once TLS 1.3 is negotiated -- unexpected_message. A
- * retransmitted ClientHello stays inside ini_rx_end and is ignored. */
-static int srv_level_initial(wired_server* s, wired_span pl) {
-  if (srv_crypto_end(pl) > s->ini_rx_end + 1) {
-    s->hs_error = err_crypto(10); /* unexpected_message */
+/* RFC 9001 4.1.3: "If a packet from a previously installed encryption
+ * level contains CRYPTO data that extends past the end of previously
+ * received data in that flow, the endpoint MUST treat this as a connection
+ * error of type PROTOCOL_VIOLATION." CRYPTO inside end (RFC 9000 13.3
+ * retransmission) passes. */
+static int srv_level_within(wired_server* s, wired_span pl, usz end) {
+  if (srv_crypto_end(pl) <= end + 1) {
+    return 1;
   }
+  s->hs_error = ERR_PROTOCOL_VIOLATION;
   return 0;
 }
 
+/* Initial is an earlier level whenever a packet is opened here: the
+ * Handshake keys went in with the flight, after the ClientHello(s) --
+ * both of an HRR exchange (RFC 8446 4.1.4) -- were taken at boot. Never
+ * dispatched: a retransmitted ClientHello is ignored. */
+static int srv_level_initial(wired_server* s, wired_span pl) {
+  srv_level_within(s, pl, s->ini_rx_end);
+  return 0;
+}
+
+/* The client's Handshake flow ends with its Finished, so its end is known
+ * only once that Finished is verified (CONFIRMED): hs_rx_used. Before
+ * that, Handshake CRYPTO is the flight still arriving. */
 static int srv_level_handshake(wired_server* s, wired_span pl) {
-  (void)s;
-  (void)pl;
-  return 1;
+  if (s->phase != WIRED_SERVER_HS_CONFIRMED) {
+    return 1;
+  }
+  return srv_level_within(s, pl, s->hs_rx_used);
 }
 
 static int srv_level_onertt(wired_server* s, wired_span pl) {

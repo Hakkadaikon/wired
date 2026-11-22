@@ -964,9 +964,10 @@ static void test_server_second_client_hello_unexpected(void) {
 }
 
 /* RFC 8446 4 / RFC 9001 4.1.3 by encryption level: Initial CRYPTO inside
- * the accepted ClientHello (a retransmission) is ignored, past it is a
- * second message; 1-RTT carries no handshake message at all; Handshake is
- * passed on. Initial is never dispatched after boot. */
+ * the accepted ClientHello (a retransmission) is ignored, past it is
+ * PROTOCOL_VIOLATION (an earlier level, 4.1.3); 1-RTT carries no handshake
+ * message at all; Handshake past the consumed Finished is
+ * PROTOCOL_VIOLATION once confirmed. Initial is never dispatched. */
 static void test_server_crypto_level_routing(void) {
   struct srv_fix        f;
   u8                    pl[700];
@@ -986,10 +987,16 @@ static void test_server_crypto_level_routing(void) {
   CHECK(
       wired_server_crypto_level_ok(
           &f.s, LEVEL_INITIAL, wired_span_of(pl, ob.len)) == 0);
-  CHECK(wired_server_take_hs_error(&f.s) == 0x10a);
+  CHECK(wired_server_take_hs_error(&f.s) == ERR_PROTOCOL_VIOLATION);
+  CHECK(
+      wired_server_crypto_level_ok(
+          &f.s, LEVEL_HANDSHAKE, wired_span_of(pl, ob.len)) == 0);
+  CHECK(wired_server_take_hs_error(&f.s) == ERR_PROTOCOL_VIOLATION);
+  f.s.phase = WIRED_SERVER_HS_FLIGHT_SENT; /* 1-RTT keys not yet installed */
   CHECK(
       wired_server_crypto_level_ok(
           &f.s, LEVEL_HANDSHAKE, wired_span_of(pl, ob.len)) == 1);
+  f.s.phase = WIRED_SERVER_HS_CONFIRMED;
   CHECK(
       wired_server_crypto_level_ok(
           &f.s, LEVEL_ONERTT, wired_span_of(&ping, 1)) == 1);

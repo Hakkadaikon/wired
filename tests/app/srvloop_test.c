@@ -265,47 +265,10 @@ static void lp_make_client_finished(struct lp_fix* f) {
   hs_finish(f->cli_fin, f->cli_fin_len);
 }
 
-/* Client role: seal a Handshake CRYPTO flight toward the server with the
- * peer-direction CLIENT_HS key (which the server opens with). */
-static usz client_seal_handshake_ver(
-    struct lp_fix* f, u32 version, const u8* msg, usz mlen, u8* pkt, usz cap) {
-  const initial_keys* k;
-  aes128              hp;
-  wired_obuf          ob = {pkt, cap, 0};
-  k                      = lp_hs_key(f, KS_CLIENT_HS);
-  aes128_init(&hp, k->hp);
-  srvwire_seal_in in = {
-      wired_span_of((const u8*)0, 0),
-      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
-      wired_span_of(g_cli_scid, 6),
-      g_lp_cli_hs_pn++,
-      -1,
-      wired_span_of(msg, mlen),
-      0,
-      0,
-      0,
-      0,
-      version};
-  protect_keys pk = {k, &hp, 0};
-  CHECK(srvwire_seal_handshake(&pk, &in, &ob));
-  return ob.len;
-}
-
-static usz client_seal_handshake(
-    struct lp_fix* f, const u8* msg, usz mlen, u8* pkt, usz cap) {
-  return client_seal_handshake_ver(f, 0, msg, mlen, pkt, cap);
-}
-
-/* Client role: seal a Handshake packet at an explicit packet number. curl does
- * not send its Finished at PN 0 — it leads with an ACK-only Handshake packet,
- * so the Finished lands at a later PN. */
-static usz client_seal_handshake_pn(
-    struct lp_fix* f, u64 pn, const u8* msg, usz mlen, u8* pkt, usz cap) {
-  const initial_keys* k;
-  aes128              hp;
-  wired_obuf          ob = {pkt, cap, 0};
-  k                      = lp_hs_key(f, KS_CLIENT_HS);
-  aes128_init(&hp, k->hp);
+/* A client Handshake packet's seal input: msg as CRYPTO at offset 0, pn
+ * `pn`, QUIC v1 -- callers adjust crypto_off / version. */
+static srvwire_seal_in lp_hs_seal_in(
+    const struct lp_fix* f, u64 pn, const u8* msg, usz mlen) {
   srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
@@ -318,9 +281,50 @@ static usz client_seal_handshake_pn(
       0,
       0,
       0};
+  return in;
+}
+
+/* Client role: seal `in` toward the server with the peer-direction
+ * CLIENT_HS key (which the server opens with). */
+static usz client_seal_hs_in(
+    struct lp_fix* f, const srvwire_seal_in* in, u8* pkt, usz cap) {
+  const initial_keys* k  = lp_hs_key(f, KS_CLIENT_HS);
+  wired_obuf          ob = {pkt, cap, 0};
+  aes128              hp;
+  aes128_init(&hp, k->hp);
   protect_keys pk = {k, &hp, 0};
-  CHECK(srvwire_seal_handshake(&pk, &in, &ob));
+  CHECK(srvwire_seal_handshake(&pk, in, &ob));
   return ob.len;
+}
+
+/* Client role: seal a Handshake CRYPTO flight toward the server. */
+static usz client_seal_handshake_ver(
+    struct lp_fix* f, u32 version, const u8* msg, usz mlen, u8* pkt, usz cap) {
+  srvwire_seal_in in = lp_hs_seal_in(f, g_lp_cli_hs_pn++, msg, mlen);
+  in.version         = version;
+  return client_seal_hs_in(f, &in, pkt, cap);
+}
+
+static usz client_seal_handshake(
+    struct lp_fix* f, const u8* msg, usz mlen, u8* pkt, usz cap) {
+  return client_seal_handshake_ver(f, 0, msg, mlen, pkt, cap);
+}
+
+/* The same, with msg placed at Handshake CRYPTO stream offset `off`. */
+static usz client_seal_handshake_off(
+    struct lp_fix* f, u64 off, const u8* msg, usz mlen, u8* pkt, usz cap) {
+  srvwire_seal_in in = lp_hs_seal_in(f, g_lp_cli_hs_pn++, msg, mlen);
+  in.crypto_off      = off;
+  return client_seal_hs_in(f, &in, pkt, cap);
+}
+
+/* Client role: seal a Handshake packet at an explicit packet number. curl does
+ * not send its Finished at PN 0 — it leads with an ACK-only Handshake packet,
+ * so the Finished lands at a later PN. */
+static usz client_seal_handshake_pn(
+    struct lp_fix* f, u64 pn, const u8* msg, usz mlen, u8* pkt, usz cap) {
+  srvwire_seal_in in = lp_hs_seal_in(f, pn, msg, mlen);
+  return client_seal_hs_in(f, &in, pkt, cap);
 }
 
 /* Client role: seal a 1-RTT STREAM payload toward the server with CLIENT_AP. */
@@ -7612,6 +7616,41 @@ static void test_srvloop_unexpected_hs_message_latches(void) {
   CHECK(wired_server_take_hs_error(&f.s) == 0x10a);
 }
 
+/* RFC 9001 4.1.3: one datagram coalescing the client Finished and a second
+ * Handshake packet whose CRYPTO starts at `off` -- the second is opened
+ * after the 1-RTT keys are installed (the Handshake keys go only when the
+ * confirmation is sent, after the whole datagram). Returns the latched
+ * error. */
+static u64 srvloop_hs_after_fin_error(u64 off) {
+  struct lp_fix f;
+  u8            dg[1500], out[1500], extra[4] = {20, 0, 0, 0};
+  usz           n;
+  wired_obuf    ob = {out, sizeof out, 0};
+  bytes_memset(&f.s, 0, sizeof f.s);
+  bytes_memset(&f.l, 0, sizeof f.l);
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_make_client_finished(&f);
+  n = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, dg, sizeof dg);
+  n += client_seal_handshake_off(
+      &f, off, off ? extra : f.cli_fin, off ? sizeof extra : f.cli_fin_len,
+      dg + n, sizeof dg - n);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(dg, n), &ob);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+  return wired_server_take_hs_error(&f.s);
+}
+
+/* RFC 9001 4.1.3: Handshake CRYPTO past the consumed client Finished, once
+ * the 1-RTT keys are installed, is PROTOCOL_VIOLATION; RFC 9000 13.3: a
+ * retransmitted Finished (inside the old end) is not. */
+static void test_srvloop_handshake_crypto_past_finished_closes(void) {
+  CHECK(
+      srvloop_hs_after_fin_error(HS_HEADER + TLS_VERIFY_DATA) ==
+      ERR_PROTOCOL_VIOLATION);
+  CHECK(srvloop_hs_after_fin_error(0) == 0);
+}
+
 /* RFC 9001 6 / RFC 8446 4: a client sends no handshake message in 1-RTT
  * (KeyUpdate is forbidden in QUIC); a 1-RTT CRYPTO frame latches
  * unexpected_message. */
@@ -8670,6 +8709,7 @@ void test_srvloop(void) {
   test_srvloop_h3ctrl_critical_close();
   test_srvloop_unexpected_hs_message_latches();
   test_srvloop_onertt_crypto_latches();
+  test_srvloop_handshake_crypto_past_finished_closes();
   test_srvloop_ticket_early_data_only_off_raw();
   test_srvloop_slotless_reset_closes_stream();
   test_srvloop_reset_notes_only_receiving_slot();
