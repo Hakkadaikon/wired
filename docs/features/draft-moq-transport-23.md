@@ -14,7 +14,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 266/299、間接 33、未テスト 0。**
+**カバレッジ: テスト済み 267/299、間接 32、未テスト 0。**
 
 
 ## SS8.1 可変長整数
@@ -186,8 +186,11 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqver_test.c` — `test_moqver_offer`
   - test: `tests/app/moqver_test.c` — `test_moqver_caps_d23`
   - test: `tests/app/moqtrun_raw_test.c` — `test_moqtrun_raw_ver_from_alpn`
-- [~] MQ23-247 (SS6.2) サーバーは、MOQT を運ぶ接続で QUIC DATAGRAM 拡張をサポートし、ネゴシエートしなければならない。
-  - evidence: `test_server_tp_datagram_frame_size`(`tests/tls/server_tp_test.c`)は、サーバーが max_datagram_frame_size を広告できることを示します。MOQT の運用でそれを有効にするのは設定の問題で、ここでは確かめていません(RFC 9221 の台帳を参照)。
+- [x] MQ23-247 (SS6.2) サーバーは、MOQT を運ぶ接続で QUIC DATAGRAM 拡張をサポートし、ネゴシエートしなければならない。
+  - evidence: セッションのコールバック(WebTransport または raw QUIC)を登録した実行で、サーバー自身の max_datagram_frame_size が 0 なら、`srvrun_datagram_ok`(`src/app/http3/server/srvrun/srvrun_pin.c`)が起動を拒み、理由をログに出します。0 でない値は `test_server_tp_datagram_frame_size` のとおり広告されます。相手の値も確かめます。WebTransport では `srvrun_wt_peer_ok` が確かめます。raw QUIC では、値を省いたクライアントにセッションを作らず、`srvrun_raw_refused`(`src/app/http3/server/srvrun/srvrun_live.c`)が PROTOCOL_VIOLATION (0x3) のアプリケーション CONNECTION_CLOSE で接続を閉じます。
+  - test: `tests/app/srvrun_test.c` — `test_srvrun_session_consumer_needs_datagram`
+  - test: `tests/app/srvrun_raw_test.c` — `test_srvrun_raw_peer_without_datagram_closed`
+  - test: `tests/tls/server_tp_test.c` — `test_server_tp_datagram_frame_size`
 
 ## SS6.3 セッションの初期化
 

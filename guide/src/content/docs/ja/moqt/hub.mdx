@@ -32,4 +32,5 @@ MoQT（Media over QUIC Transport）は、映像や音声などのメディアを
 - クライアントに版を選ばせるには、`wired_moqt_wt_protocols(buf, sizeof buf)` が書き出すハブの一覧（`moqt-22 moqt-19 moqt-18`）を `opt.wt_protocols` に設定します。
   `examples/moqt_interop` がこの使い方をしています。
 - サーバーの識別情報で `max_datagram_frame_size` を設定すると、QUIC DATAGRAM（再送しないメッセージを運ぶ QUIC の拡張）が有効になります。
-  WebTransport のクライアントはこれを必要とします。
+  WebTransport のクライアントも MoQT も、これを必要とします。
+  セッションのコールバックを登録したまま 0 にしておくと、サーバーは起動せず、理由をログに出します。
