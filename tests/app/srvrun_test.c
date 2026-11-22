@@ -218,6 +218,48 @@ static int sr_count_frames(const u8* pl, usz pll, frame_kind k) {
   return n;
 }
 
+/* Capture helpers for the srvrun_rfc*_test.c server-path tests: what the
+ * server sent, read back off a client loopback socket (sr_net). */
+
+/* The next datagram waiting on client socket fd, into pkt[PMTU_MAX]; its
+ * length, 0 when none is waiting. */
+static usz rfcpin_recv(i64 fd, u8* pkt) {
+  sockaddr from;
+  i64      n;
+  if (poll_wait_readable(fd, 0) <= 0) {
+    return 0;
+  }
+  n = wired_udp_recvfrom(fd, wired_mspan_of(pkt, PMTU_MAX), &from);
+  return n > 0 ? (usz)n : 0;
+}
+
+/* The frame kinds (framewalk_kinds) of the next datagram on fd opened as a
+ * 1-RTT packet under f's keys; 0 when none is waiting or it does not open. */
+static u32 rfcpin_kinds(struct lp_fix* f, i64 fd) {
+  u8        pkt[PMTU_MAX];
+  const u8* pl;
+  usz       pll;
+  usz       n = rfcpin_recv(fd, pkt);
+  if (!n || client_open_onertt(f, pkt, n, &pl, &pll) != 1) {
+    return 0;
+  }
+  return framewalk_kinds(wired_span_of(pl, pll));
+}
+
+/* A step context for c whose sends leave through the loopback socket fd. */
+static srvrun_cfg rfcpin_cfg(i64 fd) {
+  return (srvrun_cfg){.fd = fd, .env = &g_srvrun_env};
+}
+
+/* One pump pass of c at now_ms, sending through fd. */
+static void rfcpin_pump(srvrun_conn* c, i64 fd, u64 now_ms) {
+  srvrun_cfg      cfg = rfcpin_cfg(fd);
+  srvrun_state    st  = {0, c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, now_ms, 0};
+  c->l.now_ms         = now_ms;
+  srvrun_pump_sess(&ctx, 0);
+}
+
 /* BASELINE: no shutdown requested
  -> a fresh Initial is accepted as usual
  * (srvrun_is_new says yes on a not-yet-up slot). */

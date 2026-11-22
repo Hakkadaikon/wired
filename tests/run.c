@@ -1295,6 +1295,10 @@
 #include "app/srvrun_wtfc_pend_test.c"
 #include "app/srvrun_wtsess_test.c"
 #include "app/srvrun_rec_test.c"
+#include "app/srvrun_rfc9002_test.c"
+#include "app/srvrun_rfc8899_test.c"
+#include "app/srvrun_rfc9221_test.c"
+#include "app/srvrun_rfc9000_test.c"
 #include "app/sigmask_test.c"
 #include "app/certreload_test.c"
 #include "app/srvkeys_test.c"
@@ -1819,6 +1823,10 @@ int main(void) {
   test_srvrun_wtfc_pend();
   test_srvrun_wtsess();
   test_srvrun_rec();
+  test_srvrun_rfc9002();
+  test_srvrun_rfc8899();
+  test_srvrun_rfc9221();
+  test_srvrun_rfc9000();
   test_sigmask();
   test_certreload();
   test_srvkeys();
