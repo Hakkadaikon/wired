@@ -443,7 +443,10 @@ static void test_srvloop_priority_header_reaches_scheduler(void) {
       &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
   i = wired_srvloop_slot_for(&l, 4);
   CHECK(i >= 0);
-  l.streams[i].req.priority = (h3_priority){0, 1};
+  /* a step's start (srvloop_step_reset), then a whole request as the
+   * decoder leaves it (every field set) */
+  l.done_n         = 0;
+  l.streams[i].req = (wired_h3reqdrive_req){.priority = {0, 1}};
   srvloop_route_note_done(&l, i);
   CHECK(wired_srvloop_priority_of(&l, 4, &p) == 1);
   CHECK(p.urgency == 0);
@@ -463,13 +466,14 @@ static void test_srvloop_priority_update_beats_header(void) {
   wired_srvloop_priority_apply(&l, 8, &(h3_priority){5, 0}); /* pending */
   i = wired_srvloop_slot_for(&l, 8);
   CHECK(i >= 0);
-  l.streams[i].req.priority = (h3_priority){0, 1};
+  l.done_n         = 0; /* a step's start (srvloop_step_reset) */
+  l.streams[i].req = (wired_h3reqdrive_req){.priority = {0, 1}};
   srvloop_route_note_done(&l, i);
   CHECK(wired_srvloop_priority_of(&l, 8, &p) == 1);
   CHECK(p.urgency == 5);
   i = wired_srvloop_slot_for(&l, 12);
   wired_srvloop_priority_apply(&l, 12, &(h3_priority){6, 0}); /* open */
-  l.streams[i].req.priority = (h3_priority){1, 0};
+  l.streams[i].req = (wired_h3reqdrive_req){.priority = {1, 0}};
   srvloop_route_note_done(&l, i);
   CHECK(wired_srvloop_priority_of(&l, 12, &p) == 1);
   CHECK(p.urgency == 6);
