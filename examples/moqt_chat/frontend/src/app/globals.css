@@ -719,11 +719,97 @@ input {
 }
 
 .message__raw-toggle {
+	align-self: center;
 	min-height: auto;
 	margin-top: 0;
 	text-decoration: none;
 	padding-inline: var(--s-1);
 	font-size: var(--s-3);
+}
+
+/* Foot clusters: check + reactions left, Delete + ⋯ right. */
+.message__foot-start,
+.message__foot-end {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--s-1);
+}
+
+/* Reactions: hairline-boxed chips at control height (touch targets). */
+.reaction {
+	min-width: var(--control-h);
+	min-height: var(--control-h);
+	padding: 0 var(--s-2);
+	border: 1px solid var(--gray-light);
+	background: none;
+	color: var(--ink);
+	font: inherit;
+	cursor: pointer;
+}
+
+.reaction:disabled {
+	cursor: default;
+}
+
+.reaction--add {
+	border-color: var(--ink);
+	font-weight: 700;
+}
+
+.message__delete {
+	align-self: center;
+	min-height: var(--control-h);
+	margin-top: 0;
+	padding-inline: var(--s-1);
+	color: var(--ink);
+}
+
+.message__deleted {
+	grid-column: 1 / -1;
+	margin-top: var(--s-2);
+}
+
+/* Room head: space name, then the meeting title and a status tag. */
+.room-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--s-1) var(--s-3);
+	padding-bottom: var(--s-2);
+}
+
+.room-head h2 {
+	margin: 0;
+}
+
+.room-head__meeting {
+	display: flex;
+	align-items: baseline;
+	gap: var(--s-2);
+}
+
+/* Status and hand tags: signage, never red on black (--mark is white in
+ * dark mode). */
+.room-head__status,
+.hand {
+	padding: 0 var(--s-1);
+	border: 1px solid var(--ink);
+	font-size: 0.8em;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.room-head__status[data-status="live"],
+.hand {
+	border-color: var(--mark);
+	background: var(--mark);
+	color: var(--paper);
+}
+
+.hand {
+	margin-left: auto;
 }
 
 .verified {

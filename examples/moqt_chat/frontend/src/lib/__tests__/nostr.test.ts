@@ -4,7 +4,7 @@ import {
 	checkOwnChatEvent,
 	DEFAULT_NOSTR_RELAYS,
 	LOGIN_ERROR,
-	NOSTR_ROOM_A,
+	NOSTR_SPACE_A,
 	nostrLogin,
 	nostrRelays,
 	ProfileResolver,
@@ -15,6 +15,7 @@ import {
 	safePictureUrl,
 	shortNpub,
 	signChatEvent,
+	signOwnEvent,
 } from "@/lib/nostr";
 
 // Fixed test-only secret key (never used outside this file).
@@ -28,7 +29,7 @@ function signed(
 		{
 			kind: 1311,
 			created_at: 1_700_000_000,
-			tags: [["a", NOSTR_ROOM_A]],
+			tags: [["a", NOSTR_SPACE_A]],
 			content: "hello",
 			...over,
 		},
@@ -107,15 +108,43 @@ describe("NIP-07", () => {
 		await expect(nostrLogin()).rejects.toThrow(LOGIN_ERROR.invalid);
 	});
 
-	it("signChatEvent has the extension sign a 1311 event for the room", async () => {
+	it("signChatEvent has the extension sign a 1311 event for the space", async () => {
 		const nostr = mockNostr();
-		const ev = await signChatEvent("hi there");
+		const ev = await signChatEvent("hi there", "30313:ab:m1", "user1");
 		expect(nostr.signEvent.mock.calls[0][0]).toMatchObject({
 			kind: 1311,
-			tags: [["a", NOSTR_ROOM_A]],
+			tags: [
+				["a", NOSTR_SPACE_A, "", "root"],
+				["a", "30313:ab:m1"],
+				["wired-participant", "user1"],
+			],
 			content: "hi there",
 		});
 		expect(parseVerifiedEvent(JSON.stringify(ev))?.content).toBe("hi there");
+	});
+
+	it("signOwnEvent returns the checked event as plain JSON", async () => {
+		mockNostr();
+		const t = { kind: 7, created_at: 1, tags: [["e", "x"]], content: "+" };
+		const ev = await signOwnEvent({ ...t }, PK);
+		expect(ev).toMatchObject({ ...t, pubkey: PK });
+	});
+
+	it("signOwnEvent rejects another key, kind, content, tags or time", async () => {
+		const nostr = mockNostr();
+		const t = { kind: 7, created_at: 1, tags: [["e", "x"]], content: "+" };
+		const other = new Uint8Array(32).fill(9);
+		const evil = [
+			async () => finalizeEvent({ ...t }, other),
+			async () => finalizeEvent({ ...t, kind: 5 }, SK),
+			async () => finalizeEvent({ ...t, content: "-" }, SK),
+			async () => finalizeEvent({ ...t, tags: [] }, SK),
+			async () => finalizeEvent({ ...t, created_at: 2 }, SK),
+		];
+		for (const sign of evil) {
+			nostr.signEvent.mockImplementationOnce(sign);
+			await expect(signOwnEvent({ ...t }, PK)).rejects.toThrow(/mismatched/);
+		}
 	});
 });
 
@@ -283,7 +312,7 @@ describe("checkOwnChatEvent (before publishing the extension's event)", () => {
 			{
 				kind: 1311,
 				created_at: 1,
-				tags: [["a", NOSTR_ROOM_A]],
+				tags: [["a", NOSTR_SPACE_A]],
 				content: "hi",
 			},
 			SK,
@@ -305,7 +334,12 @@ describe("checkOwnChatEvent (before publishing the extension's event)", () => {
 
 	it("rejects a valid event by another key", () => {
 		const other = finalizeEvent(
-			{ kind: 1311, created_at: 1, tags: [["a", NOSTR_ROOM_A]], content: "hi" },
+			{
+				kind: 1311,
+				created_at: 1,
+				tags: [["a", NOSTR_SPACE_A]],
+				content: "hi",
+			},
 			new Uint8Array(32).fill(9),
 		);
 		expect(() => checkOwnChatEvent(plain(other), PK, "hi")).toThrow();
@@ -321,7 +355,7 @@ describe("checkOwnChatEvent (before publishing the extension's event)", () => {
 			{
 				kind: 1311,
 				created_at: 1,
-				tags: [["a", NOSTR_ROOM_A]],
+				tags: [["a", NOSTR_SPACE_A]],
 				content: "hi",
 				...over,
 			},

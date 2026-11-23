@@ -10,7 +10,7 @@ import {
 	stubWebTransport,
 } from "@/lib/__tests__/fakeWebTransport";
 import { MoqtChatClient } from "@/lib/moqtClient";
-import { NOSTR_ROOM_A } from "@/lib/nostr";
+import { NOSTR_SPACE_A } from "@/lib/nostr";
 import { createQualityWindow, qualityLevel } from "@/lib/voiceQuality";
 import {
 	applyVoiceTapEvent,
@@ -515,7 +515,7 @@ describe("sendChatMessage", () => {
 					{
 						kind: 1311,
 						created_at: 1,
-						tags: [["a", NOSTR_ROOM_A]],
+						tags: [["a", NOSTR_SPACE_A]],
 						content,
 					},
 					sk,
@@ -595,13 +595,16 @@ describe("openMoqNostr", () => {
 			{
 				kind: 1311,
 				created_at: 1_700_000_000,
-				tags: [["a", NOSTR_ROOM_A]],
+				tags: [["a", NOSTR_SPACE_A]],
 				content: "yo",
 			},
 			sk,
 		);
 		const store = { addMessage: vi.fn(), setPeerPubkey: vi.fn() };
-		const receive = openMoqNostr(() => ({ sendNostrEvent: vi.fn() }), store);
+		const receive = openMoqNostr(
+			() => ({ sendNostrEvent: vi.fn(), localId: "user1" }),
+			store,
+		);
 		const raw = JSON.stringify(signed, null, 1);
 		receive(JSON.stringify({ ...signed, content: "forged" }), false);
 		receive(raw, false); // a history fill: an old created_at is fine
@@ -619,25 +622,65 @@ describe("openMoqNostr", () => {
 		closeMoqNostr();
 	});
 
-	it("maps a participant to the pubkey of a new live verified event on its track", () => {
-		const live = (content: string, n: number) =>
-			finalizeEvent(
-				{
-					kind: 1311,
-					created_at: Math.floor(Date.now() / 1000),
-					tags: [["a", NOSTR_ROOM_A]],
-					content,
-				},
-				new Uint8Array(32).fill(n),
-			);
+	// An event signed with our participant tag for `who`.
+	const signedFor = (
+		kind: number,
+		created_at: number,
+		n: number,
+		who?: string,
+	) =>
+		finalizeEvent(
+			{
+				kind,
+				created_at,
+				tags: [
+					["a", NOSTR_SPACE_A, "", "root"],
+					...(who ? [["wired-participant", who]] : []),
+				],
+				content: "x",
+			},
+			new Uint8Array(32).fill(n),
+		);
+	const opened = () => {
 		const store = { addMessage: vi.fn(), setPeerPubkey: vi.fn() };
-		const receive = openMoqNostr(() => ({ sendNostrEvent: vi.fn() }), store);
-		const ev = live("hi", 8);
-		const forged = { ...live("x", 9), content: "tampered" };
+		const receive = openMoqNostr(
+			() => ({ sendNostrEvent: vi.fn(), localId: "user1" }),
+			store,
+		);
+		return { store, receive };
+	};
+
+	it("maps a participant from a live chat event signed for it, on its track", () => {
+		const now = Math.floor(Date.now() / 1000);
+		const { store, receive } = opened();
+		const ev = signedFor(1311, now, 8, "user2");
+		const forged = { ...signedFor(1311, now, 9, "user3"), content: "t" };
 		receive(JSON.stringify(forged), true, "user3");
+		receive(JSON.stringify(signedFor(1311, now, 7)), true, "user4"); // no tag
 		receive(JSON.stringify(ev), true, "user2");
-		receive(JSON.stringify(ev), true, "user3"); // a replay claims nothing
 		expect(store.setPeerPubkey.mock.calls).toEqual([["user2", ev.pubkey]]);
+		closeMoqNostr();
+	});
+
+	it("does not map a participant re-carrying someone else's event", () => {
+		const now = Math.floor(Date.now() / 1000);
+		const { store, receive } = opened();
+		const chat = signedFor(1311, now, 8, "user2");
+		const presence = signedFor(10312, now, 8, "user2");
+		receive(JSON.stringify(chat), true, "user3");
+		receive(JSON.stringify(presence), false, "user3", "nostr-presence");
+		expect(store.setPeerPubkey).not.toHaveBeenCalled();
+		closeMoqNostr();
+	});
+
+	it("maps a participant from a fresh presence on its track, even from a fill", () => {
+		const now = Math.floor(Date.now() / 1000);
+		const { store, receive } = opened();
+		const fresh = signedFor(10312, now, 8, "user2");
+		const stale = signedFor(10312, now - 600, 9, "user3");
+		receive(JSON.stringify(stale), false, "user3", "nostr-presence");
+		receive(JSON.stringify(fresh), false, "user2", "nostr-presence");
+		expect(store.setPeerPubkey.mock.calls).toEqual([["user2", fresh.pubkey]]);
 		closeMoqNostr();
 	});
 });

@@ -19,7 +19,7 @@ import {
 } from "@/lib/audioContextGate";
 import { JitterBufferManager } from "@/lib/jitterBuffer";
 import { type MicPipeline, startMicPipeline } from "@/lib/micPipeline";
-import { MoqNostr } from "@/lib/moqNostr";
+import { MoqNostr, type NostrTrack } from "@/lib/moqNostr";
 import {
 	type MoqtChatCallbacks,
 	MoqtChatClient,
@@ -43,9 +43,17 @@ import {
 import {
 	checkOwnChatEvent,
 	LIVE_CHAT_KIND,
-	NOSTR_ROOM_A,
+	NOSTR_HOST,
+	NOSTR_SPACE_A,
 	signChatEvent,
 } from "@/lib/nostr";
+import {
+	acceptPresence,
+	MEETING_KIND,
+	PRESENCE_KIND,
+	SPACE_KIND,
+	signedFor,
+} from "@/lib/nostrRoom";
 import { effectiveGain } from "@/lib/outputMixer";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
 import { createPlaybackSink, type PlaybackSink } from "@/lib/playbackSink";
@@ -83,6 +91,7 @@ import {
 	type MoqtChatState,
 	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
+import { endNostrRoom, NostrRoomSession, nostrRoom } from "./nostrRoomSession";
 import { useCameraVideo } from "./useCameraVideo";
 
 const JITTER_BUFFER_CAPACITY = 8;
@@ -170,6 +179,38 @@ const chatNostr: { current: MoqNostr | null } = { current: null };
  * reach a closed session's client. */
 export function closeMoqNostr(): void {
 	chatNostr.current = null;
+	nostrRoom.current?.stop();
+	nostrRoom.current = null;
+}
+
+// The host's "meeting ended" gets this long to go out before leave closes
+// the session.
+const LEAVE_WAIT_MS = 1500;
+
+/** leave: shows "disconnected" now, but the host's meeting-ended event
+ * still needs the session, so done (the teardown) runs once it is out (or
+ * LEAVE_WAIT_MS passed) -- unless a new join replaced the session by then. */
+export function afterRoomEnd(
+	clientRef: { current: unknown },
+	done: () => void,
+) {
+	useMoqtChatStore.getState().setConnectionState("disconnected");
+	const client = clientRef.current;
+	void endNostrRoom(LEAVE_WAIT_MS).then(() => {
+		if (clientRef.current === client) done();
+	});
+}
+
+/** The join's last step: the Nostr tracks (after audio, so a hub short of
+ * track slots refuses these, not voice), discovery, then the room's
+ * presence (and, for the host, its meeting). */
+export async function announceRoom(
+	client: Pick<MoqtChatClient, "publishNostrTracks" | "announce">,
+): Promise<void> {
+	const published = await client.publishNostrTracks();
+	await client.announce();
+	if (published) void nostrRoom.current?.start().catch(() => {});
+	else useMoqtChatStore.getState().setNostrRoom({ unavailable: true });
 }
 
 // Longer content is shown cut (the payload itself is capped by MoqNostr).
@@ -194,24 +235,61 @@ export function addNostrMessage(
 	void lookupNostrName(ev.pubkey);
 }
 
-/** This session's MoqNostr (moqNostr.ts) over client's chat track,
- * subscribed to the room's live chat; returns the client's onNostrEvent.
- * A participant's Room label follows the pubkey of a verified event first
- * seen live on its own chat track -- never its self-chosen nickname. */
+// The participant's own track carried an event that names its pubkey: one
+// signed for that participant (PARTICIPANT_TAG -- re-carrying someone else's
+// event claims nothing), and a live chat event or a fresh presence (its
+// track's fill holds only the latest one).
+function namesParticipant(
+	ev: NostrEvent,
+	live: boolean,
+	participant: string,
+): boolean {
+	if (!signedFor(ev, participant)) return false;
+	if (ev.kind === PRESENCE_KIND) return acceptPresence(ev, NOSTR_SPACE_A);
+	return live;
+}
+
+// The space and its meetings count only from the configured host.
+const fromHostIfRoom = (ev: NostrEvent) =>
+	(ev.kind !== SPACE_KIND && ev.kind !== MEETING_KIND) ||
+	ev.pubkey === NOSTR_HOST;
+
+/** This session's MoqNostr (moqNostr.ts) over client's chat and Nostr
+ * tracks, subscribed to the room's live chat, plus its meeting space
+ * (nostrRoomSession.ts); returns the client's onNostrEvent. A
+ * participant's Room label follows the pubkey of a verified event on its
+ * own track (namesParticipant) -- never its self-chosen nickname. */
 export function openMoqNostr(
-	client: () => Pick<MoqtChatClient, "sendNostrEvent">,
+	client: () => Pick<MoqtChatClient, "sendNostrEvent" | "localId">,
 	store: Pick<MoqtChatState, "addMessage" | "setPeerPubkey">,
-): (json: string, live: boolean, participant?: string) => void {
-	const nostr = new MoqNostr((json) => client().sendNostrEvent(json));
+): (
+	json: string,
+	live: boolean,
+	participant?: string,
+	track?: NostrTrack,
+) => void {
+	const nostr = new MoqNostr(
+		(json, track) => client().sendNostrEvent(json, track),
+		fromHostIfRoom,
+	);
 	nostr.subscribe(
-		{ kinds: [LIVE_CHAT_KIND], a: NOSTR_ROOM_A },
+		{ kinds: [LIVE_CHAT_KIND], a: NOSTR_SPACE_A },
 		{ onEvent: (ev, raw) => addNostrMessage(store, ev, raw) },
 	);
 	chatNostr.current = nostr;
-	return (json, live, participant) => {
-		const ev = nostr.receive(json, live);
-		// A history fill may replay anyone's old public event: live only.
-		if (ev && live && participant) {
+	nostrRoom.current?.stop();
+	nostrRoom.current = new NostrRoomSession({
+		nostr,
+		participant: () => client().localId, // client is still being built here
+		service: `${location.origin}${location.pathname}`,
+		watchPeers: (fn) =>
+			useMoqtChatStore.subscribe((s, prev) => {
+				if (s.peers !== prev.peers) fn();
+			}),
+	});
+	return (json, live, participant, track) => {
+		const ev = nostr.receive(json, live, track);
+		if (ev && participant && namesParticipant(ev, live, participant)) {
 			store.setPeerPubkey(participant, ev.pubkey);
 			lookupNostrName(ev.pubkey);
 		}
@@ -228,7 +306,7 @@ export function moqtChatCallbacks(
 		| "setNickname"
 		| "setPeerPubkey"
 	>,
-	client?: () => Pick<MoqtChatClient, "sendNostrEvent">,
+	client?: () => Pick<MoqtChatClient, "sendNostrEvent" | "localId">,
 ): Pick<
 	MoqtChatCallbacks,
 	"onStatusChange" | "onMessage" | "onNickname" | "onNostrEvent"
@@ -289,7 +367,8 @@ export async function sendChatMessage(
 	text: string,
 	attachments: WireChatAttachment[],
 	nostr: Pick<MoqNostr, "publish"> | null = chatNostr.current,
-	sign: (text: string) => Promise<NostrEvent> = signChatEvent,
+	sign: (text: string) => Promise<NostrEvent> = (text) =>
+		signChatEvent(text, nostrRoom.current?.liveMeeting(), senderId),
 ): Promise<void> {
 	if (!client) return;
 	try {
@@ -1261,7 +1340,7 @@ export function useMoqtChat() {
 					setMicError(
 						err instanceof Error ? err.message : "voice setup failed",
 					),
-				() => client.announce(),
+				() => announceRoom(client),
 			);
 		},
 		[
@@ -1463,12 +1542,13 @@ export function useMoqtChat() {
 		// schedule a new one.
 		cancelReconnect({ timer: reconnectTimerRef, attempt: reconnectAttemptRef });
 		sessionArgsRef.current = null;
-		teardownCurrentSession();
-		setMicError(null);
-		setConnectError(null);
-		store.setConnectionState("disconnected");
-		store.clearPeers();
-		store.clearMessages();
+		afterRoomEnd(clientRef, () => {
+			teardownCurrentSession();
+			setMicError(null);
+			setConnectError(null);
+			store.clearPeers();
+			store.clearMessages();
+		});
 	}, [teardownCurrentSession, store]);
 
 	// Routes voice output to a chosen audiooutput device (AudioContext.setSinkId,

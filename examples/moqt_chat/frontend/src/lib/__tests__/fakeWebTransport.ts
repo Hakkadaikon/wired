@@ -10,8 +10,11 @@
 
 import { vi } from "vitest";
 import {
+	bytesToHex,
 	concatBytes,
 	decodeControlFrame,
+	decodeNamespace,
+	decodeVarint,
 	encodeControlFrame,
 	encodeRequestOk,
 	encodeSetup,
@@ -410,4 +413,14 @@ export function stubWebTransport(
 export function must<T>(v: T | null | undefined): T {
 	if (v == null) throw new Error("must: value is null or undefined");
 	return v;
+}
+
+/** A SUBSCRIBE body's parameters as hex: everything after the track name. */
+export function subscribeParamsHex(body: Uint8Array): string {
+	const rid = decodeVarint(body, 0);
+	const ns = decodeNamespace(body, rid.len);
+	const nameLen = decodeVarint(body, rid.len + ns.len);
+	return bytesToHex(
+		body.slice(rid.len + ns.len + nameLen.len + Number(nameLen.value)),
+	);
 }

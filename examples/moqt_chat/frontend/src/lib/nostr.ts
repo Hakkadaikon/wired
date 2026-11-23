@@ -1,4 +1,5 @@
-// Nostr chat: NIP-07 login/signing and NIP-53 kind 1311 live chat events.
+// Nostr chat: NIP-07 login/signing, the room's NIP-53 meeting space
+// coordinate, and kind 1311 live chat events.
 // The browser never holds a secret key -- the extension (window.nostr) signs.
 // Chat events travel only over the MoQ hub (moqNostr.ts); the public relays
 // below are read-only: kind 0 profile REQs, never EVENT or AUTH.
@@ -7,6 +8,7 @@ import { AbstractSimplePool } from "nostr-tools/abstract-pool";
 import type { Filter } from "nostr-tools/filter";
 import { npubEncode } from "nostr-tools/nip19";
 import { type Event, type EventTemplate, verifyEvent } from "nostr-tools/pure";
+import { chatTags, hostPubkey, spaceA } from "./nostrRoom";
 
 // The NIP-07 surface we use. Typed as returning a plain Event: what an
 // extension returns is untrusted until checkOwnChatEvent verifies it.
@@ -17,13 +19,20 @@ type Nip07 = {
 
 export const LIVE_CHAT_KIND = 1311; // NIP-53 live chat message
 
-// shortcut: no kind 30311 room event is published yet, so the room
-// coordinate ("30311:<host pubkey>:<d>") is a build-time constant with a
-// placeholder host; publish the 30311 event and read its coordinate when the
-// room gets a real host.
-export const NOSTR_ROOM_A =
-	process.env.NEXT_PUBLIC_NOSTR_ROOM_A ||
-	`30311:${"0".repeat(64)}:wired-moqt-chat`;
+// The room is a NIP-53 meeting space hosted by NEXT_PUBLIC_NOSTR_HOST (hex
+// or npub; without one, a placeholder nobody can sign for) under
+// NEXT_PUBLIC_NOSTR_SPACE_D. Build-time: the page is a static export.
+export const NOSTR_HOST =
+	hostPubkey(process.env.NEXT_PUBLIC_NOSTR_HOST ?? "") ?? "0".repeat(64);
+export const NOSTR_SPACE_D =
+	process.env.NEXT_PUBLIC_NOSTR_SPACE_D || "wired-moqt-chat";
+/** The space's coordinate, "30312:<host>:<d>": every room event's `a`. */
+export const NOSTR_SPACE_A = spaceA(NOSTR_HOST, NOSTR_SPACE_D);
+/** The space's `room` name (host only). */
+export const NOSTR_ROOM_NAME =
+	process.env.NEXT_PUBLIC_NOSTR_ROOM_NAME || "Wired MoQT chat";
+/** Each meeting's `title`: one meeting per host session. */
+export const NOSTR_MEETING_TITLE = "Open session";
 
 function nip07(): Nip07 | undefined {
 	return (window as { nostr?: Nip07 }).nostr;
@@ -62,13 +71,18 @@ export async function nostrLogin(timeoutMs = 1500): Promise<string> {
 	return pk;
 }
 
-/** Has the extension sign a kind 1311 event for the room (unchecked: see
- * checkOwnChatEvent). */
-export async function signChatEvent(text: string): Promise<Event> {
+/** Has the extension sign a kind 1311 event for the space, tagged with the
+ * live meeting's coordinate when there is one and our participant id
+ * (unchecked: see checkOwnChatEvent). */
+export async function signChatEvent(
+	text: string,
+	meeting?: string,
+	participant?: string,
+): Promise<Event> {
 	return (await waitForNip07(0)).signEvent({
 		kind: LIVE_CHAT_KIND,
 		created_at: Math.floor(Date.now() / 1000),
-		tags: [["a", NOSTR_ROOM_A]],
+		tags: chatTags(NOSTR_SPACE_A, meeting, participant),
 		content: text,
 	});
 }
@@ -76,7 +90,31 @@ export async function signChatEvent(text: string): Promise<Event> {
 function hasRoomTag(ev: Event): boolean {
 	return (
 		Array.isArray(ev.tags) &&
-		ev.tags.some((t) => t[0] === "a" && t[1] === NOSTR_ROOM_A)
+		ev.tags.some((t) => t[0] === "a" && t[1] === NOSTR_SPACE_A)
+	);
+}
+
+/** Has the extension sign t, then checks the answer like checkOwnChatEvent:
+ * a valid id and signature, our pubkey, and t's kind, created_at, content
+ * and tags. */
+export async function signOwnEvent(
+	t: EventTemplate,
+	pubkey: string,
+): Promise<Event> {
+	const ev = await (await waitForNip07(0)).signEvent(t);
+	const copy = JSON.parse(JSON.stringify(ev ?? null));
+	if (!isObject(copy) || !verifyEvent(copy) || !isSigned(copy, pubkey, t))
+		throw new Error("the extension returned a mismatched or invalid event");
+	return copy;
+}
+
+function isSigned(ev: Event, pubkey: string, t: EventTemplate): boolean {
+	return (
+		ev.pubkey === pubkey &&
+		ev.kind === t.kind &&
+		ev.created_at === t.created_at &&
+		ev.content === t.content &&
+		JSON.stringify(ev.tags) === JSON.stringify(t.tags)
 	);
 }
 

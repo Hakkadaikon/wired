@@ -1,7 +1,7 @@
 "use client";
 
 import { npubEncode } from "nostr-tools/nip19";
-import { useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { type NostrProfile, shortNpub } from "@/lib/nostr";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
 
@@ -157,27 +157,44 @@ function pretty(raw: string): string {
 	}
 }
 
-/** A Nostr post's foot: the verified check, and the "⋯" toggle (bottom
- * right) opening the event JSON as carried in the MoQ Object payload, as
- * text, below the post. Only verified events reach the store. */
-export function RawNostrEvent({ raw, id }: { raw: string; id: string }) {
+/** A Nostr post's foot: the verified check (then `children`: reactions),
+ * and on the right `actions` then the "⋯" toggle opening the event JSON as
+ * carried in the MoQ Object payload, as text, below the post. Only
+ * verified events reach the store. */
+export function RawNostrEvent({
+	raw,
+	id,
+	children,
+	actions,
+}: {
+	raw: string;
+	id: string;
+	children?: ReactNode;
+	actions?: ReactNode;
+}) {
 	const [open, setOpen] = useState(false);
 	const panelId = useId();
 	return (
 		<>
 			<div className="message__foot">
-				<VerifiedMark />
-				<button
-					type="button"
-					className="link message__raw-toggle"
-					aria-label={open ? "Hide raw Nostr event" : "Show raw Nostr event"}
-					aria-expanded={open}
-					aria-controls={panelId}
-					data-testid="nostr-raw-toggle"
-					onClick={() => setOpen(!open)}
-				>
-					⋯
-				</button>
+				<span className="message__foot-start">
+					<VerifiedMark />
+					{children}
+				</span>
+				<span className="message__foot-end">
+					{actions}
+					<button
+						type="button"
+						className="link message__raw-toggle"
+						aria-label={open ? "Hide raw Nostr event" : "Show raw Nostr event"}
+						aria-expanded={open}
+						aria-controls={panelId}
+						data-testid="nostr-raw-toggle"
+						onClick={() => setOpen(!open)}
+					>
+						⋯
+					</button>
+				</span>
 			</div>
 			{open && (
 				<div className="message__raw" id={panelId} data-testid="nostr-raw">

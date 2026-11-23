@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { deletePost, reactTo, toggleHand } from "@/hooks/nostrRoomSession";
 import { useMoqtChat } from "@/hooks/useMoqtChat";
 import { useObjectUrl } from "@/hooks/useObjectUrl";
 import {
@@ -15,11 +16,22 @@ import {
 import type { ScreenQuality } from "@/lib/moqtScreenClient";
 import {
 	DEFAULT_NOSTR_RELAYS,
+	NOSTR_SPACE_A,
+	NOSTR_SPACE_D,
 	nostrLogin,
 	nostrRelays,
 	parseRelayList,
 	shortNpub,
 } from "@/lib/nostr";
+import {
+	acceptPresence,
+	countReactions,
+	handRaised,
+	isDeleted,
+	reactedWith,
+	type Target,
+	tag,
+} from "@/lib/nostrRoom";
 import { canPickOutput } from "@/lib/outputMixer";
 import {
 	SCREEN_TILE_MAX_PX,
@@ -87,6 +99,89 @@ function NoiseSuppressionToggle() {
 		>
 			{enabled ? "NS on" : "NS off"}
 		</button>
+	);
+}
+
+// The room tool row's hand: shown once logged in with Nostr (it is a signed
+// kind 10312 presence); pressed = raised.
+function HandToggle() {
+	const pubkey = useMoqtChatStore((s) => s.nostrPubkey);
+	const hand = useMoqtChatStore((s) => s.nostrRoom.hand);
+	if (!pubkey) return null;
+	return (
+		<button
+			type="button"
+			className={hand ? "sign sign--red" : "sign sign--outline"}
+			aria-pressed={hand}
+			data-testid="hand-toggle"
+			onClick={toggleHand}
+		>
+			Raise hand
+		</button>
+	);
+}
+
+/** NIP-53: the host's space name (else the configured space id), then the
+ * live meeting's title and status. */
+function RoomHead() {
+	const space = useMoqtChatStore((s) => s.nostrRoom.space);
+	const meeting = useMoqtChatStore((s) => s.nostrRoom.meeting);
+	const status = meeting && tag(meeting, "status");
+	const unavailable = useMoqtChatStore((s) => s.nostrRoom.unavailable);
+	return (
+		<header className="room-head" data-testid="room-head">
+			<h2 data-testid="space-name">
+				{(space && tag(space, "room")) || NOSTR_SPACE_D}
+			</h2>
+			{meeting ? (
+				<p className="room-head__meeting">
+					<span data-testid="meeting-title">{tag(meeting, "title")}</span>
+					<span
+						className="room-head__status"
+						data-testid="meeting-status"
+						data-status={status}
+					>
+						{status}
+					</span>
+				</p>
+			) : (
+				<p className="caption">
+					{unavailable
+						? "Room events unavailable: the hub refused the Nostr tracks"
+						: "No meeting announced"}
+				</p>
+			)}
+		</header>
+	);
+}
+
+/** A raised hand in the Room list: the pubkey's fresh presence says so. */
+// While a hand shows, re-check freshness every HAND_RECHECK_MS so a stale
+// presence (its author gone silent) drops the badge.
+const HAND_RECHECK_MS = 30_000;
+
+function Hand({ pubkey, testId }: { pubkey?: string | null; testId: string }) {
+	const presence = useMoqtChatStore((s) =>
+		pubkey ? s.nostrRoom.presence[pubkey] : undefined,
+	);
+	const raised = presence !== undefined && handRaised(presence);
+	const [, recheck] = useState(0);
+	useEffect(() => {
+		if (!raised) return;
+		const t = setInterval(() => recheck((n) => n + 1), HAND_RECHECK_MS);
+		return () => clearInterval(t);
+	}, [raised]);
+	const fresh = presence && acceptPresence(presence, NOSTR_SPACE_A);
+	if (!fresh || !handRaised(presence)) return null;
+	return (
+		<span
+			className="hand"
+			role="img"
+			aria-label="Hand raised"
+			data-testid={testId}
+		>
+			Hand
+		</span>
 	);
 }
 
@@ -328,6 +423,7 @@ function Peers() {
 	const localSpeaking = useMoqtChatStore((s) => s.localSpeaking);
 	const nicknames = useMoqtChatStore((s) => s.nicknames);
 	const peerPubkeys = useMoqtChatStore((s) => s.peerPubkeys);
+	const ownPubkey = useMoqtChatStore((s) => s.nostrPubkey);
 	return (
 		<section>
 			<h2>Room</h2>
@@ -340,6 +436,7 @@ function Peers() {
 						data-speaking={localSpeaking || undefined}
 					/>
 					You
+					<Hand pubkey={ownPubkey} testId="hand-you" />
 				</li>
 				{peers.map((p) => (
 					<li key={p}>
@@ -356,6 +453,7 @@ function Peers() {
 						) : (
 							resolveDisplayName(p, nicknames)
 						)}
+						<Hand pubkey={peerPubkeys[p]} testId={`hand-${p}`} />
 					</li>
 				))}
 			</ul>
@@ -505,7 +603,120 @@ function Sender({ m }: { m: ChatMessage }) {
 	return m.own ? "You" : resolveDisplayName(m.senderId, nicknames);
 }
 
+const REACTIONS = ["+", "❤️", "😂", "🎉"];
+const REACTION_LABEL: Record<string, string> = { "+": "Like", "-": "Dislike" };
+const reactionLabel = (c: string) => REACTION_LABEL[c] ?? c;
+
+/** NIP-25 counts under a Nostr post (one per author and content) and, once
+ * logged in, a "React" toggle opening a few reactions inline. */
+function Reactions({ target }: { target: Target }) {
+	const reactions = useMoqtChatStore((s) => s.nostrRoom.reactions);
+	const pubkey = useMoqtChatStore((s) => s.nostrPubkey);
+	const canReact = pubkey !== null;
+	const [open, setOpen] = useState(false);
+	const counts = [...countReactions(target, reactions)];
+	// One kind 7 per content: what we already sent stays pressed.
+	const mine = reactedWith(target, reactions, pubkey ?? "");
+	const react = (c: string) => {
+		reactTo(target, c);
+		setOpen(false);
+	};
+	return (
+		<span className="reactions">
+			{counts.map(([c, n]) => (
+				<button
+					type="button"
+					key={c}
+					className="reaction"
+					data-testid="reaction-count"
+					aria-label={`${reactionLabel(c)}: ${n}`}
+					aria-pressed={mine.has(c)}
+					disabled={!canReact || mine.has(c)}
+					onClick={() => react(c)}
+				>
+					{c} {n}
+				</button>
+			))}
+			{canReact && (
+				<button
+					type="button"
+					className="reaction reaction--add"
+					aria-expanded={open}
+					aria-label="Add reaction"
+					data-testid="reaction-add"
+					onClick={() => setOpen(!open)}
+				>
+					React
+				</button>
+			)}
+			{open &&
+				REACTIONS.map((c) => (
+					<button
+						type="button"
+						key={c}
+						className="reaction"
+						aria-label={`React ${reactionLabel(c)}`}
+						data-testid="reaction-pick"
+						disabled={mine.has(c)}
+						onClick={() => react(c)}
+					>
+						{c}
+					</button>
+				))}
+		</span>
+	);
+}
+
+/** A Nostr post's NIP-09 deletion check and its own author's Delete. */
+function useNostrPost(m: ChatMessage) {
+	const deletions = useMoqtChatStore((s) => s.nostrRoom.deletions);
+	const own = useMoqtChatStore((s) => s.nostrPubkey === m.author);
+	if (!m.author || !m.key) return undefined;
+	const target = {
+		id: m.key.slice("nostr:".length),
+		pubkey: m.author,
+		kind: 1311,
+	};
+	return {
+		target,
+		own,
+		deleted: isDeleted(target, deletions[target.id] ?? []),
+	};
+}
+
+function NostrFoot({ m }: { m: ChatMessage }) {
+	const post = useNostrPost(m);
+	if (!post || !m.raw) return null;
+	if (post.deleted)
+		return (
+			<span className="message__deleted caption" data-testid="message-deleted">
+				Deleted by the author
+			</span>
+		);
+	return (
+		<RawNostrEvent
+			raw={m.raw}
+			id={post.target.id}
+			actions={
+				post.own && (
+					<button
+						type="button"
+						className="link message__delete"
+						data-testid="nostr-delete"
+						onClick={() => deletePost(post.target)}
+					>
+						Delete
+					</button>
+				)
+			}
+		>
+			<Reactions target={post.target} />
+		</RawNostrEvent>
+	);
+}
+
 function Message({ m }: { m: ChatMessage }) {
+	const deleted = useNostrPost(m)?.deleted;
 	const time = new Date(m.at).toLocaleTimeString([], {
 		hour: "2-digit",
 		minute: "2-digit",
@@ -534,10 +745,8 @@ function Message({ m }: { m: ChatMessage }) {
 				<Sender m={m} />
 			</span>
 			<span className="message__time caption">{time}</span>
-			{m.text && <span className="message__text">{m.text}</span>}
-			{m.raw && m.key && (
-				<RawNostrEvent raw={m.raw} id={m.key.slice("nostr:".length)} />
-			)}
+			{m.text && !deleted && <span className="message__text">{m.text}</span>}
+			<NostrFoot m={m} />
 			{m.attachments && m.attachments.length > 0 && (
 				<div className="message__attachments">
 					{m.attachments.map((a, i) => (
@@ -1073,6 +1282,7 @@ export default function Home() {
 					<div className="masthead__tools">
 						<MicToggle onToggleMute={toggleMute} />
 						<NoiseSuppressionToggle />
+						<HandToggle />
 						<ScreenShareToggle
 							sharing={screenSharing}
 							onStart={() => void startScreenShare()}
@@ -1150,6 +1360,7 @@ export default function Home() {
 						</section>
 					</aside>
 					<section className="body">
+						<RoomHead />
 						<ScreenTiles
 							registerScreenCanvas={registerScreenCanvas}
 							setScreenQuality={setScreenQuality}

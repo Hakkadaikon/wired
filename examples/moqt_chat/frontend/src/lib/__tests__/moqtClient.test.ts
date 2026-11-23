@@ -582,9 +582,16 @@ describe("MoqtChatClient namespace discovery", () => {
 		await flush();
 
 		expect(seen).toEqual(["+user2", "-user2"]);
-		const [chat, audio2, audio3] = fake.requestsOf(MSG_SUBSCRIBE);
-		expect(chat.cancelled && audio2.cancelled).toBe(true);
-		expect(audio3.cancelled).toBe(false);
+		// user2: chat, its Nostr tracks and audio; user3: audio only.
+		const byPeer = (p: string) =>
+			fake
+				.requestsOf(MSG_SUBSCRIBE)
+				.filter((r) =>
+					bytesToUtf8(decodeSubscribe(r.request.body).trackName).startsWith(p),
+				)
+				.map((r) => r.cancelled);
+		expect(byPeer("user2")).toEqual(Array(6).fill(true));
+		expect(byPeer("user3")).toEqual([false]);
 	});
 
 	it("publishNamespace returns a handle whose cancel withdraws it (resets the stream)", async () => {

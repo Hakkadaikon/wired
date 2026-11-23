@@ -26,6 +26,7 @@
 //    server side.
 
 import { ATTACHMENT_MAX_COUNT } from "./attachmentValidation";
+import { NOSTR_TRACKS, type NostrTrack } from "./moqNostr";
 import {
 	type AttachmentReassembler,
 	attachmentReassemblerInit,
@@ -170,6 +171,9 @@ function byType(params: MessageParam[]): MessageParam[] {
 // nickname), as far as the hub's cache still holds them.
 const CHAT_HISTORY_GROUPS = 64n;
 
+// A refused Nostr track SUBSCRIBE is sent once more after this long.
+const NOSTR_RETRY_MS = 3000;
+
 // SUBGROUP_HEADER Type (moqdata.h MOQDATA_MSG builder): PROPERTIES off,
 // SUBGROUP_ID_MODE 0b00, no end-of-group, DEFAULT_PRIORITY on, FIRST_OBJECT
 // on: 0x10 (base) | 0x40 (FIRST_OBJECT) | 0x20 (DEFAULT_PRIORITY) = 0x70.
@@ -204,6 +208,38 @@ export function participantForTrackAlias(
 	trackAlias: bigint,
 ): string | undefined {
 	return CANDIDATE_PARTICIPANT_IDS[Number(trackAlias)];
+}
+
+// The Nostr tracks' aliases sit above the camera range (moqtScreenClient.ts:
+// screen at POOL * 2 + 2, then screen-lo and camera, POOL each), one POOL
+// per NOSTR_TRACKS entry, in table order.
+const POOL = BigInt(CANDIDATE_PARTICIPANT_IDS.length);
+const NOSTR_ALIAS_OFFSET = POOL * 5n + 2n;
+
+export function nostrTrackAlias(localId: string, track: NostrTrack): bigint {
+	const i = NOSTR_TRACKS.findIndex((t) => t.track === track);
+	return NOSTR_ALIAS_OFFSET + BigInt(i) * POOL + ownTrackAlias(localId);
+}
+
+/** The participant and Nostr track a Track Alias names, if it is one. */
+export function nostrTrackOfAlias(
+	alias: bigint,
+): { participant: string; track: NostrTrack } | undefined {
+	const n = alias - NOSTR_ALIAS_OFFSET;
+	const t = n >= 0n ? NOSTR_TRACKS[Number(n / POOL)] : undefined;
+	const participant = participantForTrackAlias(n % POOL);
+	return t && participant ? { participant, track: t.track } : undefined;
+}
+
+/** A chat or Nostr Track Alias's sender and track; undefined otherwise. */
+function chatRouteOf(
+	alias: bigint,
+): { participant: string; track: NostrTrack } | undefined {
+	const participant =
+		alias < POOL ? participantForTrackAlias(alias) : undefined;
+	return participant
+		? { participant, track: "chat" }
+		: nostrTrackOfAlias(alias);
 }
 
 // --- certificate fingerprint pinning --------------------------------------
@@ -360,10 +396,15 @@ export interface MoqtChatCallbacks {
 		attachments: ChatAttachment[],
 		key?: string,
 	): void;
-	// A Nostr event's JSON from a peer's chat track, still unverified:
-	// moqNostr.ts verifies and filters it. live is false for a history fill;
-	// participant is the chat track it came on.
-	onNostrEvent?(json: string, live: boolean, participant: string): void;
+	// A Nostr event's JSON from a peer's chat or Nostr track, still
+	// unverified: moqNostr.ts verifies and filters it. live is false for a
+	// history fill; participant and track name the track it came on.
+	onNostrEvent?(
+		json: string,
+		live: boolean,
+		participant: string,
+		track: NostrTrack,
+	): void;
 	// A nickname self-announce (buildNicknameObjectMessage) from participantId
 	// -- never forwarded to onMessage, so it never appears in the chat log.
 	onNickname?(participantId: string, nickname: string): void;
@@ -807,16 +848,83 @@ export class MoqtChatClient {
 		await this.#sendUniStream(wire);
 	}
 
-	/** Sends one signed Nostr event's JSON (unchanged) as one chat Object. */
-	async sendNostrEvent(json: string): Promise<void> {
+	/** Sends one signed Nostr event's JSON (unchanged) as one Object in a
+	 * Group of its own on `track` (chat, or a Nostr track: publishNostrTracks). */
+	async sendNostrEvent(
+		json: string,
+		track: NostrTrack = "chat",
+	): Promise<void> {
 		if (!this.#wt) throw new Error("not connected");
+		const chat = track === "chat";
+		if (!chat && !this.#nostrPublished.has(track))
+			throw new Error(`${track} is not published`);
+		const groupId = chat ? this.#groupId++ : this.#nextNostrGroup(track);
 		await this.#sendUniStream(
 			buildChatObjectMessage({
-				trackAlias: this.#localTrackAlias,
-				groupId: this.#groupId++,
+				trackAlias: chat
+					? this.#localTrackAlias
+					: nostrTrackAlias(this.#localId, track),
+				groupId,
 				text: json,
 			}),
 		);
+	}
+
+	#nostrGroups = new Map<NostrTrack, bigint>();
+	#nostrPublished = new Set<NostrTrack>();
+	#nextNostrGroup(track: NostrTrack): bigint {
+		const g = this.#nostrGroups.get(track) ?? 0n;
+		this.#nostrGroups.set(track, g + 1n);
+		return g;
+	}
+
+	/** PUBLISHes "<id>/<track>" for every NOSTR_TRACKS entry; resolves true
+	 * when the hub accepted them all. sendNostrEvent refuses a track the hub
+	 * did not accept. */
+	async publishNostrTracks(): Promise<boolean> {
+		this.#nostrGroups.clear();
+		this.#nostrPublished.clear();
+		const ok = await Promise.all(
+			NOSTR_TRACKS.map(async ({ track }) => {
+				const accepted = await this.publishTrack(
+					utf8ToBytes(`${this.#localId}/${track}`),
+					nostrTrackAlias(this.#localId, track),
+				);
+				if (accepted) this.#nostrPublished.add(track);
+				return accepted;
+			}),
+		);
+		return ok.every(Boolean);
+	}
+
+	/** SUBSCRIBEs peer's Nostr tracks: a latest-only track's fill asks for
+	 * its latest Group (Relative Start 1), the others for the chat depth. A
+	 * refused one is tried once more after NOSTR_RETRY_MS while the peer is
+	 * still here (a busy fill table; the host's 30312 goes out once). */
+	async subscribeNostrTracks(peer: string): Promise<void> {
+		await Promise.all(NOSTR_TRACKS.map((t) => this.#subscribeNostr(peer, t)));
+	}
+
+	async #subscribeNostr(
+		peer: string,
+		t: (typeof NOSTR_TRACKS)[number],
+		retry = true,
+	): Promise<void> {
+		const label = `${peer}/${t.track}`;
+		await this.subscribeTrack(utf8ToBytes(label), label, {
+			joiningStart: t.latest ? 0n : CHAT_HISTORY_GROUPS,
+			onObject: (o) =>
+				this.#callbacks.onNostrEvent?.(
+					bytesToUtf8(o.payload),
+					false,
+					peer,
+					t.track,
+				),
+			onDone: () => {},
+		});
+		if (!retry || this.#subs.has(label)) return;
+		await new Promise((r) => setTimeout(r, NOSTR_RETRY_MS));
+		if (this.#subs.has(peer)) await this.#subscribeNostr(peer, t, false);
 	}
 
 	/** Sends one chat message: one text-part uni stream, then one uni stream
@@ -1248,9 +1356,15 @@ export class MoqtChatClient {
 		if (peer === this.#localId || !CANDIDATE_PARTICIPANT_IDS.includes(peer))
 			return;
 		const active = type === MSG_TYPE_NAMESPACE;
-		if (suffix.length === 1 && active) void this.#subscribeChat(peer);
+		if (suffix.length === 1 && active) this.#subscribePeer(peer);
 		if (suffix.length === 1 && !active) this.#dropPeer(peer);
 		this.#callbacks.onNamespace?.(suffix, active);
+	}
+
+	// A peer's chat track and its Nostr tracks (subscribeNostrTracks).
+	#subscribePeer(peer: string): void {
+		void this.#subscribeChat(peer);
+		void this.subscribeNostrTracks(peer);
 	}
 
 	#subscribeChat(peer: string): Promise<boolean> {
@@ -1422,7 +1536,7 @@ export class MoqtChatClient {
 			reader.releaseLock();
 			return;
 		}
-		if (header.trackAlias >= BigInt(CANDIDATE_PARTICIPANT_IDS.length)) {
+		if (!chatRouteOf(header.trackAlias)) {
 			this.#callbacks.onUnknownUniStream?.(
 				header,
 				first.slice(headerLen),
@@ -1461,8 +1575,10 @@ export class MoqtChatClient {
 		// ownTrackAlias's doc: resolve the sender from the fixed candidate-list
 		// mapping (the publisher's own alias, unmodified by relay), not from
 		// this session's SUBSCRIBE_OK aliases.
-		const participant = participantForTrackAlias(header.trackAlias);
-		if (!participant) return;
+		const route = chatRouteOf(header.trackAlias);
+		if (!route) return;
+		const { participant, track } = route;
+		const label = track === "chat" ? participant : `${participant}/${track}`;
 
 		let prevObjectId = 0n;
 		let first = true;
@@ -1483,10 +1599,17 @@ export class MoqtChatClient {
 			} catch (err) {
 				if (err instanceof MoqtTruncatedError)
 					this.dataStreamEnded(wt, wire.slice(offset));
-				this.dataStreamFailed(participant, err);
+				this.dataStreamFailed(label, err);
 				return;
 			}
-			this.#dispatchChatPayload(participant, payload);
+			if (track === "chat") this.#dispatchChatPayload(participant, payload);
+			else
+				this.#callbacks.onNostrEvent?.(
+					bytesToUtf8(payload),
+					true,
+					participant,
+					track,
+				);
 		}
 	}
 
@@ -1506,7 +1629,7 @@ export class MoqtChatClient {
 		}
 		const text = bytesToUtf8(payload);
 		if (kind === "nostr") {
-			this.#callbacks.onNostrEvent?.(text, live, participant);
+			this.#callbacks.onNostrEvent?.(text, live, participant, "chat");
 			return;
 		}
 		if (kind === "nickname") {

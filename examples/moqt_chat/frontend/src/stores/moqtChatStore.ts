@@ -10,6 +10,7 @@
 // buildNicknameObjectMessage); resolveDisplayName falls back to the id
 // itself for anyone who hasn't announced one (or didn't set one at all).
 
+import type { Event as NostrEvent } from "nostr-tools/pure";
 import { create } from "zustand";
 import { noiseSuppressionDefault } from "@/lib/joinPrefs";
 import type { ScreenQuality, ScreenVariant } from "@/lib/moqtScreenClient";
@@ -37,6 +38,28 @@ export type ChatMessage = {
 	key?: string; // "<sender>:<messageId>" for a received message; a repeat is dropped
 	author?: string; // hex pubkey of a verified Nostr chat event (kind 1311)
 	raw?: string; // that event's JSON exactly as carried in the MoQ Object payload
+};
+
+/** The NIP-53 meeting space as received (nostrRoomSession.ts accepts each
+ * event before it lands here). */
+export type NostrRoom = {
+	space: NostrEvent | null; // the host's kind 30312
+	meeting: NostrEvent | null; // the host's newest kind 30313
+	presence: Record<string, NostrEvent>; // pubkey -> newest kind 10312
+	reactions: NostrEvent[]; // kind 7, bounded
+	deletions: Record<string, NostrEvent[]>; // post id -> kind 5 naming it, bounded
+	hand: boolean; // own hand raised
+	unavailable: boolean; // the hub refused our Nostr tracks: no room events sent
+};
+
+export const EMPTY_NOSTR_ROOM: NostrRoom = {
+	space: null,
+	meeting: null,
+	presence: {},
+	reactions: [],
+	deletions: {},
+	hand: false,
+	unavailable: false,
 };
 
 export type MoqtChatState = {
@@ -67,6 +90,7 @@ export type MoqtChatState = {
 	nostrPubkey: string | null; // own pubkey after NIP-07 login; null = chat in the extension-less format
 	nostrRelays: string[]; // read-only profile relays in effect; [] until the page sets them
 	nostrProfiles: Record<string, NostrProfile>; // pubkey -> kind 0 name/picture; absent = short npub + placeholder
+	nostrRoom: NostrRoom; // the meeting space, presence, reactions and deletions
 	setConnectionState: (state: ConnectionState) => void;
 	setMuted: (muted: boolean) => void;
 	addMessage: (message: Omit<ChatMessage, "id">) => number;
@@ -102,6 +126,7 @@ export type MoqtChatState = {
 	setNostrPubkey: (pubkey: string | null) => void;
 	setNostrRelays: (relays: string[]) => void;
 	setNostrProfile: (pubkey: string, profile: NostrProfile) => void;
+	setNostrRoom: (patch: Partial<NostrRoom>) => void;
 };
 
 let nextMessageId = 1;
@@ -140,6 +165,7 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 	nostrPubkey: null,
 	nostrRelays: [],
 	nostrProfiles: {},
+	nostrRoom: EMPTY_NOSTR_ROOM,
 	setConnectionState: (connectionState) => set({ connectionState }),
 	setMuted: (muted) => set({ muted }),
 	addMessage: (message) => {
@@ -176,7 +202,7 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 		}),
 	clearPeers: () =>
 		set({ peers: [], voiceQuality: {}, speaking: {}, peerPubkeys: {} }),
-	clearMessages: () => set({ messages: [] }),
+	clearMessages: () => set({ messages: [], nostrRoom: EMPTY_NOSTR_ROOM }),
 	setScreenSharing: (screenSharing) => set({ screenSharing }),
 	addScreenTile: (id) =>
 		set((s) =>
@@ -254,6 +280,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 			if (keys.length >= NOSTR_PROFILES_MAX) delete rest[keys[0]];
 			return { nostrProfiles: { ...rest, [pubkey]: profile } };
 		}),
+	setNostrRoom: (patch) =>
+		set((s) => ({ nostrRoom: { ...s.nostrRoom, ...patch } })),
 }));
 
 const profiles = new ProfileResolver((pubkey, profile) =>
