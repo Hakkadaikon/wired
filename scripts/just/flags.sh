@@ -49,6 +49,10 @@ SANTESTFLAGS="$TESTFLAGS $SANFLAGS"
 SANCFLAGS="$CFLAGS -fsanitize=undefined,bounds -fsanitize-trap=all -fno-omit-frame-pointer"
 # fuzz: hosted, ASan + libFuzzer.
 FUZZFLAGS="$WARNFLAGS -g -fsanitize=fuzzer,address -Isrc"
+# moqt_chat room profile (src/common/profile/moqt_room.h): the SDK's larger
+# per-room limits, built into build/profile/moqt_room/ for the moqt_chat
+# server and into build/quic_test_room so the suite runs at those values.
+ROOMFLAG="-DWIRED_PROFILE_MOQT_ROOM"
 # clang-tidy: CERT C + bug finders, minus this repo's unavoidable noise --
 # `_start` is a required entry point (reserved-identifier, dcl37) and every
 # p256_fe is `const u64*` (easily-swappable-parameters). readability checks
@@ -58,4 +62,4 @@ TIDYCHECKS="-*,cert-*,bugprone-*,clang-analyzer-*,-bugprone-easily-swappable-par
 # limit was set (`just cognitive` reports every score).
 TIDYCONFIG="{CheckOptions: {readability-function-cognitive-complexity.Threshold: 4}}"
 TIDYFLAGS="$TARGET -ffreestanding -nostdlib -fno-builtin -Isrc"
-export CC CFLAGS SANCFLAGS TESTFLAGS SANTESTFLAGS FUZZFLAGS TIDYCHECKS TIDYCONFIG TIDYFLAGS
+export CC ROOMFLAG CFLAGS SANCFLAGS TESTFLAGS SANTESTFLAGS FUZZFLAGS TIDYCHECKS TIDYCONFIG TIDYFLAGS

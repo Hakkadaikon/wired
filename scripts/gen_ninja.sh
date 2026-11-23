@@ -35,6 +35,7 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "tidychecks = $TIDYCHECKS"
     echo "tidyconfig = $TIDYCONFIG"
     echo "tidyflags = $TIDYFLAGS"
+    echo "roomflag = $ROOMFLAG"
     echo
     echo "rule cc_freestanding"
     echo "  command = \$cc \$cflags -MD -MF \$out.d -c \$in -o \$out"
@@ -66,6 +67,20 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "  description = GEN \$out"
     echo
     echo "# test-san: the same unity TU with ASan + UBSan (CI only)."
+    echo "# test-room: the same unity TU at the moqt_chat room profile."
+    echo "rule cc_hosted_bin_room"
+    echo "  command = \$cc \$testflags \$roomflag -MD -MF \$out.d \$in -o \$out"
+    echo "  depfile = \$out.d"
+    echo "  deps = gcc"
+    echo "  description = CC \$out"
+    echo
+    echo "# moqt_chat room profile objects (build/profile/, not build/src/)."
+    echo "rule cc_room"
+    echo "  command = \$cc \$cflags \$roomflag -MD -MF \$out.d -c \$in -o \$out"
+    echo "  depfile = \$out.d"
+    echo "  deps = gcc"
+    echo "  description = CC \$out"
+    echo
     echo "rule cc_hosted_bin_san"
     echo "  command = \$cc \$santestflags -MD -MF \$out.d \$in -o \$out"
     echo "  depfile = \$out.d"
@@ -127,6 +142,7 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "build build/unity/run.c: text_sections tests/run.c"
     echo "build build/quic_test: cc_hosted_bin build/unity/run.c"
     echo "build build/quic_test_san: cc_hosted_bin_san build/unity/run.c"
+    echo "build build/quic_test_room: cc_hosted_bin_room build/unity/run.c"
     echo
     echo "# fast dev-loop variant: run.c split into shard TUs (gen_shards.py,"
     echo "# K must match its constant) compiled in parallel, linked into one"
@@ -161,8 +177,18 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "build examples/webtransport_interop/wired_server: cc_freestanding_bin \$"
     echo "    $(ex_srcs webtransport_interop) build/libwired.a"
     echo
+    echo "# moqt_chat: the SDK rebuilt at the room profile"
+    echo "# (src/common/profile/moqt_room.h) under build/profile/moqt_room/;"
+    echo "# the example itself is compiled with the same flag so its view of"
+    echo "# the SDK's structs matches the archive."
+    roomlib=$(printf '%s\n' "$libobjs" | tr ' ' '\n' | sed '/^$/d; s|^build/|build/profile/moqt_room/|' | tr '\n' ' ')
+    printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' | while read -r f; do
+        echo "build build/profile/moqt_room/${f%.c}.o: cc_room $f"
+    done
+    echo "build build/profile/moqt_room/libwired.a: ar $roomlib"
     echo "build examples/moqt_chat/server/wired_server: cc_freestanding_bin \$"
-    echo "    $(ex_srcs moqt_chat/server) build/libwired.a"
+    echo "    $(ex_srcs moqt_chat/server) build/profile/moqt_room/libwired.a"
+    echo "  extra = \$roomflag"
     echo
     echo "build examples/moqt_interop/wired_server: cc_freestanding_bin \$"
     echo "    $(ex_srcs moqt_interop) build/libwired.a"

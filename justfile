@@ -51,6 +51,10 @@ test: fmt gen-ninja
 test-fast: fmt gen-ninja
     sh scripts/just/test.sh --fast
 
+# Unity test at the moqt_chat room profile (src/common/profile/moqt_room.h).
+test-room: fmt gen-ninja
+    sh -c '. scripts/just/lib.sh; raise_stack; ninja build/quic_test_room && build/quic_test_room'
+
 # CI only: the unity test under ASan + UBSan (slow).
 test-san: gen-ninja
     sh scripts/just/test.sh --san

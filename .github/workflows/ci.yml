@@ -29,6 +29,9 @@ jobs:
       - name: test (hosted unity build)
         run: nix develop -c just test
 
+      - name: test at the moqt_chat room profile
+        run: nix develop -c just test-room
+
       - name: test with 3 WT sessions per connection (no hard-coded 2)
         run: WT_SESSIONS=3 nix develop -c just test-fast
 
