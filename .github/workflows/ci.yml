@@ -23,6 +23,9 @@ jobs:
       - name: compile (freestanding, proves libc independence)
         run: nix develop -c just ninja
 
+      - name: wire-check (every src .c is in tests/run.c and builds one .o)
+        run: nix develop -c just wire-check
+
       - name: test (hosted unity build)
         run: nix develop -c just test
 

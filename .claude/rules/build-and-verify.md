@@ -35,6 +35,7 @@ As of writing, the jobs are:
 |-----------|----------------------------------|------------------------------------|-------------------|
 | `ci.yml`  | `fmt-check`                      | any `.c`/`.h` touched              | `just fmt-check` (needs the pinned clang-format — see caveat below) |
 | `ci.yml`  | compile (`just ninja`)           | any `src/**/*.c`                   | part of the three-point gate |
+| `ci.yml`  | wire-check (`just wire-check`)   | any `src/**/*.c`, `tests/run.c`    | `just wire-check` (after `just ninja`; the count check below plus run.c include coverage) |
 | `ci.yml`  | test (`just test`)               | any `src/**/*.c`, `tests/**/*.c`   | part of the three-point gate |
 | `ci.yml`  | ccn (`just ccn`)                 | any `src/**/*.c`                   | part of the three-point gate |
 | `ci.yml`  | lint (`just lint`, clang-tidy)   | any `src/**/*.c`                   | `just lint` (needs the pinned clang-tidy — same caveat) |

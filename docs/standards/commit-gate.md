@@ -64,6 +64,7 @@ fi
 | CI のジョブ | レシピ | 実行するとき |
 |---|---|---|
 | test(1 つの翻訳単位) | `just test` | 新しい名前を足した |
+| wire-check | `just wire-check` | `src/` の `.c` を足すか消した、`tests/run.c` を変えた |
 | fmt-check | `just fmt-check` | `.c` か `.h` を変えた |
 | lint | `just lint` | `src/` を変えた |
 | halstead-check | `just halstead-check` | `src/`、examples の C、`scripts/` を変えた |
