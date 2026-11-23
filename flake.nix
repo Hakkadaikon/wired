@@ -29,6 +29,9 @@
             pkgs.shellcheck
             pkgs.doxygen
             pkgs.ninja
+            # memcheck and its client-request header (`just ct-check`,
+            # `just valgrind`)
+            pkgs.valgrind
           ];
         };
         # Verification-time tools kept out of the build shell: CBMC for the

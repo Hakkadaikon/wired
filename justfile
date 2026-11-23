@@ -98,6 +98,11 @@ san-check *ids: gen-ninja
 valgrind: gen-ninja
     sh scripts/just/valgrind.sh
 
+# Secret-taint constant-time check of the crypto primitives (valgrind).
+ct-check *args: gen-ninja
+    # `neg` runs only the negative control, which must fail.
+    sh scripts/just/ct_check.sh {{ args }}
+
 # Verify tests/app/moqt_golden.h has no drift.
 golden-check:
     sh scripts/just/golden_check.sh

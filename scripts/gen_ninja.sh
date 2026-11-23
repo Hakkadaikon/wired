@@ -198,6 +198,15 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     done
     echo "build san: phony$san_bins"
     echo
+    echo "# ct-check: secret-taint harness (valgrind memcheck) linked against"
+    echo "# the shipped freestanding objects in libwired.a."
+    echo "rule cc_ct_bin"
+    echo "  command = \$cc \$testflags -g -MD -MF \$out.d \$in -o \$out"
+    echo "  depfile = \$out.d"
+    echo "  deps = gcc"
+    echo "  description = CC \$out"
+    echo "build build/ct_taint: cc_ct_bin tests/ct/ct_taint.c build/libwired.a"
+    echo
     echo "# lint: one stamp per src/**.c and examples/**/*.c (just lint runs it"
     echo "# in the devShell)."
     stamps=""
