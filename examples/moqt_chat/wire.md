@@ -44,7 +44,7 @@ sequenceDiagram
 
 | 受け取るもの | クライアントの動作 |
 |---|---|
-| ピアの NAMESPACE | ピアを参加者の一覧に加え、チャットと音声の Track を購読する |
+| ピアの NAMESPACE | ピアを参加者の一覧に加え、チャット、Nostr の 4 つ(5.2 節)、音声の Track を購読する |
 | ピアの NAMESPACE_DONE | ピアを一覧から外し、その購読を取り消す |
 
 画面共有の間は、送る側が `wired/moqt_chat/<id>/screen` も告知する。カメラの間は `wired/moqt_chat/<id>/camera` を告知する。クライアントはポーリングしない。
@@ -55,6 +55,8 @@ sequenceDiagram
 |---|---|---|---|
 | チャット | NextObject(0x05、9.19.9) | RelativeStart 65(`CHAT_HISTORY_GROUPS` 64 + 1) | 最新の Group と、その前の 64 Group |
 | 画面共有、カメラ | NextObject | RelativeStart 1 | 最新の Group |
+| `nostr-presence`、`nostr-30312`、`nostr-30313` | NextObject | RelativeStart 1 | 最新の Group。置き換え型のイベントの、いまの状態だけ |
+| `nostr-react` | NextObject | RelativeStart 65 | チャットと同じ深さ |
 
 FILL_PARAMETERS(0x23、9.19.15)は、Length を持たない Parameter の数と Parameter の並びである。fill はサーバーが開く単方向ストリームで届き、その FETCH_HEADER(11.4.1)が SUBSCRIBE の Request ID を指す。
 
@@ -62,7 +64,7 @@ FILL_PARAMETERS(0x23、9.19.15)は、Length を持たない Parameter の数と 
 
 ### 4.1 fill の枠が足りないとき
 
-ハブの fill の表は 8 スロット(`WIRED_MOQTRUN_MAX_FETCHES`)と待ちの 8 スロットである。両方が埋まると、ハブは履歴付きの SUBSCRIBE 全体を REQUEST_ERROR INTERNAL_ERROR で拒否する。受け付けた fill には fill のストリームを開く必要があるので(3.4.1)、ハブは返答の前に判断する。
+ハブの fill の表は 16 スロット(`WIRED_MOQTRUN_MAX_FETCHES`)と待ちの 16 スロットである(SDK の既定は 8 と 8。moqt_chat のサーバーは `-DWIRED_PROFILE_MOQT_ROOM` でビルドする)。4 人のルームに途中参加すると、ほかの 3 人 × 9 Track で最大 27 の fill を同時に頼む。両方が埋まると、ハブは履歴付きの SUBSCRIBE 全体を REQUEST_ERROR INTERNAL_ERROR で拒否する。受け付けた fill には fill のストリームを開く必要があるので(3.4.1)、ハブは返答の前に判断する。
 
 クライアントはその SUBSCRIBE を FILL_PARAMETERS なしで 1 回だけ再送する。ピアのメッセージは履歴なしで届く。draft-23 が定めていない REQUEST_ERROR のコードは、INTERNAL_ERROR として扱う(13)。
 
@@ -90,27 +92,63 @@ FILL_PARAMETERS(0x23、9.19.15)は、Length を持たない Parameter の数と 
 
 ### 5.2 Nostr のイベント
 
-Nostr のイベントは、チャットの Track の 1 つの Group の 1 つの Object で運ぶ。ペイロードは、拡張機能が署名して返したイベントの JSON そのものである。添付の印(0xFD、0xFE)とニックネームの印(0x00)のどれでもなく、`{` で始まるペイロードを Nostr のイベントとして扱う(`classifyChatPayload`)。
+Nostr のイベントは参加者の名前空間 `wired/moqt_chat/<id>` の下の Track で運ぶ。1 つのイベントが 1 つの Group の 1 つの Object になる。ペイロードは、拡張機能が署名して返したイベントの JSON そのものである。どの Track に載せるかは kind で決まる(`moqNostr.ts` の `NOSTR_TRACKS`、`trackForKind`)。
 
-`moqNostr.ts` の `MoqNostr` は、NIP-01 の操作を次のように MoQ に写す。
+| Track 名 | kind | Track Alias | 途中参加の fill |
+|---|---|---|---|
+| `<id>`(チャット) | 1311 | 0〜3 | 64 Group 前まで |
+| `<id>/nostr-presence` | 10312(presence) | 22〜25 | 最新の Group だけ |
+| `<id>/nostr-30312` | 30312(meeting space) | 26〜29 | 最新の Group だけ |
+| `<id>/nostr-30313` | 30313(meeting) | 30〜33 | 最新の Group だけ |
+| `<id>/nostr-react` | 7(リアクション)、5(削除) | 34〜37 | 64 Group 前まで |
+
+Track Alias はカメラの範囲(18〜21)の上に、Track ごとに参加者 4 人分を並べる(`nostrTrackAlias`)。Nostr の 4 Track は音声の Track のあと、名前空間の告知の前に PUBLISH する(`publishNostrTracks`)。ハブの Track の枠が足りないときに、拒否されるのが音声ではなく Nostr の Track になるようにするためである。チャットの Track では、添付の印(0xFD、0xFE)とニックネームの印(0x00)のどれでもなく、`{` で始まるペイロードを Nostr のイベントとして扱う(`classifyChatPayload`)。
+
+`moqNostr.ts` の `MoqNostr` は NIP-01 の操作を次のように MoQ に写す。
 
 | NIP-01 | MoQ |
 |---|---|
-| EVENT(送信) | 自分のチャットの Track の Object 1 つ(`publish`) |
+| EVENT(送信) | 自分の、その kind の Track の Object 1 つ(`publish`)。どの Track にも載らない kind は拒否する |
 | OK | Object の送信が受け付けられた(`publish` の Promise が解決する)。接続していないとき(`sendNostrEvent` が "not connected" で reject)やストリームの失敗は、理由付きの reject |
-| REQ のフィルター | ピアのチャットの Track の購読と、その履歴の fill(4 節)。kind、`#a`、`authors`、`since` はクライアントで照らし、`limit` は履歴にだけ当てる |
+| REQ のフィルター | ピアの Track の購読と、その履歴の fill(4 節)。kind、`#a`、`authors`、`since` はクライアントで照らし、`limit` は履歴にだけ当てる。`#a` のないフィルターは、どの `a` にも当たる |
 | EOSE | `onHistoryEnd`。NIP-01 の EOSE と違い、`subscribe` を呼んだその場で、それまでに受け取った分を渡した直後に呼ぶ。ピアの購読の fill はたいていそのあとに届き、ライブのイベントとして渡る |
 | CLOSE | `subscribe` が返す関数で購読を外す |
 
-受け取ったペイロードはすべて `verifyEvent`(id と BIP-340 の署名)を通し、不正なものは数えて捨てる。64 KiB を超えるペイロード、`created_at` が 10 分より先のもの、セッションの開始より 1 日以上前のライブのイベントも捨てる。fill(`live` が false)は古くてもよい。同じ id は 2 度目から無視するので、fill の再送で履歴と `limit` がふくらまない。
+受け取ったペイロードはすべて `verifyEvent`(id と BIP-340 の署名)を通し、不正なものは数えて捨てる。届いた Track が運ぶ kind でないもの、64 KiB を超えるペイロード、`created_at` が 10 分より先のもの、セッションの開始より 1 日以上前のライブのイベントも捨てる。fill(`live` が false)は古くてもよい。同じ id は 2 度目から無視するので、fill の再送で履歴と `limit` がふくらまない。
 
 | kind の範囲(NIP-01) | MoQ の写し方 | 状態 |
 |---|---|---|
-| regular(1、2、4〜44、1000〜9999) | イベントごとに 1 つの Group。履歴にすべて残す | 実装済み(kind 1311) |
-| replaceable(0、3、10000〜19999)、addressable(30000〜39999) | 鍵ごとに最新だけを履歴に残す | 未実装。`publish` は拒否する |
+| regular(1、2、4〜44、1000〜9999) | イベントごとに 1 つの Group。履歴にすべて残す | 実装済み(1311、7、5) |
+| replaceable(0、3、10000〜19999)、addressable(30000〜39999) | 専用の Track で、fill は最新の Group だけ。受け取る側も鍵(kind、pubkey、addressable は `d`)ごとに最新の 1 つだけを残す。`created_at` が新しい方、同じなら id が小さい方を残す。最新の印は履歴の上限(512)と別に持つので、古いイベントを再送されても勝たない | 実装済み(10312、30312、30313) |
 | ephemeral(20000〜29999) | 履歴を残さない(データグラム) | 未実装。`publish` は拒否する |
 
 ハブはイベントを確かめずに中継する。不正なイベントはクライアントが捨てるが、履歴(fill)の枠は占める。
+
+### 5.3 NIP-53 の meeting space
+
+ルームは NIP-53 の meeting space である。座標は `30312:<ホストの pubkey>:<d>` で、ホストはビルド時の `NEXT_PUBLIC_NOSTR_HOST`、`d` は `NEXT_PUBLIC_NOSTR_SPACE_D`(既定 `wired-moqt-chat`)で決まる。ホストのいないルームでも座標は決まり、画面は設定の `d` を出す。どのイベントも公開リレーには送らない。
+
+| kind | 送る人 | タグ | 受け取る側の確認(`nostrRoom.ts`) |
+|---|---|---|---|
+| 30312 space | ホスト。参加したとき | `d`、`room`、`status` open、`service`(ページの URL)、`["p", ホスト, "", "Host"]` | pubkey と `d` が座標と一致し、`room`、`service`、Host の `p` があり、`status` が open、private、closed のどれか |
+| 30313 meeting | ホスト。参加したとき(セッションごとに新しい `d`、status live)、参加者が変わったとき(2 秒まとめて `current_participants` を更新)、退出したとき(status ended、`ends`) | `d`、`a`(space の座標)、`title`、`starts`、`status`、`current_participants` | ホストの pubkey、`a` が自分の space、`d`、`title`、数字の `starts`、`status` が planned、live、ended のどれか |
+| 10312 presence | ログインした全員。参加したとき、60 秒ごと、挙手を切り替えたとき | `["a", space, "", "root"]`、挙手中は `["hand", "1"]`、`["wired-participant", <参加者 ID>]` | `a` が自分の space で、3 分以内のもの |
+| 7 リアクション(NIP-25) | ログインした人。同じ投稿に同じ内容は 1 回だけ送る | `e`(対象の id)、`p`(対象の作者)、`k` 1311。content は `+`、`-`、絵文字 | 最後の `e` と最後の `p` が対象の投稿と作者に一致する。content は 1〜32 文字。(pubkey、content)ごとに 1 回だけ数え、1 人あたり 4 種類まで、1 つの数は 999 まで |
+| 5 削除(NIP-09) | 投稿の作者 | `e`(対象の id)、`k` 1311 | 削除の pubkey が対象の作者と同じときだけ従う。対象の投稿は「Deleted by the author」の行になる |
+
+同じ秒に 2 回送っても新しい方が勝つように、送る側は `created_at` を前回より必ず大きくする。拡張機能が返したイベントの `created_at` が頼んだ値と違えば送らない。
+
+presence と kind 1311 には、署名した人の参加者 ID を `["wired-participant", <ID>]` で入れる。このタグは NIP-53 にない、このアプリケーションのタグである。参加者 ID と pubkey を対応付けるのは、イベントを運んだ Track の持ち主の ID とこのタグが一致するときだけである。ほかの人の署名済みイベントを自分の Track で運び直しても、その人の pubkey にはならない。presence は fill で届いたものも 3 分以内なら使うので、まだ投稿していない人の名前も一覧に出る。
+
+30312 と 30313 はホストの pubkey のものだけを最新の印(`MoqNostr` の `#latest`)に入れる。最新の印と presence はそれぞれ 512 件までで、古いものから捨てる。退出時の ended はセッションを閉じる前に最大 1.5 秒待って送る。ページを閉じたとき(pagehide)にも送ろうとするが、たいてい届かない。
+
+削除はクライアントの表示を変えるだけで、ハブの履歴には元のイベントが残る。あとから参加した人は元の投稿と削除の両方を fill で受け取り、削除を当てて表示する。受け取った削除はリアクションの上限(512 件)とは別に、投稿 4096 件分まで覚える。ただし削除は `nostr-react` でリアクションと同じ fill(65 Group)に入るので、それより古い削除はあとから参加した人に届かないことがある。
+
+ホストが ended を送れずに去ると、最後の live の 30313 が fill で残る。あとから参加した人には、それが最大 24 時間ほど LIVE と出る。ただし、`starts` が受け取った最新の 30312 の `created_at` より前の live は、前のセッションのものとして表示しない。ホストは参加するたびに 30312 を送り、新しい meeting の `starts` をその `created_at` にそろえる。
+
+ハブが Nostr の Track の PUBLISH を 1 つでも拒んだときは、presence も space も meeting も送らない(拒まれた Track では送らない)。ルームの見出しに "Room events unavailable" と出る。ピアの Nostr の Track の SUBSCRIBE が拒まれたときは、3 秒後に 1 回だけ送り直す。それも拒まれると、そのピアの Nostr のイベントは次の参加まで届かない。30312 はホストの参加ごとに 1 回しか送らないので、この場合は space の名前が出ない。
+
+**NIP-53 との違い:** NIP-53 は meeting space のチャットを定めていない。ここでは kind 1311 に `["a", "30312:<ホスト>:<d>", "", "root"]`(space)を付け、meeting が live のときは `["a", "30313:<ホスト>:<meeting の d>"]` も付ける。受け取る側は、`a` が自分の space に一致する 1311 を受け入れる。
 
 ## 6. Track 切り替え(実験的)
 

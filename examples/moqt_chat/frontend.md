@@ -35,15 +35,20 @@
 
 | 項目 | 動作 |
 |---|---|
-| 送信 | ログイン中、添付のないテキストは NIP-53 の kind 1311 のイベント(`tags: [["a", <ルームの座標>]]`)として拡張機能が署名し、チャットの Track の Object で送る。送る前に、拡張機能が返したイベントの署名、公開鍵、本文、kind、`a` タグを確かめる。1 つでも違えば送らず、送信の失敗として表示する。添付付きのメッセージは従来の形式で送る |
-| 受信 | Nostr のイベントの Object は、id と BIP-340 の署名を `verifyEvent` で確かめる。kind 1311 でルームの `a` タグを持つものだけを表示し、不正なものは捨てる。拡張機能のない参加者も従来の形式で送受信でき、Nostr のメッセージも見える |
+| 送信 | ログイン中、添付のないテキストは NIP-53 の kind 1311 のイベントとして拡張機能が署名し、チャットの Track の Object で送る。タグは space の `a`(root)と、meeting が live のときはその `a` である([MoQT の使い方](wire.md) 5.3)。送る前に、拡張機能が返したイベントの署名、公開鍵、本文、kind、`a` タグを確かめる。1 つでも違えば送らず、送信の失敗として表示する。添付付きのメッセージは従来の形式で送る。ルームのほかのイベント(presence、space、meeting、リアクション、削除)も同じように確かめてから送る(`signOwnEvent`) |
+| 受信 | Nostr のイベントの Object は、id と BIP-340 の署名を `verifyEvent` で確かめる。kind 1311 で space の `a` タグを持つものだけを表示し、不正なものは捨てる。拡張機能のない参加者も従来の形式で送受信でき、Nostr のメッセージも見える |
 | 送り手の表示 | 1 行目に kind 0 のプロフィールの `display_name`(NIP-24。なければ非推奨の `displayName`)を太字で、2 行目に `@` と `name` を灰色で小さく出す。`display_name` がなければ 1 行目に `name` だけを、どちらもなければ短い npub だけを出す。名前は 64 文字までで、長ければ末尾を省略し、テキストとして表示する。完全な npub はツールチップに出す。時刻はイベントの `created_at` を右上に出す。本文は名前から半行あけて始まる |
 | 検証の印 | 投稿の下に ✓ を出す。マウスを重ねるかキーボードで選ぶと「Verified Nostr event: id and BIP-340 signature checked」を出す。名前や従来のニックネームで Nostr の送り手になりすませないよう、検証したイベントにだけ付く |
-| ルームの一覧 | 参加者の Nostr の公開鍵は、その参加者のチャットの Track でライブに初めて届いた検証済みのイベントの公開鍵とする。対応する参加者は、一覧にアイコンと `display_name`(なければ `name`、なければ短い npub)で出る。自分で名乗れるニックネームからは対応付けない |
+| ルームの一覧 | 参加者の Nostr の公開鍵は、その参加者の Track に届いた検証済みのイベントのうち、`["wired-participant", <その参加者の ID>]` を持つものの公開鍵とする。チャットの Track ならライブのもの、presence の Track なら 3 分以内のもの(fill でもよい)である。ほかの人のイベントを運び直しても対応付かない。そのため、まだ投稿していない人も参加してすぐに名前で出る。対応する参加者は一覧にアイコンと `display_name`(なければ `name`、なければ短い npub)で出る。自分で名乗れるニックネームからは対応付けない |
 | アイコン | kind 0 の `picture` を名前の左に小さく出す。`https:` の URL(2048 文字まで)だけを使い、`referrerpolicy="no-referrer"` で読み込む。`picture` がない、不正、読み込めないときは、公開鍵から色を決めた丸を代わりに出す |
 | 古いクライアント | この機能より前のビルドは、Nostr のメッセージをその参加者からの生の JSON の 1 行として表示する |
 | 元のイベント | Nostr のメッセージの右下の "⋯" で、Object で運ばれたイベントの JSON(検証済みと id)を投稿の下に開く。"Copy raw" は受け取った文字列をそのまま写す |
-| ルームの座標 | `NEXT_PUBLIC_NOSTR_ROOM_A`(既定 `30311:<64 桁の 0>:wired-moqt-chat`)。kind 30311 のルームのイベントはまだ公開していない |
+| ルームの座標 | NIP-53 の meeting space `30312:<ホスト>:<d>`。ビルド時の `NEXT_PUBLIC_NOSTR_HOST`(hex か npub。なければ誰も署名できない 64 桁の 0)と `NEXT_PUBLIC_NOSTR_SPACE_D`(既定 `wired-moqt-chat`)で決まる。space の名前は `NEXT_PUBLIC_NOSTR_ROOM_NAME`(既定 `Wired MoQT chat`)、meeting の題は `Open session` |
+| ホスト | `NEXT_PUBLIC_NOSTR_HOST` の公開鍵でログインした人。参加すると space(kind 30312)と live の meeting(kind 30313)を送り、参加者が変わると meeting を更新し、"Leave" で ended を送る |
+| ルームの見出し | メッセージの上に space の名前(届く前は設定の `d`)、meeting の題、状態(LIVE、ENDED など)を出す。meeting が届いていなければ "No meeting announced" を、ハブが Nostr の Track を拒んだときは "Room events unavailable: the hub refused the Nostr tracks" を出す |
+| 挙手 | ログイン中は上の操作の列に "Raise hand"(`aria-pressed`)が出る。押すと `hand` 付きの presence を送り、一覧の自分と、ほかの人の画面のその人に "HAND" の札が出る。送れなければ押す前に戻す。presence は 60 秒ごとに送り直し、3 分より古いものは使わない。札は 30 秒ごとに古さを確かめ直す |
+| リアクション | Nostr の投稿の ✓ の右に、内容ごとの数(`+ 1` など)を出す。ログイン中は "React" で `+`、❤️、😂、🎉 を開き、選ぶと kind 7 を送る。数の札を押すと同じ内容を送る。自分が送った内容のボタンは押せなくなる。同じ人の同じ内容は 1 回だけ、1 人 4 種類まで数え、数は 999 で止める。従来の形式の投稿には付かない |
+| 削除 | 自分の Nostr の投稿の "⋯" の左に "Delete" が出る。押すと kind 5 を送り、投稿は全員の画面で「Deleted by the author」の行になる。削除の作者と投稿の作者が違えば従わない。ハブの履歴には元のイベントが残る |
 
 #### プロフィールのリレー
 

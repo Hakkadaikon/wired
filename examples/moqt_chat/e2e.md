@@ -88,6 +88,7 @@ E2E_RNNOISE=1 just e2e-stability s9-survivor-hears-rejoin
 | `s22-camera` | カメラ、背景のぼかしと画像、mp4、途中参加、停止を Chrome の偽のカメラで確かめる |
 | `s23-voice-stream` | データグラムが使えないとき、音声を単方向ストリームで送って届く |
 | `s24-nostr-chat` | NIP-07 の模擬の拡張機能でログインした 2 人が kind 1311 のメッセージを交わし、互いの短い npub で表示され、ルームの一覧にも出る。拡張機能のない 1 人も従来の形式で送受信できる。投稿に検証の印が付き、"⋯" で元のイベントを開閉できる。`?relays=` で公開のリレーにはつながない |
+| `s25-nostr-room` | NIP-53 の meeting space。ホスト(user1)とゲスト(user2)が模擬の拡張機能でログインする。ゲストにホストの space の名前、meeting の題と LIVE が出て、投稿の前からホストが一覧に名前で出る(presence)。ゲストの挙手がホストに見え、ゲストの `+` がホストの投稿に `Like: 1` と数えられ、ホストの削除でゲストの画面の投稿が削除の行になり、ホストの退出で meeting が ended になる。ホストの鍵を `NEXT_PUBLIC_NOSTR_HOST` でビルドに渡す必要があるので、`./e2e/run-nostr-room.sh [--shots=<dir>]` で実行する(鍵を設定して `just e2e-stability s25-nostr-room` を呼ぶ)。`--shots=<dir>` で画面を保存する |
 
 ## 4. そのほかの確認
 
