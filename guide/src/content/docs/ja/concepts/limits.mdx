@@ -8,6 +8,7 @@ sidebar:
 wired が内部に持つ表（コネクションやストリームの管理表）は、すべてビルド時に大きさが決まる固定長の配列です。
 表に収まらない要求をしてきた相手には、新しくメモリーを確保して応じるのではなく、ストリームのリセットやエラー応答といった通信上の拒否を返します。
 以下はソースコード上の値で、右の列がその定数の名前です（注記したものは、ビルド時に `-D` で上書きできます）。
+「ルーム」と書いた値は、SDK を `-DWIRED_PROFILE_MOQT_ROOM`（`src/common/profile/moqt_room.h`）でビルドしたときの値です。moqt_chat のサーバーはこの設定でビルドします。
 
 ## コネクションと WebTransport
 
@@ -17,16 +18,16 @@ wired が内部に持つ表（コネクションやストリームの管理表�
 | コネクションあたりの WebTransport セッション | 2（`-D` で上書き可、最小 2） | `WIRED_SRVRUN_MAX_WT_SESSIONS` |
 | 全コネクション合計の WebTransport セッション | `WIRED_CONNTABLE_CAP` と同じ（既定 4、interop イメージは 64） | `SRVRUN_MAX_WT_SESSIONS_GLOBAL` |
 | コネクションあたり 1 秒間に開ける WebTransport セッション | 10 | `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` |
-| コネクションあたりの、クライアントが開いた WT 双方向ストリーム | 24（`-D` で上書き可、最大 47） | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
-| コネクションあたりの、クライアントが開いた WT 単方向ストリーム | 6 | `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` |
-| コネクションあたり同時に送信中の、サーバーが開いた WT ストリーム | 41（17 + 上の WT 双方向ストリームの数） | `SRVRUN_WT_SEND_SLOTS` |
+| コネクションあたりの、クライアントが開いた WT 双方向ストリーム | 24、ルーム 47（`-D` で上書き可、最大 47） | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
+| コネクションあたりの、クライアントが開いた WT 単方向ストリーム | 6、ルーム 9（`-D` で上書き可） | `H3SETTINGS_WT_INIT_STREAMS_UNI_VALUE`(受信の表 `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` はこれ + 3) |
+| コネクションあたり同時に送信中の、サーバーが開いた WT ストリーム | 41、ルーム 64（17 + 上の WT 双方向ストリームの数） | `SRVRUN_WT_SEND_SLOTS` |
 | WT ストリーム 1 本の受信ウィンドウ | 49152 バイト | `WIRED_SRVLOOP_WT_BUF_CAP` |
 
 ## HTTP/3 のリクエスト
 
 | 上限 | 値 | 定数 |
 |---|---|---|
-| コネクションあたりの同時リクエストストリーム | 40（`-D` で上書き可） | `WIRED_SRVLOOP_MAX_STREAMS` |
+| コネクションあたりの同時リクエストストリーム | 40、ルーム 49（`-D` で上書き可） | `WIRED_SRVLOOP_MAX_STREAMS` |
 | リクエストボディのウィンドウ（`on_body` なしではボディ全体、ありでは 1 回分） | 10240 バイト | `BODYWIN_CAP` |
 | リクエストのヘッダーセクション | 10240 バイト | `WIRED_H3_MAX_FIELD_SECTION` |
 | リクエストごとに保持するヘッダー（上の上限内のセクションならすべて。それを超える 1 行は 431） | 310 | `WIRED_H3REQDRIVE_MAX_HDRS` |
@@ -44,13 +45,13 @@ wired が内部に持つ表（コネクションやストリームの管理表�
 | 上限 | 値 | 定数 |
 |---|---|---|
 | 1 つのハブが管理するセッション | 32 | `WIRED_MOQTRUN_MAX_SESSIONS` |
-| 1 つのセッションが PUBLISH できる Track | 3 | `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` |
+| 1 つのセッションが PUBLISH できる Track | 5、ルーム 9（`-D` で上書き可） | `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` |
 | Track あたり同時に中継する発行者のストリーム | 4 | `WIRED_MOQTRUN_MAX_RELAYS` |
 | 複数回の配送に分かれて届く Object の後半部分 | 16384 バイト | `WIRED_MOQTRUN_RELAY_FRAG_MAX` |
 | 後半を保持するバッファー（ハブ全体） | 8 | `WIRED_MOQTRUN_FRAG_POOL` |
-| リクエストストリーム（ハブ全体） | 64 | `WIRED_MOQTRUN_MAX_REQS` |
-| セッションあたりのリクエストストリーム | 16 | `WIRED_MOQTRUN_MAX_REQS_PER_SESSION` |
-| 同時に応答中の FETCH（ハブ全体） | 8 | `WIRED_MOQTRUN_MAX_FETCHES` |
+| リクエストストリーム（ハブ全体） | 128、ルーム 192（`-D` で上書き可） | `WIRED_MOQTRUN_MAX_REQS` |
+| セッションあたりのリクエストストリーム | 32、ルーム 48 | `WIRED_MOQTRUN_MAX_REQS_PER_SESSION` |
+| 同時に応答中の FETCH（ハブ全体） | 8、ルーム 16（`-D` で上書き可） | `WIRED_MOQTRUN_MAX_FETCHES` |
 | 受信する制御メッセージの本体 | 1024 バイト | `WIRED_MOQTRUN_CTL_MSG_MAX` |
 | Track Name | 64 バイト | `WIRED_MOQTRUN_MAX_NAME` |
 | エンコード済みの Track Namespace | 128 バイト | `WIRED_MOQTRUN_MAX_NS` |

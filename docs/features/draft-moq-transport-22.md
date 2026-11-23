@@ -1002,7 +1002,7 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
 - [x] MQ22-149 ピアは、異なる Track を複数(実装のピアごとの Track の容量まで)PUBLISH してもよく、それぞれが独立に REQUEST_OK を受け取る。
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_peer_publishes_two_tracks`
 - [x] MQ22-150 ピアが実装のピアごとの容量を超える数の異なる Track を PUBLISH しようとした場合、実装は既存の Track を黙って上書きせずに、REQUEST_ERROR で応答しなければならない。
-  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_sixth_publish_gets_error`
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_track_past_cap_gets_error`
 - [x] MQ22-151 すでにスロットを占めている同じ Track Name を再び PUBLISH したときは、新しいスロットを使わずにそのスロットを再利用しなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_republish_same_name_reuses_slot`

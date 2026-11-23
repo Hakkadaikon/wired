@@ -59,7 +59,7 @@ MoQT のデータモデルの用語(Track、Group、Subgroup、Object)は guide 
 
 影響: パブリッシャーが切れたときに購読者の多い Track。
 
-待っている購読はそれぞれ、ハブ全体の `WIRED_MOQTRUN_MAX_RDV`(16)のテーブルのスロットを 1 つ使う。セッションあたりは最大 `WIRED_MOQTRUN_RDV_PER_SESSION`(4)で、各スロットが Track の期限のコピーを持つ。
+待っている購読はそれぞれ、ハブ全体の `WIRED_MOQTRUN_MAX_RDV`(16。moqt_chat のプロファイル では 24)のテーブルのスロットを 1 つ使う。セッションあたりは最大 `WIRED_MOQTRUN_RDV_PER_SESSION`(4。moqt_chat のプロファイル では 6)で、各スロットが Track の期限のコピーを持つ。
 
 待っている購読者が空きスロットより多い Track は、一部だけがフェイルオーバーする。残りには終了時のステータスを付けた PUBLISH_DONE をすぐに送る。テーブルが埋まっている間(最大 1.5 秒)は、新しいランデブーの保留をすべて EXCESSIVE_LOAD で断る。待機と Track 切り替えの関係は [Track 切り替え](moqt-switching.md) にある。
 
@@ -113,7 +113,7 @@ MoQT のデータモデルの用語(Track、Group、Subgroup、Object)は guide 
 
 影響: 多くの購読者が同時に履歴を求める部屋。
 
-`fetches[]` + `fetch_waits[]`(8 + 8。どちらも `WIRED_MOQTRUN_MAX_FETCHES` で決まる)を超えたフィルは、OK を送る前に REQUEST_ERROR INTERNAL_ERROR で断る。通知なしに捨てることはない。
+`fetches[]` + `fetch_waits[]`(8 + 8。moqt_chat のプロファイル では 16 + 16。どちらも `WIRED_MOQTRUN_MAX_FETCHES` で決まる)を超えたフィルは、OK を送る前に REQUEST_ERROR INTERNAL_ERROR で断る。通知なしに捨てることはない。
 
 参照: `moqtrun_fill_room`、`moqtrun_fill_wait_put`(ponytail)
 

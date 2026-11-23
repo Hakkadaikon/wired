@@ -172,7 +172,7 @@ flowchart TD
 | 処理 | 前 | 後 |
 |---|---|---|
 | `srvrun_reap_wtsends`(終わった WT の送信スロットの回収) | すべてのスロットを見る | 空きと分かっているスロットを見ない(`srvrun_wtsend_maybe`) |
-| `srvrun_start_held_resps`(SETTINGS を待たせた CONNECT の処理) | SETTINGS が届いたあとは、リクエストのスロット 40 個を毎回見る | 保留中の CONNECT がなければ先頭で戻る(`srvrun_held_due`) |
+| `srvrun_start_held_resps`(SETTINGS を待たせた CONNECT の処理) | SETTINGS が届いたあとは、リクエストのスロット 40 個(moqt_chat のプロファイル では 49 個)を毎回見る | 保留中の CONNECT がなければ先頭で戻る(`srvrun_held_due`) |
 | `srvrun_req_credit_live`(リクエストのクレジットの判定) | 別のオブジェクトの関数を呼ぶ。178 万回、1 回 8 命令、0.89% | ヘッダーの `static inline` |
 
 - このビルドは LTO を使わず、別の `.c` の関数は必ず実際の呼び出しになる。ヘッダーへ移す対象は、計測で呼び出しが 100 万回を超えた関数だけである。

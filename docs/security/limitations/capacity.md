@@ -13,9 +13,11 @@
 
 上限はすべて固定長のテーブルとバッファーで、ほとんどは BSS に置く。上限を変えるには、定数を変えてビルドし直す。guide の「現在の上限」はアプリケーションから見える上限を扱う。この文書は残りの上限と、超えたときの動作を加える。
 
-値は 2026-10-15 に `#define` と照合した。guide の値と異なる場合(`WIRED_MOQTRUN_MAX_TRACKS_PER_PEER`、`WIRED_MOQTRUN_MAX_REQS` など)は、この文書の値が今の値である。
+値は 2026-11-24 に `#define` と照合した。guide の値と異なる場合(`WIRED_MOQTRUN_MAX_TRACKS_PER_PEER`、`WIRED_MOQTRUN_MAX_REQS` など)は、この文書の値が今の値である。
 
 ## 2. MoQT ハブ
+
+括弧の中は `-DWIRED_PROFILE_MOQT_ROOM`(`src/common/profile/moqt_room.h`)でビルドしたときの値である。moqt_chat のサーバーはこのプロファイルでビルドする。各定数は `-D` で個別にも上書きできる。
 
 | 定数 | 値 | 制限する対象 | 超えたときの動作 |
 |---|---|---|---|
@@ -30,12 +32,12 @@
 | `WIRED_MOQTRUN_MAX_RELAYS` | 4 | Track あたりで同時に中継するパブリッシャーのストリーム数 | ストリームを中継せず、購読者は受け取れない |
 | `WIRED_MOQTRUN_MAX_NAME` | 64 | Track Name のバイト数 | 拒否(PUBLISH。ハブが所有する publish は 0 を返す) |
 | `WIRED_MOQTRUN_MAX_NS` | 128 | 符号化した名前空間のバイト数 | PUBLISH で名前空間を拒否 |
-| `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 5 | 1 つのセッションが公開する Track 数 | PUBLISH を拒否 |
-| `WIRED_MOQTRUN_MAX_REQS` / `_PER_SESSION` | 128 / 32 | リクエストストリーム | リクエストストリームを EXCESSIVE_LOAD でリセット |
-| `WIRED_MOQTRUN_MAX_RDV` / `_RDV_PER_SESSION` | 16 / 4 | ランデブーの保留 | SUBSCRIBE を EXCESSIVE_LOAD で拒否 |
+| `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 5(moqt_chat のプロファイル では 9) | 1 つのセッションが公開する Track 数 | PUBLISH を拒否 |
+| `WIRED_MOQTRUN_MAX_REQS` / `_PER_SESSION` | 128 / 32(moqt_chat のプロファイル では 192 / 48) | リクエストストリーム | リクエストストリームを EXCESSIVE_LOAD でリセット |
+| `WIRED_MOQTRUN_MAX_RDV` / `_RDV_PER_SESSION` | 16 / 4(moqt_chat のプロファイル では 24 / 6) | ランデブーの保留 | SUBSCRIBE を EXCESSIVE_LOAD で拒否 |
 | `WIRED_MOQTRUN_RDV_MAX_MS` | 1500 | ランデブーの保留時間 | 保留がタイムアウト(逸脱) |
-| `WIRED_MOQTRUN_MAX_UP` | 16 | 上流を待つもの | 待機を EXCESSIVE_LOAD で拒否 |
-| `WIRED_MOQTRUN_MAX_FETCHES`(+ fetch_waits) | 8 (+8) | 処理する FETCH とフィル | REQUEST_ERROR INTERNAL_ERROR |
+| `WIRED_MOQTRUN_MAX_UP` | 16(moqt_chat のプロファイル では 24) | 上流を待つもの | 待機を EXCESSIVE_LOAD で拒否 |
+| `WIRED_MOQTRUN_MAX_FETCHES`(+ fetch_waits) | 8 (+8)(moqt_chat のプロファイル では 16 (+16)) | 処理する FETCH とフィル | REQUEST_ERROR INTERNAL_ERROR |
 | `WIRED_MOQTRUN_UPFETCH_BUDGET_MS` | 2000 | 上流 FETCH のレッグの時間 | レッグが終わる |
 | `WIRED_MOQTRUN_RELAY_FRAG_MAX` | 16384 | 分断された Object を丸ごと保持する大きさ | それより大きいペイロードはそのまま流す |
 | `WIRED_MOQTRUN_TRACK_PROPS_MAX` | 96 | 転送する Track Properties | 空にして転送 |
@@ -67,8 +69,8 @@
 | `WIRED_SRVRUN_RESP_MAX` | 16384 | 固定のレスポンス 1 回分 | それより大きい body には bigbuf かストリーミングが必要 |
 | `WIRED_SRVLOOP_BODY_MAX` | 1024 | 低レベルのハンドラーの body | body を上限で切る |
 | `SRVRUN_RX_BATCH` | 16 | `recvmmsg` 1 回あたりのデータグラム | 次のまとめで読む |
-| `WIRED_SRVLOOP_MAX_STREAMS` | 40 | リクエストのスロット | ストリームを破棄 |
-| `WIRED_SRVLOOP_MAX_WT_STREAMS` / `_UNI_STREAMS` | 24 / 9 | WT の双方向 / 単方向のスロット | それより多く開く相手はストリームの上限を破る(STREAM_LIMIT_ERROR) |
+| `WIRED_SRVLOOP_MAX_STREAMS` | 40(moqt_chat のプロファイル では 49) | リクエストのスロット | ストリームを破棄 |
+| `WIRED_SRVLOOP_MAX_WT_STREAMS` / `_UNI_STREAMS` | 24 / 9(moqt_chat のプロファイル では 47 / 12) | WT の双方向 / 単方向のスロット | それより多く開く相手はストリームの上限を破る(STREAM_LIMIT_ERROR) |
 | `WIRED_SRVLOOP_WT_BUF_CAP` | 49152 | スロットごとの受信の窓 | フロー制御で相手を止める |
 | `WIRED_SRVLOOP_MAX_RX_DATAGRAMS` / `_RX_DATAGRAM_CAP` | 256 / 1200 | 受信データグラムのキュー | データグラムを破棄 |
 | `BODYWIN_CAP` | 10240 | リクエストの body の窓 | 413/431 か FLOW_CONTROL_ERROR |

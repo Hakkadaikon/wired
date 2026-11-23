@@ -370,7 +370,7 @@
     `test_srvrun_wtfc_refused_charged_to_named_session`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_refused_stream_reset_and_credited`
-  - evidence: 初期値は双方向 24 本(WT の双方向の表全体)、単方向 6 本です(`H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE`/`_UNI_VALUE`)。双方向で上限を超えるストリームは表が満杯なので断り、その数を数えてセッションを閉じます。SETTINGS_WT_INITIAL_MAX_DATA だけを送る相手(proxygen)は、ストリーム数の上限を超えても閉じません。第三者の実装での確認待ちです。
+  - evidence: 初期値は双方向 24 本(WT の双方向の表全体)、単方向 6 本です(moqt_chat のプロファイル では 47 本と 9 本)(`H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE`/`_UNI_VALUE`)。双方向で上限を超えるストリームは表が満杯なので断り、その数を数えてセッションを閉じます。SETTINGS_WT_INITIAL_MAX_DATA だけを送る相手(proxygen)は、ストリーム数の上限を超えても閉じません。第三者の実装での確認待ちです。
 - [x] WTH3-059 (§5.3, §5.6.3) ストリームを開きたいが、相手が設定したセッション単位のストリーム数の上限のために開けないとき、サーバーは WT_STREAMS_BLOCKED カプセルを送るべきである。
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_open_uni_blocked_sends_streams_blocked`
@@ -425,7 +425,7 @@
     `test_srvrun_wtfc_pend_refused_bytes_count`
   - test: `tests/app/srvrun_wtfc_pend_test.c` —
     `test_srvrun_wtfc_pend_rejected_bytes_count`
-  - evidence: 初期値は 1474560 バイト(30 本分の受信の窓 49152 バイト)です。数えるのは各ストリームの最大のオフセット(リセットされたストリームは最終サイズ)からストリームのヘッダーを引いた値です。開く前に断ったストリームは、最終サイズが届いた時点で数えます。第三者の実装での確認待ちです。
+  - evidence: 初期値は 1474560 バイト(30 本分の受信の窓 49152 バイト。moqt_chat のプロファイル では 56 本分の 2752512 バイト)です。数えるのは各ストリームの最大のオフセット(リセットされたストリームは最終サイズ)からストリームのヘッダーを引いた値です。開く前に断ったストリームは、最終サイズが届いた時点で数えます。第三者の実装での確認待ちです。
 - [x] WTH3-062 (§5.4, §5.6.5) データを送りたいが、セッション単位のフロー制御のために送れないとき、サーバーは WT_DATA_BLOCKED カプセルを送るべきである。
   - test: `tests/app/srvrun_wtflow_test.c` —
     `test_srvrun_wt_data_limited_send_emits_data_blocked_once`
@@ -464,7 +464,7 @@
     `test_srvrun_wtfc_rejected_stream_owed`
   - test: `tests/app/srvrun_wtfc_pend_test.c` —
     `test_srvrun_wtfc_pend_long_refusals_keep_credit`
-  - evidence: クライアントのストリームが終わるたび(断ったストリームも含む)に WT_MAX_STREAMS を 1 つ上げ、アプリが受け取ったバイト数が窓の半分進むたびに WT_MAX_DATA を「受け取ったバイト数 + 1474560」に上げます。カプセルは CONNECT ストリームの送信スロットに載り、失われると送り直します。スロットが受け付けなかった分は、次のステップか tick で送ります。第三者の実装での確認待ちです。
+  - evidence: クライアントのストリームが終わるたび(断ったストリームも含む)に WT_MAX_STREAMS を 1 つ上げ、アプリが受け取ったバイト数が窓の半分進むたびに WT_MAX_DATA を「受け取ったバイト数 + 初期値」に上げます。カプセルは CONNECT ストリームの送信スロットに載り、失われると送り直します。スロットが受け付けなかった分は、次のステップか tick で送ります。第三者の実装での確認待ちです。
 
 ## §6 セッションの終了
 

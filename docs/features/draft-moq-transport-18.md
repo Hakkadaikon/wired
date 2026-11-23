@@ -835,7 +835,7 @@
 - [x] MQ18-155 ピアは、2 つ以上の異なる Track を(実装のピアごとの Track 数の上限まで)PUBLISH してもよく、それぞれが独立して REQUEST_OK を受け取る。
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_peer_publishes_two_tracks`
 - [x] MQ18-156 ピアが実装のピアごとの上限を超える数の異なる Track を PUBLISH しようとした場合、実装は既存の Track を何も知らせずに上書きすることはせず、REQUEST_ERROR で応答しなければならない。
-  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_sixth_publish_gets_error`
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_track_past_cap_gets_error`
 - [x] MQ18-157 すでにスロットを占めている同じ Track Name を再び PUBLISH したときは、新しいスロットを使わず、そのスロットを再利用しなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_republish_same_name_reuses_slot`

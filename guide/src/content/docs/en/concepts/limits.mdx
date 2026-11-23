@@ -9,7 +9,9 @@ Every table in wired is a fixed array sized at build time. A peer that needs mor
 (the stream reset, the request answered with an error) rather than served
 from new memory. The numbers below are the values in the source; the names
 in the right column are the constants to look up (or, where noted, to
-override with `-D` at build time).
+override with `-D` at build time). Values marked *room* apply when the
+SDK is built with `-DWIRED_PROFILE_MOQT_ROOM` (`src/common/profile/moqt_room.h`),
+as the moqt_chat server is.
 
 ## Connections and WebTransport
 
@@ -19,16 +21,16 @@ override with `-D` at build time).
 | WebTransport sessions per connection | 2 (`-D` overridable, at least 2) | `WIRED_SRVRUN_MAX_WT_SESSIONS` |
 | WebTransport sessions, all connections | equal to `WIRED_CONNTABLE_CAP` (4 by default, 64 in the interop image) | `SRVRUN_MAX_WT_SESSIONS_GLOBAL` |
 | New WebTransport sessions per connection per second | 10 | `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` |
-| Client-opened WT bidi streams per connection | 24 (`-D` overridable, at most 47) | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
-| Client-opened WT uni streams per connection | 6 | `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` |
-| Server-opened WT streams sending at once, per connection | 41 (17 + the WT bidi streams above) | `SRVRUN_WT_SEND_SLOTS` |
+| Client-opened WT bidi streams per connection | 24, room 47 (`-D` overridable, at most 47) | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
+| Client-opened WT uni streams per connection | 6, room 9 (`-D` overridable) | `H3SETTINGS_WT_INIT_STREAMS_UNI_VALUE` (the receive table `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` is this + 3) |
+| Server-opened WT streams sending at once, per connection | 41, room 64 (17 + the WT bidi streams above) | `SRVRUN_WT_SEND_SLOTS` |
 | Receive window of one WT stream | 49152 bytes | `WIRED_SRVLOOP_WT_BUF_CAP` |
 
 ## HTTP/3 requests
 
 | Limit | Value | Constant |
 |---|---|---|
-| Concurrent request streams per connection | 40 (`-D` overridable) | `WIRED_SRVLOOP_MAX_STREAMS` |
+| Concurrent request streams per connection | 40, room 49 (`-D` overridable) | `WIRED_SRVLOOP_MAX_STREAMS` |
 | Request body window (whole body without `on_body`; per round with it) | 10240 bytes | `BODYWIN_CAP` |
 | Request header section | 10240 bytes | `WIRED_H3_MAX_FIELD_SECTION` |
 | Request headers kept per request (every header of a section within the limit above; one more is answered 431) | 310 | `WIRED_H3REQDRIVE_MAX_HDRS` |
@@ -48,13 +50,13 @@ round is streamed ([Streaming a large body](../../h3/streaming/)).
 | Limit | Value | Constant |
 |---|---|---|
 | Sessions one hub tracks | 32 | `WIRED_MOQTRUN_MAX_SESSIONS` |
-| Tracks one session can PUBLISH | 3 | `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` |
+| Tracks one session can PUBLISH | 5, room 9 (`-D` overridable) | `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` |
 | Publisher streams relayed at once, per track | 4 | `WIRED_MOQTRUN_MAX_RELAYS` |
 | Object tail held across deliveries | 16384 bytes | `WIRED_MOQTRUN_RELAY_FRAG_MAX` |
 | Buffers for held tails, hub-wide | 8 | `WIRED_MOQTRUN_FRAG_POOL` |
-| Request streams, hub-wide | 64 | `WIRED_MOQTRUN_MAX_REQS` |
-| Request streams per session | 16 | `WIRED_MOQTRUN_MAX_REQS_PER_SESSION` |
-| FETCH responses served at once, hub-wide | 8 | `WIRED_MOQTRUN_MAX_FETCHES` |
+| Request streams, hub-wide | 128, room 192 (`-D` overridable) | `WIRED_MOQTRUN_MAX_REQS` |
+| Request streams per session | 32, room 48 | `WIRED_MOQTRUN_MAX_REQS_PER_SESSION` |
+| FETCH responses served at once, hub-wide | 8, room 16 (`-D` overridable) | `WIRED_MOQTRUN_MAX_FETCHES` |
 | Received control message body | 1024 bytes | `WIRED_MOQTRUN_CTL_MSG_MAX` |
 | Track Name | 64 bytes | `WIRED_MOQTRUN_MAX_NAME` |
 | Encoded Track Namespace | 128 bytes | `WIRED_MOQTRUN_MAX_NS` |

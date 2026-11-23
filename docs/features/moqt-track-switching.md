@@ -370,6 +370,6 @@ g_hub.ssts_alg_n   = sizeof chat_ssts_algs / sizeof chat_ssts_algs[0];
 |---|---|
 | 購読者のセッションあたりの switching set | `WIRED_MOQTRUN_SSTS_SETS` (8)。超える割り当ては INTERNAL_ERROR で拒否 |
 | セットあたりのメンバー | `MOQSSTS_MAX_MEMBERS` (4) |
-| `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 5。低レートの画面の別版のために 3 から 4 に、moqt_chat のカメラの Track(別版なし)のために 5 にした |
+| `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 5。moqt_chat のプロファイル(`-DWIRED_PROFILE_MOQT_ROOM`)では 9(チャット、音声、画面、低レートの画面の別版、カメラ、Nostr の 4 Track) |
 
 `examples/moqt_chat` はこれらすべてを画面共有に使っている([MoQT の使い方 6](../../examples/moqt_chat/wire.md#6-track-切り替え実験的))。

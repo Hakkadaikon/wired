@@ -96,7 +96,7 @@ raw QUIC の接続は 0-RTT では受け入れない(d18 3.3.1 / d22 6.3.1 で�
 
 影響: 多くの Subgroup を同時に開く raw のパブリッシャー。
 
-raw の MoQT は Subgroup ごとに単方向ストリームを 1 本使う。サーバーはクライアントの単方向ストリームを 9 本と広告し、それぞれに受信スロットを持つ(`WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` = 9。各スロットの窓は `WIRED_SRVLOOP_WT_BUF_CAP`)。
+raw の MoQT は Subgroup ごとに単方向ストリームを 1 本使う。サーバーはクライアントの単方向ストリームを 9 本と広告し、それぞれに受信スロットを持つ(`WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` = 9。moqt_chat のプロファイル では 12。各スロットの窓は `WIRED_SRVLOOP_WT_BUF_CAP`)。
 
 | セッション | WT のデータに使えるスロット |
 |---|---|

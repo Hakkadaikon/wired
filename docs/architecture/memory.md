@@ -68,6 +68,8 @@ pie showData
     "Everything else" : 229
 ```
 
+moqt_chat のプロファイル(`-DWIRED_PROFILE_MOQT_ROOM`、`src/common/profile/moqt_room.h`)では、1 接続は 15,353,120 バイト(14.64 MiB)である。WT 双方向 47、送信スロット 64、リクエストストリーム 49、WT 単方向 12 で、既定より 5,151,440 バイト大きい。
+
 WT 双方向ストリームのスロット(`wired_srvloop_wt_stream_slot`、55,424 B)は、48 KiB の受信ウィンドウ(`WIRED_SRVLOOP_WT_BUF_CAP`)、そのウィンドウの 6 KiB の受信済みバイトのビットマップ、管理情報からなる。
 
 HTTP/3 のリクエスト用バッファー(`req_scratch`、`req_buf`)はリクエストストリームのスロットだけが持つ。リクエストは `req_buf` の上でその場でデコードし、ウィンドウを連続した領域に並べ直したコピーは持たない。

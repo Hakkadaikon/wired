@@ -788,7 +788,7 @@
 - [x] MOQT-154 ピアは、互いに異なる複数の Track を(実装のピアごとの Track 容量まで)PUBLISH してもよく、それぞれが独立に REQUEST_OK を受け取る。
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_peer_publishes_two_tracks`
 - [x] MOQT-155 ピアが、実装のピアごとの容量を超える数の異なる Track を PUBLISH しようとした場合、実装は既存の Track を黙って上書きせず、REQUEST_ERROR を返さなければならない。
-  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_sixth_publish_gets_error`
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_track_past_cap_gets_error`
 - [x] MOQT-156 すでにスロットを使っている Track Name を再び PUBLISH したときは、新しいスロットを使わず、そのスロットを再利用しなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_republish_same_name_reuses_slot`

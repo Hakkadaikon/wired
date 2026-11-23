@@ -91,29 +91,32 @@ cert sha-256 fingerprint: b4:6d:57:7b:de:f6:70:d6:f1:f9:e9:91:c3:a3:6a:db:15:e8:
 
 ## 3. ハブの上限
 
+サーバーは SDK を `-DWIRED_PROFILE_MOQT_ROOM`(`src/common/profile/moqt_room.h`)でビルドしたものを使う(`just ninja examples/moqt_chat/server/wired_server`、オブジェクトは `build/profile/moqt_room/`)。下の値はこのプロファイルの値で、SDK の既定は Track 5、リクエストストリーム 128 / 32、fill 8 + 8、WebTransport の双方向 24 本と単方向 6 本である。
+
 | 項目 | 値 | 上限を超えたとき |
 |---|---|---|
 | Object のキャッシュ | 1 MiB(`MOQT_CACHE_BYTES`)。全 Track で 1 つの領域を使い、古い Group から丸ごと捨てる | 1 MiB を超える Group(1 MiB を超える添付ファイル)はキャッシュしない。途中参加の履歴にも入らない |
 | 名前空間 | `wired/moqt_chat` の下だけ(`chat_authorize_room_ns`、`access.c`) | 告知と購読を UNAUTHORIZED で拒否する |
-| リクエストストリーム | ハブ全体で 128(`WIRED_MOQTRUN_MAX_REQS`)、セッションあたりはその 4 分の 1 の 32(`WIRED_MOQTRUN_MAX_REQS_PER_SESSION`) | 新しいリクエストストリームを EXCESSIVE_LOAD でリセットする |
-| fill | 8 スロットと待ちの 8 スロット(`WIRED_MOQTRUN_MAX_FETCHES`) | [MoQT の使い方 4.1](wire.md#41-fill-の枠が足りないとき) |
-| 参加者あたりの Track | 5(`WIRED_MOQTRUN_MAX_TRACKS_PER_PEER`) | PUBLISH を拒否する |
+| リクエストストリーム | ハブ全体で 192(`WIRED_MOQTRUN_MAX_REQS`)、セッションあたりはその 4 分の 1 の 48(`WIRED_MOQTRUN_MAX_REQS_PER_SESSION`) | 新しいリクエストストリームを EXCESSIVE_LOAD でリセットする |
+| fill | 16 スロットと待ちの 16 スロット(`WIRED_MOQTRUN_MAX_FETCHES`) | [MoQT の使い方 4.1](wire.md#41-fill-の枠が足りないとき) |
+| 参加者あたりの Track | 9(`WIRED_MOQTRUN_MAX_TRACKS_PER_PEER`) | PUBLISH を拒否する |
+| WebTransport のストリーム | 1 セッションでクライアントの双方向 47 本、単方向 9 本(`H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE`、`_UNI_VALUE`) | 超えたセッションを WT_FLOW_CONTROL_ERROR で閉じる |
 
 キャッシュは全 Track で共有する。画面共有の Group が多いと、チャットの履歴は先に押し出される。
 
 ### 3.1 リクエストストリームの数
 
-4 人のルームで、1 つのセッションが同時に開くリクエストストリームの最大は 24 である。fill は SUBSCRIBE のリクエストに乗るので、別の枠を使わない。
+4 人のルームで、1 つのセッションが同時に開くリクエストストリームの最大は 40 である。fill は SUBSCRIBE のリクエストに乗るので、別の枠を使わない。
 
 | リクエスト | 数 | 内訳 |
 |---|---|---|
-| PUBLISH | 5 | チャット、音声、`screen`、`screen-lo`、`camera` |
+| PUBLISH | 9 | チャット、音声、`screen`、`screen-lo`、`camera`、`nostr-presence`、`nostr-30312`、`nostr-30313`、`nostr-react` |
 | PUBLISH_NAMESPACE | 3 | `<id>`、`<id>/screen`、`<id>/camera` |
 | SUBSCRIBE_NAMESPACE | 1 | `wired/moqt_chat` |
-| SUBSCRIBE | 15 | ほかの 3 人 × 5 Track(Auto で `screen` と `screen-lo` の両方を購読するとき) |
-| 合計 | 24 | ハブ全体で 96 |
+| SUBSCRIBE | 27 | ほかの 3 人 × 9 Track(Auto で `screen` と `screen-lo` の両方を購読するとき) |
+| 合計 | 40 | ハブ全体で 160 |
 
-セッションあたりの上限 32 とハブ全体の上限 128 に収まる。参加者 ID を 4 つにしているのはこの上限のためである。
+セッションあたりの上限 48 とハブ全体の上限 192 に収まる。参加者 ID を 4 つにしているのはこの上限のためである。
 
 ## 4. GOAWAY による再起動
 
