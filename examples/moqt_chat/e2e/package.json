@@ -7,5 +7,8 @@
 	},
 	"dependencies": {
 		"puppeteer-core": "^24.43.1"
+	},
+	"devDependencies": {
+		"nostr-tools": "2.25.5"
 	}
 }

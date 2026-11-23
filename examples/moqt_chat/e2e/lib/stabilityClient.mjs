@@ -172,6 +172,7 @@ export const WT_INSTRUMENTATION_SCRIPT = `
  * @param {string} opts.certHash      server cert fingerprint
  * @param {string} opts.participantId user1..user4
  * @param {string[]} [opts.initScripts] extra scripts injected before navigation (after WT_INSTRUMENTATION_SCRIPT)
+ * @param {(page) => Promise<void>} [opts.beforeConnect] runs on the loaded join screen, before Join
  */
 export async function joinStabilityClient({
 	pageUrl,
@@ -179,6 +180,7 @@ export async function joinStabilityClient({
 	certHash,
 	participantId,
 	initScripts,
+	beforeConnect,
 }) {
 	const { executablePath, env } = resolveChromeLaunch();
 	const browser = await puppeteer.launch({
@@ -209,6 +211,7 @@ export async function joinStabilityClient({
 		certHash,
 		participantId,
 		initScripts,
+		beforeConnect,
 	});
 	return client;
 }
@@ -217,7 +220,14 @@ export async function joinStabilityClient({
  * for the initial join and for a rejoin after the server came back. */
 export async function connectClient(
 	client,
-	{ pageUrl, serverUrl, certHash, participantId, initScripts = [] },
+	{
+		pageUrl,
+		serverUrl,
+		certHash,
+		participantId,
+		initScripts = [],
+		beforeConnect,
+	},
 ) {
 	const page = await client.browser.newPage();
 	client.page = page;
@@ -246,6 +256,7 @@ export async function connectClient(
 		certHash,
 	);
 	await page.click(`[data-testid="participant-${participantId}"]`);
+	await beforeConnect?.(page);
 	const connectStart = Date.now();
 	await page.click('[data-testid="connect"]');
 	try {
