@@ -109,6 +109,14 @@ static inline i64 syscall6(i64 n, i64 a, i64 b, i64 c, i64 d, i64 e, i64 f) {
  * spin is in progress, saving power and easing hyperthread contention. */
 static inline void wired_arch_pause(void) { __builtin_ia32_pause(); }
 
+/** Returns x unchanged, but hides its value from the optimizer: a mask
+ * built from a secret bit cannot be turned back into a branch or a
+ * secret-selected load (constant-time selects; `just ct-check`). */
+static inline u64 wired_arch_value_barrier(u64 x) {
+  __asm__("" : "+r"(x));
+  return x;
+}
+
 /**
  * Raw clone(2) whose child starts on a new stack (assembly trampoline in
  * clone.c; a C wrapper cannot be used because the compiler's spills would

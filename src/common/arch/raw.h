@@ -6,8 +6,8 @@
  * The one place the instruction set is chosen: the raw syscall layer,
  * trampolines and spin hint of the ISA being compiled for. Each adapter
  * declares the same names (SYS_* numbers, syscall1..syscall6,
- * wired_arch_pause, wired_arch_clone_raw, wired_arch_sigreturn_restorer,
- * WIRED_ARCH_START_ASM).
+ * wired_arch_pause, wired_arch_value_barrier, wired_arch_clone_raw,
+ * wired_arch_sigreturn_restorer, WIRED_ARCH_START_ASM).
  */
 
 #if defined(__aarch64__)

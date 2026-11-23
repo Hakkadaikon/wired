@@ -5,9 +5,12 @@ static void fe_basey(fe out);
 static void ge_add_ab(fe a, fe b, const ge* p1, const ge* p2);
 static void ge_add_cd(fe c, fe d, const ge* p1, const ge* p2);
 
-/* Constant-time-ish conditional move: h <- g when cond != 0. */
+/* Constant-time conditional move: h <- g when cond is 1 (cond is 0 or 1).
+ * The barrier hides the mask's 0/~0 range: clang turned the visible select
+ * into a cmov between the h and g addresses, a secret-indexed load
+ * (`just ct-check`). */
 void ed_fe_cmov(fe h, const fe g, int cond) {
-  u64 mask = (u64)(0 - (u64)(cond != 0));
+  u64 mask = wired_arch_value_barrier((u64)0 - (u64)cond);
   for (usz i = 0; i < 5; i++) {
     h[i] ^= mask & (h[i] ^ g[i]);
   }
