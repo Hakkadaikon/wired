@@ -771,12 +771,14 @@ static void mrp_sub_ok(
  * Track, ending next, gets the end's PUBLISH_DONE at once. */
 static void test_moqtrun_repath_session_share(void) {
   static moqctl_publish_done d;
-  static const char* const   names[] = {"t0", "t1", "t2", "t3"};
+  static char                names[WIRED_MOQTRUN_RDV_PER_SESSION][3];
   mups_init();
   mtst_join(SESS_C);
   mtst_join(MRP_E);
   mtns_pub(MRP_E, MRDV_S1, "chat/room2");
   for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++) {
+    names[i][0] = 't';
+    names[i][1] = (char)('0' + i);
     mrp_sub_ok(SESS_A, "room1", names[i], MTRQ_ID(10 + i), 7 + i);
   }
   mrp_sub_ok(MRP_E, "room2", "x", MTRQ_ID(20), 7);

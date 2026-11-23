@@ -25,19 +25,19 @@ static void mtcf_part(
  * request is held meanwhile, then the rest: the session establishes and
  * the held SUBSCRIBE is answered. */
 static void test_mtcf_uni_split_in_type(void) {
-  wired_moqt_hub hub;
-  u8             msg[16];
-  usz            n = mtctl_uni_ctl(msg, 0, 0);
-  mtcf_token_session(&hub);
-  mtcf_part(&hub, 2, msg, 0, 1);
+  wired_moqt_hub* hub = &mt_hub_shared;
+  u8              msg[16];
+  usz             n = mtctl_uni_ctl(msg, 0, 0);
+  mtcf_token_session(hub);
+  mtcf_part(hub, 2, msg, 0, 1);
   mt_feed(
-      &hub, SESS_A, 0,
+      hub, SESS_A, 0,
       moqtrun_test_stamped(
           g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
       0);
   CHECK(moqtrun_test_count_kind(12) == 0); /* held until established */
-  mtcf_part(&hub, 2, msg, 1, n);
-  CHECK(moqsess_established(&hub.peers[0].sess));
+  mtcf_part(hub, 2, msg, 1, n);
+  CHECK(moqsess_established(&hub->peers[0].sess));
   CHECK(moqtrun_test_count_kind(12) == 1); /* the held SUBSCRIBE answered */
   CHECK(moqtrun_test_count_kind(11) == 0);
 }
@@ -45,43 +45,43 @@ static void test_mtcf_uni_split_in_type(void) {
 /* The bidi twin: a SETUP-first client bidi split inside its Type is the
  * client control stream, not a request stream. */
 static void test_mtcf_bidi_split_in_type(void) {
-  wired_moqt_hub hub;
-  u8             msg[16];
-  usz            n = mtctl_setup_msg(msg, 0, 0);
-  mtcf_token_session(&hub);
-  mtcf_part(&hub, 0, msg, 0, 1);
-  mtcf_part(&hub, 0, msg, 1, n);
-  CHECK(moqsess_established(&hub.peers[0].sess));
-  CHECK(hub.peers[0].peer_ctl_set && hub.peers[0].peer_ctl_stream_id == 0);
+  wired_moqt_hub* hub = &mt_hub_shared;
+  u8              msg[16];
+  usz             n = mtctl_setup_msg(msg, 0, 0);
+  mtcf_token_session(hub);
+  mtcf_part(hub, 0, msg, 0, 1);
+  mtcf_part(hub, 0, msg, 1, n);
+  CHECK(moqsess_established(&hub->peers[0].sess));
+  CHECK(hub->peers[0].peer_ctl_set && hub->peers[0].peer_ctl_stream_id == 0);
   CHECK(moqtrun_test_count_kind(12) == 0); /* no request reply */
   CHECK(moqtrun_test_count_kind(11) == 0);
 }
 
 /* Regression guard: a split right after the whole Type varint. */
 static void test_mtcf_uni_split_after_type(void) {
-  wired_moqt_hub hub;
-  u8             msg[16];
-  usz            n = mtctl_uni_ctl(msg, 0, 0);
-  mtcf_token_session(&hub);
-  mtcf_part(&hub, 2, msg, 0, 2);
-  mtcf_part(&hub, 2, msg, 2, n);
-  CHECK(moqsess_established(&hub.peers[0].sess));
-  CHECK(hub.peers[0].setup_recv == 1);
+  wired_moqt_hub* hub = &mt_hub_shared;
+  u8              msg[16];
+  usz             n = mtctl_uni_ctl(msg, 0, 0);
+  mtcf_token_session(hub);
+  mtcf_part(hub, 2, msg, 0, 2);
+  mtcf_part(hub, 2, msg, 2, n);
+  CHECK(moqsess_established(&hub->peers[0].sess));
+  CHECK(hub->peers[0].setup_recv == 1);
   CHECK(moqtrun_test_count_kind(11) == 0);
 }
 
 /* One byte per delivery, MOQT_IMPLEMENTATION included. */
 static void test_mtcf_uni_byte_at_a_time(void) {
   static const u8 impl[] = {0x07, 0x01, 'w'};
-  wired_moqt_hub  hub;
+  wired_moqt_hub* hub    = &mt_hub_shared;
   u8              msg[16];
   usz             n = mt_spell(msg, mtctl_uni_ctl(msg, impl, sizeof impl));
-  mtcf_token_session(&hub);
+  mtcf_token_session(hub);
   for (usz i = 0; i < n; i++) {
-    mtcf_part(&hub, 2, msg, i, i + 1);
+    mtcf_part(hub, 2, msg, i, i + 1);
   }
-  CHECK(moqsess_established(&hub.peers[0].sess));
-  CHECK(hub.peers[0].peer_has_impl == 1);
+  CHECK(moqsess_established(&hub->peers[0].sess));
+  CHECK(hub->peers[0].peer_has_impl == 1);
   CHECK(moqtrun_test_count_kind(11) == 0);
 }
 
@@ -225,21 +225,21 @@ static void mtcf_split_all(void) {
  * relayed and the session stays open (no UNKNOWN_UNI close on the second
  * piece). */
 static void test_mtcf_subgroup_split_after_type(void) {
-  static const u8* d = g_moqt_data_subgroup_stream_basic;
-  static const usz n = G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN;
-  wired_moqt_hub   hub;
+  static const u8* d   = g_moqt_data_subgroup_stream_basic;
+  static const usz n   = G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN;
+  wired_moqt_hub*  hub = &mt_hub_shared;
   moqtrun_test_reset();
-  wired_moqt_init(&hub, moqtrun_test_io());
-  moqtrun_test_publish_alice(&hub);
-  moqtrun_test_session(&hub, SESS_B);
+  wired_moqt_init(hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(hub);
+  moqtrun_test_session(hub, SESS_B);
   mt_feed(
-      &hub, SESS_B, moqtrun_test_last_kind(1)->stream_id,
+      hub, SESS_B, moqtrun_test_last_kind(1)->stream_id,
       moqtrun_test_stamped(
           g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
       0);
   moqtrun_test_reset();
-  mt_feed(&hub, SESS_A, 999, wired_span_of(d, 1), 0);
-  mt_feed(&hub, SESS_A, 999, wired_span_of(d + 1, n - 1), 1);
+  mt_feed(hub, SESS_A, 999, wired_span_of(d, 1), 0);
+  mt_feed(hub, SESS_A, 999, wired_span_of(d + 1, n - 1), 1);
   CHECK(moqtrun_test_count_kind(11) == 0);
   /* the whole header opens the relayed stream, the Object follows */
   CHECK(moqtrun_test_count_kind(5) == 1 && moqtrun_test_count_kind(3) == 1);
@@ -254,23 +254,23 @@ static void test_mtcf_subgroup_split_after_type(void) {
  * after the second, it waits again; the third completes it and the
  * stream relays as one. */
 static void test_mtcf_subgroup_split_three(void) {
-  static const u8* d = g_moqt_data_subgroup_stream_basic;
-  static const usz n = G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN;
-  wired_moqt_hub   hub;
+  static const u8* d   = g_moqt_data_subgroup_stream_basic;
+  static const usz n   = G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN;
+  wired_moqt_hub*  hub = &mt_hub_shared;
   moqtrun_test_reset();
-  wired_moqt_init(&hub, moqtrun_test_io());
-  moqtrun_test_publish_alice(&hub);
-  moqtrun_test_session(&hub, SESS_B);
+  wired_moqt_init(hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(hub);
+  moqtrun_test_session(hub, SESS_B);
   mt_feed(
-      &hub, SESS_B, moqtrun_test_last_kind(1)->stream_id,
+      hub, SESS_B, moqtrun_test_last_kind(1)->stream_id,
       moqtrun_test_stamped(
           g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
       0);
   moqtrun_test_reset();
-  mt_feed(&hub, SESS_A, 999, wired_span_of(d, 1), 0);
-  mt_feed(&hub, SESS_A, 999, wired_span_of(d + 1, 1), 0);
+  mt_feed(hub, SESS_A, 999, wired_span_of(d, 1), 0);
+  mt_feed(hub, SESS_A, 999, wired_span_of(d + 1, 1), 0);
   CHECK(g_n_calls == 0);
-  mt_feed(&hub, SESS_A, 999, wired_span_of(d + 2, n - 2), 1);
+  mt_feed(hub, SESS_A, 999, wired_span_of(d + 2, n - 2), 1);
   CHECK(moqtrun_test_count_kind(11) == 0);
   CHECK(moqtrun_test_count_kind(5) == 1 && moqtrun_test_count_kind(3) == 1);
 }

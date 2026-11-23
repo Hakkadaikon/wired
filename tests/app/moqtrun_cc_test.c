@@ -8,11 +8,11 @@
 /* A token session on SESS_A whose client SETUP carries the Setup Option
  * bytes opt; the close code, ~0 for none. */
 static u64 mtcc_setup(const u8* opt, usz n) {
-  wired_moqt_hub hub;
-  u8             msg[80];
-  usz            len = mtctl_uni_ctl(msg, opt, n);
-  mtcf_token_session(&hub);
-  mtcf_part(&hub, 2, msg, 0, len);
+  wired_moqt_hub* hub = &mt_hub_shared;
+  u8              msg[80];
+  usz             len = mtctl_uni_ctl(msg, opt, n);
+  mtcf_token_session(hub);
+  mtcf_part(hub, 2, msg, 0, len);
   return moqtrun_test_close_code();
 }
 

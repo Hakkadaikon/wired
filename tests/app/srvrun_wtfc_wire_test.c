@@ -7,8 +7,9 @@
  *
  * Test list:
  * - a session holding 20 long-lived bidi streams stays open, none refused.
- * - the 25th bidi stream closes the session with WT_FLOW_CONTROL_ERROR.
- * - an ended stream draws WT_MAX_STREAMS(25) in the same step. */
+ * - the bidi stream past the limit (24 by default) closes the session
+ *   with WT_FLOW_CONTROL_ERROR.
+ * - an ended stream draws WT_MAX_STREAMS(limit + 1) in the same step. */
 
 /* A real client: SETTINGS_WT_INITIAL_* latched (as priority_ctrl.c does),
  * then an Extended CONNECT on stream 0 accepted by srvrun_start_wt. */
@@ -47,7 +48,7 @@ static void test_srvrun_wtfc_wire_holds_long_lived_bidi(void) {
   CHECK(sr_kept_reset_of(c, 80) == 0);
 }
 
-/* The 25th bidi stream is past the limit of 24: the session closes with
+/* The bidi stream past the advertised limit: the session closes with
  * WT_FLOW_CONTROL_ERROR (the stream itself is refused by the full table). */
 static void test_srvrun_wtfc_wire_bidi_past_limit_closes(void) {
   srvrun_conn* c = fc_wire_session();
@@ -59,7 +60,7 @@ static void test_srvrun_wtfc_wire_bidi_past_limit_closes(void) {
   fc_check_closed(c, 4);
 }
 
-/* A stream that ends (FIN, delivered, reaped) draws WT_MAX_STREAMS(25) on
+/* A stream that ends (FIN, delivered, reaped) draws WT_MAX_STREAMS(+1) on
  * the CONNECT stream in the same step. */
 static void test_srvrun_wtfc_wire_stream_end_raises(void) {
   srvrun_conn* c = fc_wire_session();

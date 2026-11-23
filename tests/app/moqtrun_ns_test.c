@@ -416,6 +416,9 @@ static void test_moqtrun_ns_per_session_cap(void) {
   CHECK(mtrq_used() == WIRED_MOQTRUN_MAX_REQS_PER_SESSION);
   CHECK(mtrq_reset_code(MTRQ_ID(WIRED_MOQTRUN_MAX_REQS_PER_SESSION)) == 0x9);
   mtns_sub(SESS_B, MTRQ_S1, "");
+  for (usz i = 0; i < 4; i++) { /* pushes past one reply queue: later rounds */
+    wired_moqt_tick(&mtst_hub, 0);
+  }
   /* "OK|NS:na|NS:nb|..." for each namespace that took a slot */
   static char want[3 + WIRED_MOQTRUN_MAX_REQS_PER_SESSION * 6 + 1];
   usz         w = 3;

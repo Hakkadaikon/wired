@@ -663,7 +663,7 @@ static void test_moqtrun_fill_slot_full_held(void) {
   mfill_occupy_slots();
   moqctl_params sub = mfill_params(&fill, 0);
   u64           rid = mfill_subscribe_req(&sub);
-  CHECK(mfill_opens() == WIRED_MOQTRUN_MAX_FETCHES); /* held: no 9th open */
+  CHECK(mfill_opens() == WIRED_MOQTRUN_MAX_FETCHES); /* held: none past cap */
   CHECK(moqtrun_test_count_kind(7) == 0);            /* and no reset */
   wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mfill_sid(0), 0, 0);
   g_stream_send_ok_n = -1;
@@ -743,16 +743,20 @@ static void mfill_fills_on(wired_wt_session* s, usz n) {
 }
 
 /* Every serving slot busy (mfill_occupy_slots) and every fetch_waits[]
- * slot held by a waiting fill of C's or D's (one SUBSCRIBE and at most
- * WIRED_MOQTRUN_MAX_REQ_UPDATES REQUEST_UPDATEs each). Sends stay
- * refused (g_stream_send_ok_n 0). */
+ * slot held by a waiting fill of other sessions' (one SUBSCRIBE and at
+ * most WIRED_MOQTRUN_MAX_REQ_UPDATES REQUEST_UPDATEs each, so as many
+ * sessions as that takes). Sends stay refused (g_stream_send_ok_n 0). */
 static void mfill_tables_full(void) {
-  usz from_c = 1 + WIRED_MOQTRUN_MAX_REQ_UPDATES;
-  mtst_join(SESS_C);
-  mtst_join(SESS_D);
+  const usz per  = 1 + WIRED_MOQTRUN_MAX_REQ_UPDATES;
+  usz       left = WIRED_MOQTRUN_MAX_FETCHES;
   mfill_occupy_slots();
-  mfill_fills_on(SESS_C, from_c - 1);
-  mfill_fills_on(SESS_D, WIRED_MOQTRUN_MAX_FETCHES - from_c - 1);
+  for (usz k = 0; left; k++) {
+    wired_wt_session* s = (wired_wt_session*)(usz)(300 + k);
+    usz               n = left < per ? left : per;
+    mtst_join(s);
+    mfill_fills_on(s, n - 1);
+    left -= n;
+  }
   CHECK(mfill_waits_used() == WIRED_MOQTRUN_MAX_FETCHES);
 }
 

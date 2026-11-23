@@ -7,14 +7,14 @@
 
 /* The hub's SETUP to a peer that negotiated tok, decoded; 1 iff found. */
 static int mtxv_setup_of(const char* tok, moqctl_setup* s) {
-  wired_moqt_hub hub;
-  usz            off = 0, boff = 0;
-  u64            type;
-  wired_span     body;
+  wired_moqt_hub* hub = &mt_hub_shared;
+  usz             off = 0, boff = 0;
+  u64             type;
+  wired_span      body;
   moqtrun_test_reset();
-  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_init(hub, moqtrun_test_io());
   wired_moqt_on_session(
-      &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto(tok));
+      hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto(tok));
   const moqtrun_test_call* c = moqtrun_test_last_kind(5);
   if (!c) {
     return 0;

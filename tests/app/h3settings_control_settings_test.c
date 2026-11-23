@@ -102,7 +102,8 @@ static u64 hcs_value(const h3_settings* s, u64 id) {
 
 /* draft-ietf-webtrans-http3-16 5.5.1-5.5.3: the initial session limits are
  * what the server's reassembly tables hold -- 24 bidi, 6 uni, and one
- * 49152-byte window per stream (30 * 49152) -- not the 2^60 / 2^62-1
+ * 49152-byte window per stream (30 * 49152; the room profile 47, 9 and
+ * 56 * 49152) -- not the 2^60 / 2^62-1
  * maxima a client could overrun the tables under (srvrun raises them by
  * capsule instead, srvrun_wtfc_test.c). */
 static void hcs_wt_limits_advertised(void) {
@@ -112,9 +113,9 @@ static void hcs_wt_limits_advertised(void) {
   CHECK(h3settings_control_stream(1, buf, sizeof(buf), &n) == 1);
   h3_stream_type_parse(wired_span_of(buf, n), &(u64){0}, &consumed);
   CHECK(h3_settings_get(buf + consumed, n - consumed, &s) > 0);
-  CHECK(hcs_value(&s, 0x2b65) == 24);
-  CHECK(hcs_value(&s, 0x2b64) == 6);
-  CHECK(hcs_value(&s, 0x2b61) == 1474560);
+  CHECK(hcs_value(&s, 0x2b65) == H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE);
+  CHECK(hcs_value(&s, 0x2b64) == H3SETTINGS_WT_INIT_STREAMS_UNI_VALUE);
+  CHECK(hcs_value(&s, 0x2b61) == H3SETTINGS_WT_INIT_DATA_VALUE);
 }
 
 /* The shared control-stream buffer size holds the WT SETTINGS whatever

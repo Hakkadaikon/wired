@@ -259,9 +259,11 @@ static void test_moqtrun_upsub_open_stream_before_ok(void) {
  * subscription is cancelled and B refused EXCESSIVE_LOAD (draft-22 9.4
  * relays MAY refuse under load) -- never left waiting. */
 static void test_moqtrun_upsub_ok_no_track_slot(void) {
-  static const char* const names[] = {"p0", "p1", "p2", "p3", "p4"};
+  static char names[WIRED_MOQTRUN_MAX_TRACKS_PER_PEER][3];
   mups_init();
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; i++) {
+    names[i][0]  = 'p';
+    names[i][1]  = (char)('0' + i);
     moqctl_ftn f = mtst_ftn("chat", "room1", names[i]);
     mtst_publish(SESS_A, MTRQ_ID(i), &f, 20 + i);
   }
@@ -1259,9 +1261,10 @@ static void test_moqtrun_upsub_goaway(void) {
 
 /* B SUBSCRIBEs n distinct tracks chat/<room>/t<a+i> on request streams
  * MTRQ_ID(at + i), each sent upstream to announcer s; s Establishes the
- * first ones it has track slots for (WIRED_MOQTRUN_MAX_TRACKS_PER_PEER),
+ * first est (at most its WIRED_MOQTRUN_MAX_TRACKS_PER_PEER track slots),
  * the rest stay pending. */
-static void mups_ups_on(wired_wt_session* s, const char* room, usz at, usz n) {
+static void mups_ups_on(
+    wired_wt_session* s, const char* room, usz at, usz n, usz est) {
   static char      names[WIRED_MOQTRUN_MAX_UP][3];
   moqctl_subscribe m;
   for (usz i = 0; i < n; i++) {
@@ -1273,15 +1276,20 @@ static void mups_ups_on(wired_wt_session* s, const char* room, usz at, usz n) {
     mtst_subscribe_p(SESS_B, MTRQ_ID(at + i), &f, mtst_rid += 4, 0);
     i64 sid = mups_up(s, i, &m);
     CHECK(sid >= 0);
-    if (i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER) {
+    if (i < est) {
       mtst_send(s, (u64)sid, MOQCTL_T_SUBSCRIBE_OK, mups_enc_ok, &ok);
     }
   }
 }
 
+_Static_assert(
+    WIRED_MOQTRUN_MAX_UP > 2 * WIRED_MOQTRUN_MAX_TRACKS_PER_PEER + 1,
+    "A holds an Established track and a pending one");
+
 /* With every upstream SUBSCRIBE slot (WIRED_MOQTRUN_MAX_UP) in use --
  * Established tracks filling C's and D's track slots (chat/room2,
- * chat/room3) and A's (chat/room1), A holding one more still pending, so B
+ * chat/room3) and the rest of the table on A (chat/room1), A holding one
+ * of them still pending, so B
  * keeps under its WIRED_MOQTRUN_RDV_PER_SESSION waits -- a SUBSCRIBE of yet
  * another announced track cannot be sent upstream: B is refused at once
  * and nothing more goes to A. */
@@ -1295,9 +1303,9 @@ static void test_moqtrun_upsub_up_table_full(void) {
   mtst_join(SESS_D);
   mtns_pub(SESS_C, MRDV_S1, "chat/room2");
   mtns_pub(SESS_D, MRDV_S1, "chat/room3");
-  mups_ups_on(SESS_C, "room2", 0, per);
-  mups_ups_on(SESS_D, "room3", per, per);
-  mups_ups_on(SESS_A, "room1", 2 * per, na);
+  mups_ups_on(SESS_C, "room2", 0, per, per);
+  mups_ups_on(SESS_D, "room3", per, per, per);
+  mups_ups_on(SESS_A, "room1", 2 * per, na, na - 1);
   CHECK(mups_used() == WIRED_MOQTRUN_MAX_UP);
   mtst_subscribe_p(SESS_B, sid, &f, mtst_rid += 4, 0);
   CHECK(mtrq_type_on(12, sid) == MOQCTL_T_REQUEST_ERROR);

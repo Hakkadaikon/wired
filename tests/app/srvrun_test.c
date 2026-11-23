@@ -24295,8 +24295,8 @@ static void test_srvrun_wt_stream_hold_unknown_stream_is_negative(void) {
 
 /* SLOT RELEASE + RECLAIM (RFC 9000 2.1/19.8): once a WT bidi slot's FIN has
  * been delivered to the app, srvrun_offer_and_deliver_wt_slot (reached via
- * srvrun_offer_wt_streams) frees it -- a 5th distinct WT bidi stream (past
- * WIRED_SRVLOOP_MAX_WT_STREAMS == 4) can then claim the freed slot rather
+ * srvrun_offer_wt_streams) frees it -- one more distinct WT bidi stream
+ * (past WIRED_SRVLOOP_MAX_WT_STREAMS) can then claim the freed slot rather
  * than being dropped by a permanently-exhausted table. */
 static void test_srvrun_wt_slot_released_after_fin_and_reclaimed(void) {
   struct lp_fix f;
@@ -24356,8 +24356,10 @@ static void test_srvrun_wt_slot_released_after_fin_and_reclaimed(void) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     CHECK(c->l.wt_streams[i].in_use == 0);
   }
-  /* a fresh (5th) stream id now successfully claims a slot. */
-  CHECK(wired_srvloop_wt_slot_claim(&c->l, 100) >= 0);
+  /* a fresh stream id (past every released one) now claims a slot. */
+  CHECK(
+      wired_srvloop_wt_slot_claim(
+          &c->l, 4 + 4 * (u64)WIRED_SRVLOOP_MAX_WT_STREAMS) >= 0);
 }
 
 /* STALE ID REJECTED: once a stream id has been released, a late/duplicate
@@ -26449,7 +26451,7 @@ static void test_srvrun_wt_stream_churn_bounded_by_slot_table(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
   for (u64 round = 0; round < 3; round++) {
-    u64 base = 100 + round * 100;
+    u64 base = 100 + round * 4 * (WIRED_SRVLOOP_MAX_WT_STREAMS + 1);
     for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
       CHECK(wired_srvloop_wt_slot_claim(&c->l, base + 4 * i) >= 0);
     }

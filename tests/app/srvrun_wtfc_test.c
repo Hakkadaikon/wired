@@ -7,8 +7,9 @@
  * sr_recv_stream, sr_sl_*), included earlier in the same unity TU.
  *
  * Test list:
- * - streams: a client bidi stream past the limit (24, the whole table: the
- *   table refuses it) and a uni one past 6 close the session with
+ * - streams: a client bidi stream past the limit (24 by default, the
+ *   whole table: the table refuses it) and a uni one past 6 close the
+ *   session with
  *   WT_FLOW_CONTROL_ERROR; up to the limit it stays open; a stream the
  *   table refused while the client was inside its limit (server streams
  *   held the slots) is counted and owed back, the session stays; with two
