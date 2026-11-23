@@ -16,8 +16,17 @@
  * @return 1 ok, 0 if the RNG failed. */
 int p256_keygen(u8 priv[32]);
 
+/** One rejection-sampling test of p256_keygen: 1 if 0 < cand < n.
+ * Constant-time; the result is declassified (p256_ct_public) because a
+ * rejected candidate is discarded and an accepted one is only known to be in
+ * range.
+ * @param cand the 32-byte big-endian candidate scalar
+ * @return 1 accept, 0 reject. */
+int p256_keygen_accept(const u8 cand[32]);
+
 /** Encode the public key for private scalar priv as a SEC1 uncompressed
- * point (0x04 || X || Y).
+ * point (0x04 || X || Y). Constant-time: out is written even when the
+ * return is 0 (then X and Y are all-zero).
  * @param out receives the 65-byte encoding
  * @param priv the 32-byte big-endian private scalar
  * @return 1 ok, 0 if priv*G is the point at infinity (priv invalid). */
@@ -31,11 +40,13 @@ int p256_pubkey_encode(u8 out[P256_PUBKEY_LEN], const u8 priv[32]);
 int p256_pubkey_decode(const u8 in[P256_PUBKEY_LEN], ec_point* out);
 
 /** ECDHE shared secret: out = X(priv * peer_pub), the big-endian X
- * coordinate of the scalar product (RFC 8446 7.4.2 / SEC1 3.3.1).
+ * coordinate of the scalar product (RFC 8446 7.4.2 / SEC1 3.3.1). Once
+ * peer_pub decodes, out is written even when the return is 0 (all-zero).
  * @param out receives the 32-byte big-endian shared secret
  * @param priv the caller's 32-byte big-endian private scalar
  * @param peer_pub the peer's SEC1-encoded public key
- * @return 1 ok, 0 if peer_pub does not decode to a valid curve point. */
+ * @return 1 ok, 0 if peer_pub does not decode to a valid curve point or
+ * priv * peer_pub is the point at infinity (priv == 0 mod n). */
 int p256_ecdh(
     u8 out[32], const u8 priv[32], const u8 peer_pub[P256_PUBKEY_LEN]);
 

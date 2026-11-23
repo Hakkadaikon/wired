@@ -31,13 +31,9 @@ static const u8 P256_TERMS[9][8] = {
     {13, 14, 15, 8, 9, 10, 0xff, 12},         /* s8 (subtract) */
     {14, 15, 0xff, 9, 10, 11, 0xff, 13}};     /* s9 (subtract) */
 
-/* A 256-bit term is < 2^256 < 2p, so at most one subtraction of p brings it
+/* A 256-bit term is < 2^256 < 2p, so one masked subtraction of p brings it
  * below p (the precondition of p256_fp_add / p256_fp_sub). */
-static void reduce_once_p(p256_fe r) {
-  if (p256_fe_ge(r, p256_p)) {
-    p256_fe_sub_raw(r, r, p256_p);
-  }
-}
+static void reduce_once_p(p256_fe r) { p256_fe_csub(r, r, 0, p256_p); }
 
 /* Build term row `t` (0..8) from the 512-bit accumulator into fe out, reduced
  * below p so it satisfies the < p precondition of p256_fp_add / p256_fp_sub. */

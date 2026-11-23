@@ -3,15 +3,8 @@
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
 #include "crypto/asymmetric/ecc/p256fixed/p256fixed.h"
 
-/* FIPS 186-4 Section 6.4.2. Every input here is public (Q, r, s, hash), so
- * u1*G takes the windowed fixed-base table (p256fixed) instead of the
- * generic ladder; u2*Q still runs the constant-time ec_mul ladder shared
- * with ECDH / key generation, which this file does not touch. */
-
-/* 1 if 1 <= v <= n-1. */
-static int scalar_in_range(const p256_fe v) {
-  return !p256_fp_is_zero(v) && p256_fp_lt(v, p256_n);
-}
+/* FIPS 186-4 Section 6.4.2. Variable time, public inputs only: every input
+ * here is public (Q, r, s, hash), so the checks below may branch on them. */
 
 /* Load Q; valid only if on the curve and not infinity. */
 static int load_pubkey(ec_point* q, const u8 px[32], const u8 py[32]) {
@@ -55,7 +48,7 @@ static int inputs_ok(
     const p256_fe s,
     const u8      px[32],
     const u8      py[32]) {
-  if (!scalar_in_range(r) || !scalar_in_range(s)) {
+  if (!p256_scalar_in_range(r) || !p256_scalar_in_range(s)) {
     return 0;
   }
   return load_pubkey(q, px, py);

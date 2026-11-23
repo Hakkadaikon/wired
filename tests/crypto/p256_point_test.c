@@ -166,7 +166,38 @@ static void test_p256_add_inverse_is_infinity(void) {
   CHECK(r.inf == 1);
 }
 
+/* Scalars at the top of the range, through the masked ladder: (n-1)G = -G =
+ * (Gx, p - Gy) and (n-2)G = -2G. k = n-1 makes the last step's sum r0 + r1
+ * = nG an inverse pair (H = 0); k = n and k = 0 give infinity with x = y = 0
+ * (Z = 0 inverts to 0). */
+static void p256pt_mul_be(ec_point* r, const p256_fe k) {
+  u8 kb[32];
+  p256_fp_to_be(kb, k);
+  ec_mul(r, kb, &p256_g);
+}
+
+static void test_p256_mul_top_scalars(void) {
+  static const p256_fe zero = {0};
+  p256_fe              k, ny;
+  ec_point             r, d;
+  p256_fp_set(k, p256_n);
+  k[0] -= 1;
+  p256pt_mul_be(&r, k);
+  p256_fp_sub(ny, (fpab){zero, p256_g.y}, p256_p);
+  CHECK(!r.inf && p256_fp_eq(r.x, p256_g.x) && p256_fp_eq(r.y, ny));
+  k[0] -= 1;
+  p256pt_mul_be(&r, k);
+  ec_double(&d, &p256_g);
+  p256_fp_sub(ny, (fpab){zero, d.y}, p256_p);
+  CHECK(!r.inf && p256_fp_eq(r.x, d.x) && p256_fp_eq(r.y, ny));
+  p256pt_mul_be(&r, p256_n);
+  CHECK(r.inf && p256_fp_is_zero(r.x) && p256_fp_is_zero(r.y));
+  p256pt_mul_be(&r, zero);
+  CHECK(r.inf && p256_fp_is_zero(r.x) && p256_fp_is_zero(r.y));
+}
+
 void test_p256_point(void) {
+  test_p256_mul_top_scalars();
   test_p256_add_inverse_is_infinity();
   test_p256_g_on_curve();
   test_p256_double_eq_add();

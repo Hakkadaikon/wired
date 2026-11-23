@@ -2,7 +2,6 @@
 
 static void cios_mul_row(u64 t[6], u64 ai, const p256_fe b);
 static void cios_reduce_row(u64 t[6], const mont* mont);
-static int  mont_needs_sub(const u64 t[6], const p256_fe m);
 static void mont_finalize(p256_fe r, const u64 t[6], const p256_fe m);
 
 /* --- Montgomery arithmetic over an arbitrary odd modulus -----------------
@@ -42,21 +41,10 @@ static void cios_reduce_row(u64 t[6], const mont* mont) {
   t[5] = 0;
 }
 
-/* 1 if the CIOS result t (low 4 limbs + overflow t[4]) is >= m. */
-static int mont_needs_sub(const u64 t[6], const p256_fe m) {
-  return t[4] != 0 || p256_fe_ge(t, m);
-}
-
-/* Move the 4 low limbs of t into r, conditionally subtracting m once so r < m.
- */
+/* r = t mod m for the CIOS result t = t[4] * 2^256 + t[0..3] < 2m: one masked
+ * subtraction, constant-time. */
 static void mont_finalize(p256_fe r, const u64 t[6], const p256_fe m) {
-  int sub = mont_needs_sub(t, m);
-  for (usz i = 0; i < 4; i++) {
-    r[i] = t[i];
-  }
-  if (sub) {
-    p256_fe_sub_raw(r, r, m);
-  }
+  p256_fe_csub(r, t, t[4], m);
 }
 
 /* r = a * b * R^-1 mod m (Montgomery product). a,b < m. */
@@ -70,9 +58,7 @@ void mont_mul(p256_fe r, fpab ab, const mont* mont) {
 }
 
 /* Two CIOS products: a*R (to Montgomery form via rr), then (aR)*b*R^-1 =
- * a*b mod n. Side-channel posture matches mont_mul's own
- * (mont_finalize's public-modulus conditional subtract) -- neither
- * strengthened nor weakened by this fast path. */
+ * a*b mod n. Constant-time like mont_mul. */
 void p256_fp_mul_n(p256_fe r, fpab ab) {
   p256_fe am;
   mont_mul(am, (fpab){ab.a, p256_mont_n.rr}, &p256_mont_n);
@@ -80,8 +66,5 @@ void p256_fp_mul_n(p256_fe r, fpab ab) {
 }
 
 void p256_fp_reduce_n(p256_fe r, const p256_fe a) {
-  p256_fp_set(r, a);
-  if (p256_fe_ge(r, p256_n)) {
-    p256_fe_sub_raw(r, r, p256_n);
-  }
+  p256_fe_csub(r, a, 0, p256_n);
 }

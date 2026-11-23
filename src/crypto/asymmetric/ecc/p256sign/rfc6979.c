@@ -45,11 +45,16 @@ static void ps_mix(
   hmac_sha256(wired_span_of(k, 32), wired_span_of(v, 32), v);
 }
 
-/* 1 if 1 <= cand < n (in range as a nonce). */
+/* 1 if 1 <= cand < n (in range as a nonce). The test is constant-time and
+ * only its result is declassified: an out-of-range candidate is discarded
+ * (step h.3), and an in-range one is only known to be in range. */
 static int ps_k_in_range(const u8 cand[32]) {
   p256_fe c;
+  int     ok;
   p256_fp_from_be(c, cand);
-  return !p256_fp_is_zero(c) && p256_fp_lt(c, p256_n);
+  ok = p256_scalar_in_range(c);
+  p256_ct_public(&ok, sizeof ok);
+  return ok;
 }
 
 /* RFC 6979 step h.3: on reject, K = HMAC_K(V||0x00); V = HMAC_K(V). */
@@ -62,12 +67,17 @@ static void ps_advance(u8 k[32], u8 v[32]) {
 }
 
 /* 1 if v is both in [1,n-1] and accepted by the caller's suitability check
- * (RFC 6979 Section 3.2 step h.3 / Section 3.4). */
+ * (RFC 6979 Section 3.2 step h.3 / Section 3.4). The verdict is declassified
+ * like the range test: a rejected v is discarded, and an accepted one only
+ * shows r != 0 and s != 0, which the published signature shows anyway. */
 static int ps_accept(const u8 v[32], p256sign_k_ok ok, void* ctx) {
+  int acc;
   if (!ps_k_in_range(v)) {
     return 0;
   }
-  return ok(v, ctx);
+  acc = ok(v, ctx);
+  p256_ct_public(&acc, sizeof acc);
+  return acc;
 }
 
 /* RFC 6979 step h: T = HMAC(K, V); loop via ps_advance until ps_accept. */

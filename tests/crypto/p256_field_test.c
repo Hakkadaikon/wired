@@ -42,6 +42,79 @@ static void test_p256_field_addsub(void) {
   CHECK(p256_fp_eq(d, a));
 }
 
+/* The masked add/sub/reduce at the modulus boundaries, pinned to values
+ * computed by hand: (m-1)+1 = 0, (m-1)+(m-1) = m-2, 0-1 = m-1, 1-(m-1) = 2
+ * for m = p and n; n mod n = 0, (2^256-1) mod n = 2^256-1-n; inv_p(0) = 0
+ * (infinity's Z in jac_to_affine); the scalar range [1, n-1]; cmov. */
+static void p256f_minus(fe r, const fe m, u64 k) {
+  for (usz i = 0; i < 4; i++) {
+    r[i] = m[i];
+  }
+  r[0] -= k; /* m[0] >= k for p and n, no borrow */
+}
+
+static void p256f_edges_mod(const fe m) {
+  fe zero = {0}, one = {1, 0, 0, 0}, two = {2, 0, 0, 0}, m1, m2, r;
+  p256f_minus(m1, m, 1);
+  p256f_minus(m2, m, 2);
+  p256_fp_add(r, (fpab){m1, one}, m);
+  CHECK(p256_fp_is_zero(r));
+  p256_fp_add(r, (fpab){m1, m1}, m);
+  CHECK(p256_fp_eq(r, m2));
+  p256_fp_sub(r, (fpab){zero, one}, m);
+  CHECK(p256_fp_eq(r, m1));
+  p256_fp_sub(r, (fpab){one, m1}, m);
+  CHECK(p256_fp_eq(r, two));
+}
+
+static void test_p256_field_ct_edges(void) {
+  static const fe ones = {~0ULL, ~0ULL, ~0ULL, ~0ULL};
+  static const fe zero = {0}, one = {1, 0, 0, 0};
+  fe              r, want, n1;
+  p256f_edges_mod(p256_p);
+  p256f_edges_mod(p256_n);
+  p256_fp_reduce_n(r, p256_n);
+  CHECK(p256_fp_is_zero(r));
+  p256f_minus(n1, p256_n, 1);
+  p256_fp_reduce_n(r, n1);
+  CHECK(p256_fp_eq(r, n1));
+  p256_fp_reduce_n(r, ones);
+  for (usz i = 0; i < 4; i++) {
+    want[i] = ~p256_n[i]; /* 2^256-1-n, limb-wise with no borrow */
+  }
+  CHECK(p256_fp_eq(r, want));
+  p256_fp_inv_p(r, zero);
+  CHECK(p256_fp_is_zero(r));
+  CHECK(p256_scalar_in_range(zero) == 0);
+  CHECK(p256_scalar_in_range(one) == 1);
+  CHECK(p256_scalar_in_range(n1) == 1);
+  CHECK(p256_scalar_in_range(p256_n) == 0);
+  CHECK(p256_scalar_in_range(ones) == 0);
+  p256_fp_set(r, one);
+  p256_fp_cmov(r, n1, 0);
+  CHECK(p256_fp_eq(r, one));
+  p256_fp_cmov(r, n1, 1);
+  CHECK(p256_fp_eq(r, n1));
+}
+
+/* mont_finalize's carry limb: CIOS ends with t = t[4]*2^256 + t[0..3] < 2m,
+ * and t[4] = 1 exactly when t lands in [2^256, 2m). For m = n that is
+ * (n-1)^2 in test_p256_field_mul_all_ones_limbs. For m = p, 2p - 2^256 is
+ * only ~2^-32 of the range, so the operand below was found by a search over
+ * a = b near p with a big-integer model of the same CIOS rows (t[4] == 1
+ * after the last row); want = a^2 * 2^-256 mod p. */
+static void test_p256_field_mont_carry_limb_p(void) {
+  static const fe a = {
+      0x91b7584a2265b1f4ULL, 0xcd613e31d8f16adfULL, 0x1027c4d1c386bbc4ULL,
+      0xfffffffeffffff83ULL};
+  static const fe want = {
+      0xd39b3517f25779deULL, 0x9ea6db5dabf15ee7ULL, 0x6e86fd71b343b77eULL,
+      0xcf53efdeac963da6ULL};
+  fe r;
+  mont_mul(r, (fpab){a, a}, &p256_mont_p);
+  CHECK(p256_fp_eq(r, want));
+}
+
 /* be round-trip: bytes -> fe -> bytes is identity. */
 static void test_p256_field_bytes(void) {
   fe a;
@@ -215,6 +288,8 @@ static void test_p256_field_mul_all_ones_limbs(void) {
 }
 
 void test_p256_field(void) {
+  test_p256_field_ct_edges();
+  test_p256_field_mont_carry_limb_p();
   test_p256_field_inv();
   test_p256_field_addsub();
   test_p256_field_bytes();

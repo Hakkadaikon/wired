@@ -4,6 +4,7 @@
 /* Internal to the p256_point*.c pieces of this directory: shared types, macros
  * and the functions and tables more than one piece uses. Not public API. */
 
+#include "crypto/asymmetric/ecc/p256/p256_field_impl.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
 
 /* Slope lambda and the source coordinates of an affine addition; copies so
@@ -39,7 +40,6 @@ void p256pt_jac_to_affine(ec_point* r, const jac* j);
 void p256_ladder_step(jac* r0, jac* r1);
 
 /* Forward declarations: the inline definitions below are unordered. */
-static inline void fp_cmov(p256_fe r, const p256_fe a, u64 mask);
 static inline void jac_cmov(jac* r, const jac* a, u64 mask);
 static inline void fp_add(p256_fe r, const p256_fe a, const p256_fe b);
 static inline void p256pt_fp_mul(p256_fe r, const p256_fe a, const p256_fe b);
@@ -48,21 +48,14 @@ static inline void p256pt_fp_sub(p256_fe r, const p256_fe a, const p256_fe b);
 static inline void p256pt_fp_dbl(p256_fe r, const p256_fe a);
 static inline int  p256pt_jac_is_inf(const jac* j);
 static inline void p256pt_jac_cswap(jac* a, jac* b, u64 mask);
+static inline u64  p256pt_inf_mask(const jac* j);
 
-/* Constant-time conditional move of one field element: r <- a if mask is
- * all-ones, unchanged if mask is 0. XOR-mask pattern, mirrors x25519.c's
- * fe_cswap (RFC 7748 5). CCN 1 (loop only, no branch). */
-static inline void fp_cmov(p256_fe r, const p256_fe a, u64 mask) {
-  for (usz i = 0; i < 4; i++) {
-    r[i] ^= mask & (r[i] ^ a[i]);
-  }
-}
-
-/* Conditional move of a whole Jacobian point (X, Y, Z). CCN 1. */
+/* Constant-time conditional move of a whole Jacobian point (X, Y, Z):
+ * r <- a if mask is all-ones, unchanged if mask is 0. */
 static inline void jac_cmov(jac* r, const jac* a, u64 mask) {
-  fp_cmov(r->X, a->X, mask);
-  fp_cmov(r->Y, a->Y, mask);
-  fp_cmov(r->Z, a->Z, mask);
+  p256_fe_select(r->X, r->X, a->X, mask);
+  p256_fe_select(r->Y, r->Y, a->Y, mask);
+  p256_fe_select(r->Z, r->Z, a->Z, mask);
 }
 
 static inline void fp_add(p256_fe r, const p256_fe a, const p256_fe b) {
@@ -86,6 +79,11 @@ static inline void p256pt_fp_dbl(p256_fe r, const p256_fe a) {
 }
 static inline int p256pt_jac_is_inf(const jac* j) {
   return p256_fp_is_zero(j->Z);
+}
+/* All-ones iff j is infinity (Z == 0), constant-time; the barrier keeps the
+ * masked moves on it from becoming a branch or a selected load. */
+static inline u64 p256pt_inf_mask(const jac* j) {
+  return wired_arch_value_barrier((u64)0 - (u64)p256pt_jac_is_inf(j));
 }
 /* Constant-time swap of two Jacobian points when mask is all-ones. CCN 1. */
 static inline void p256pt_jac_cswap(jac* a, jac* b, u64 mask) {

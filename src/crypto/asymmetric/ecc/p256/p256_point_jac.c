@@ -2,8 +2,6 @@
 
 static void add_finish(jac* r, const p256_addt* a);
 static void jac_add(jac* r, p256_addt* t);
-static void jac_add_step(jac* acc, const jac* base);
-static int  add_full_infinity(jac* r, const jac* a, const jac* b);
 static void jac_add_full(jac* r, const jac* a, const jac* b);
 
 /* Finish addition given the cross terms and H = U2-U1, rr = 2(S2-S1). */
@@ -36,75 +34,45 @@ static void jac_add(jac* r, p256_addt* t) {
   add_finish(r, t);
 }
 
-/* acc += base, both finite (jac_add_full handles infinity first). The ladder
- * keeps base = acc + P with P != O, so acc == base never occurs and a shared
- * x means base == -acc: the sum is infinity. */
-static void jac_add_step(jac* acc, const jac* base) {
-  p256_addt t;
-  p256pt_add_uv(&t, acc, base);
-  if (p256_fp_eq(t.u1, t.u2)) {
-    acc->Z[0] = acc->Z[1] = acc->Z[2] = acc->Z[3] = 0;
-  } else {
-    jac_add(acc, &t);
-  }
-}
-
-/* Convert Jacobian back to affine: x = X/Z^2, y = Y/Z^3. */
+/* Convert Jacobian back to affine: x = X/Z^2, y = Y/Z^3. Constant-time: the
+ * inversion always runs, and Z == 0 (infinity) inverts to 0 (0^(p-2) = 0), so
+ * infinity comes out as (0, 0) with inf set. */
 void p256pt_jac_to_affine(ec_point* r, const jac* j) {
   p256_fe zi, zi2, zi3;
-  if (p256pt_jac_is_inf(j)) {
-    r->inf = 1;
-    return;
-  }
   p256_fp_inv_p(zi, j->Z);
   p256pt_fp_sqr(zi2, zi);
   p256pt_fp_mul(zi3, zi2, zi);
   p256pt_fp_mul(r->x, j->X, zi2);
   p256pt_fp_mul(r->y, j->Y, zi3);
-  r->inf = 0;
+  r->inf = p256pt_jac_is_inf(j);
 }
 
 /* --- constant-time scalar multiply (Montgomery ladder) ------------------
- * RFC 6090 style two-accumulator ladder (side-channel countermeasure: see
- * p256_ladder_step below). Replaces the earlier add-if-bit-set double-and-add,
- * whose `if (bit) jac_add_step(...)` made execution time/cache pattern
- * correlate with the scalar's bits directly. */
+ * RFC 6090 style two-accumulator ladder: a fixed 256 steps of one addition
+ * and one doubling, with no branch or memory index on the scalar or on the
+ * points (infinity is handled by masked moves in jac_add_full). */
 
-/* 1 if either operand is infinity, with r set to the other one (or infinity,
- * if both are). Split out so jac_add_full stays CCN <= 2. */
-static int add_full_infinity(jac* r, const jac* a, const jac* b) {
-  if (p256pt_jac_is_inf(a)) {
-    *r = *b;
-    return 1;
-  }
-  if (p256pt_jac_is_inf(b)) {
-    *r = *a;
-    return 1;
-  }
-  return 0;
-}
-
-/* r = a + b, either operand may be infinity: jac_add_step assumes both are
- * finite, but the ladder's r0 starts at infinity and can land on either side
- * of the sum, so both must be covered here first. */
+/* r = a + b, constant-time, either operand may be infinity: the generic sum
+ * always runs and masked moves pick b when a is infinity and a when b is.
+ * For finite a == -b the formula gives H = 0, so Z3 = 2*Z1*Z2*H = 0 is
+ * infinity, the right sum. a == b (H = 0 too) would need doubling, but the
+ * ladder keeps r1 - r0 = P != O, so it never adds equal points. */
 static void jac_add_full(jac* r, const jac* a, const jac* b) {
-  if (add_full_infinity(r, a, b)) {
-    return;
-  }
-  *r = *a;
-  jac_add_step(r, b);
+  u64       ainf = p256pt_inf_mask(a), binf = p256pt_inf_mask(b);
+  p256_addt u;
+  jac       t;
+  p256pt_add_uv(&u, a, b);
+  jac_add(&t, &u);
+  jac_cmov(&t, b, ainf);
+  jac_cmov(&t, a, binf);
+  *r = t;
 }
 
-/* One Montgomery-ladder step (RFC 6090-style two-accumulator ladder,
- * mirrors x25519.c's ladder_step/fe_cswap control pattern): unconditionally
- * computes r0+r1 and 2*r0, leaving the "doubled" half in r0 and the "added"
- * half in r1. The caller cswaps r0/r1 around this call (see ec_mul
- * below) so which accumulator ends up representing 2*acc vs acc+base never
- * depends on an explicit `if (bit)`. The if-statements inside
- * jac_add_step/p256pt_jac_double are not scalar-bit branches: they fire only on
- * the point's own algebraic state (the fixed initial r0==infinity step, or
- * an exact inverse-point coincidence), identical in shape on every call
- * regardless of which bit is 1 or 0. */
+/* One Montgomery-ladder step (mirrors x25519.c's ladder_step/fe_cswap
+ * pattern): computes r0+r1 and 2*r0, leaving the doubled half in r0 and the
+ * sum in r1. The caller cswaps r0/r1 around this call (see ec_mul), so the
+ * scalar bit only ever reaches a mask. Doubling infinity (Z = 0) yields
+ * Z3 = 2*Y*Z = 0, infinity again, with no special case. */
 void p256_ladder_step(jac* r0, jac* r1) {
   jac t;
   jac_add_full(&t, r0, r1);  /* t = r0 + r1 */

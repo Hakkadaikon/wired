@@ -46,6 +46,21 @@ static void test_p256fixed_boundary(void) {
   pf_check_eq_generic(k1);
   pf_check_eq_generic(k2);
   pf_check_eq_generic(nm1);
+  nm1[31] -= 1; /* n-2 (n's low byte is 0x51) */
+  pf_check_eq_generic(nm1);
+  /* k >= n: n+1 and 2^256-1 (the ladder takes all 256 bits as given; the
+   * fixed-base windows too) agree, and (n+1)G == G. */
+  nb[31] += 1; /* n+1 (low byte 0x51, no carry) */
+  pf_check_eq_generic(nb);
+  CHECK(p256fixed_mul_g(x, y, nb) && p256_fp_eq(x, p256_g.x));
+  for (usz i = 0; i < 32; i++) {
+    nm1[i] = 0xff;
+  }
+  pf_check_eq_generic(nm1);
+  nb[31] -= 1;
+  x[0] = y[0] = 1;
+  CHECK(!p256fixed_mul_g(x, y, nb)); /* infinity comes out as (0, 0) */
+  CHECK(p256_fp_is_zero(x) && p256_fp_is_zero(y));
 }
 
 /* Scalars with all-zero and all-one 4-bit windows, and single set windows at

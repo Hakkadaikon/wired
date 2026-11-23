@@ -6,8 +6,9 @@
 /* FIPS 186-4 D.1.2.3 P-256 field GF(p), p = 2^256 - 2^224 + 2^192 + 2^96 - 1.
  * 256-bit values as four little-endian 64-bit limbs (p256_fe[0] is least
  * significant). Operations are generic over a 256-bit odd modulus so the same
- * core serves both the field p and the group order n (RFC 6090). Correctness
- * over speed: reduction is binary long division, inversion is Fermat. */
+ * core serves both the field p and the group order n (RFC 6090). Every
+ * operation is constant-time (no branch or memory index on an operand)
+ * except the generic long-division ones marked variable time below. */
 
 typedef u64 p256_fe[4];
 
@@ -48,14 +49,16 @@ int  p256_fp_is_zero(const p256_fe a);
 int  p256_fp_lt(
     const p256_fe a, const p256_fe b); /* 1 if a < b as 256-bit integers */
 
-/* r = a mod m, for any a < 2^256. */
+/* r = a mod m, for any a < 2^256. Variable time (binary long division):
+ * public inputs only (test oracle). */
 void p256_fp_reduce(p256_fe r, const p256_fe a, const p256_fe m);
 
 /* r = (a + b) mod m, r = (a - b) mod m. a,b assumed already < m. */
 void p256_fp_add(p256_fe r, fpab ab, const p256_fe m);
 void p256_fp_sub(p256_fe r, fpab ab, const p256_fe m);
 
-/* r = (a * b) mod m. a,b may be any value < 2^256. */
+/* r = (a * b) mod m. a,b may be any value < 2^256. Variable time: public
+ * inputs only (test oracle). */
 void p256_fp_mul(p256_fe r, fpab ab, const p256_fe m);
 void p256_fp_sqr(p256_fe r, const p256_fe a, const p256_fe m);
 
@@ -75,12 +78,26 @@ void p256_fp_reduce_n(p256_fe r, const p256_fe a);
 void p256_fp_mul_p(p256_fe r, const p256_fe a, const p256_fe b);
 void p256_fp_sqr_p(p256_fe r, const p256_fe a);
 
-/* r = a^-1 mod m via a^(m-2); m must be prime. */
+/* r = a^-1 mod m via a^(m-2); m must be prime. Variable time: public inputs
+ * only (test oracle). */
 void p256_fp_inv(p256_fe r, const p256_fe a, const p256_fe m);
 
 /* r = a^-1 mod p via the fast Solinas mul (Fermat). Equivalent to
  * p256_fp_inv(., ., p) but far faster; modulus fixed to p. */
 void p256_fp_inv_p(p256_fe r, const p256_fe a);
+
+/* r <- a when cond is 1, unchanged when 0 (cond in {0, 1}); constant-time. */
+void p256_fp_cmov(p256_fe r, const p256_fe a, int cond);
+
+/* 1 if 1 <= v <= n-1 (a valid scalar / private key, SEC 1 3.2.1),
+ * constant-time. */
+int p256_scalar_in_range(const p256_fe v);
+
+/* Declassification hook: called with a value that is public by design (an
+ * accept bit of a discarded-or-used candidate, a published signature). A
+ * weak no-op here; the secret-taint check (tests/ct) overrides it to mark
+ * the bytes defined. */
+void p256_ct_public(const void* p, usz n);
 
 /* Big-endian 32-byte load/store (wire format for r, s, coordinates). */
 void p256_fp_from_be(p256_fe r, const u8 b[32]);

@@ -13,8 +13,7 @@ static inline void wide_sub_shifted(u64 w[8], const p256_fe m, usz sh);
 static inline int  wide_ge_shifted(const u64 w[8], const p256_fe m, usz sh);
 static inline void fe_reduce_step(u64 w[8], const p256_fe m, usz sh);
 static inline void fe_mul_row(u64 w[8], u64 ai, const p256_fe b, usz i);
-static inline int  p256_fe_ge(const p256_fe a, const p256_fe b);
-static inline void p256_fe_sub_raw(p256_fe r, const p256_fe a, const p256_fe b);
+static inline u64  p256_fe_sub_raw(p256_fe r, const p256_fe a, const p256_fe b);
 static inline void p256_fe_mul_wide(u64 w[8], const p256_fe a, const p256_fe b);
 static inline void p256_fe_reduce_wide(p256_fe r, u64 w[8], const p256_fe m);
 static inline u64  p256_w32(const u64 w[8], usz c);
@@ -77,25 +76,17 @@ static inline void fe_mul_row(u64 w[8], u64 ai, const p256_fe b, usz i) {
   w[i + 4] = (u64)c;
 }
 
-/* Compare: returns 1 if a >= b (treating limb 3 as most significant). */
-static inline int p256_fe_ge(const p256_fe a, const p256_fe b) {
-  for (usz i = 4; i-- > 0;) {
-    if (a[i] != b[i]) {
-      return a[i] > b[i];
-    }
-  }
-  return 1;
-}
-/* r = a - b assuming a >= b; ignores final borrow. */
-static inline void p256_fe_sub_raw(
-    p256_fe r, const p256_fe a, const p256_fe b) {
+/* r = a - b mod 2^256; returns the borrow (1 iff a < b). Constant-time. */
+static inline u64 p256_fe_sub_raw(p256_fe r, const p256_fe a, const p256_fe b) {
   unsigned __int128 br = 0;
   for (usz i = 0; i < 4; i++) {
     unsigned __int128 t = (unsigned __int128)a[i] - b[i] - br;
     r[i]                = (u64)t;
     br                  = (t >> 64) & 1;
   }
+  return (u64)br;
 }
+
 /* 512-bit product as eight little-endian limbs. */
 static inline void p256_fe_mul_wide(
     u64 w[8], const p256_fe a, const p256_fe b) {

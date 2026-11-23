@@ -25,9 +25,9 @@ static void test_p256_keygen_boundary(void) {
   p256_fp_to_be(nbytes, p256_n);
   p256_fp_sub(nm1, (fpab){p256_n, one}, p256_n);
   p256_fp_to_be(nm1bytes, nm1);
-  CHECK(p256_scalar_ok(zero) == 0);     /* 0 rejected */
-  CHECK(p256_scalar_ok(nbytes) == 0);   /* n rejected (not < n) */
-  CHECK(p256_scalar_ok(nm1bytes) == 1); /* n-1 accepted */
+  CHECK(p256_keygen_accept(zero) == 0);     /* 0 rejected */
+  CHECK(p256_keygen_accept(nbytes) == 0);   /* n rejected (not < n) */
+  CHECK(p256_keygen_accept(nm1bytes) == 1); /* n-1 accepted */
 }
 
 /* --- SEC1 uncompressed encode/decode round trip -------------------------- */
@@ -211,6 +211,7 @@ static void test_p256_ecdh_rejects_coord_ge_p(void) {
 static void test_p256_ecdh_zero_scalar(void) {
   u8 zero[32] = {0}, priv[32], pub[P256_PUBKEY_LEN], secret[32];
   CHECK(p256_pubkey_encode(pub, zero) == 0);
+  CHECK(pub[0] == 0x04 && pub[1] == 0 && pub[64] == 0); /* zero coords */
   CHECK(p256_keygen(priv) == 1);
   CHECK(p256_pubkey_encode(pub, priv) == 1);
   CHECK(p256_ecdh(secret, zero, pub) == 0);

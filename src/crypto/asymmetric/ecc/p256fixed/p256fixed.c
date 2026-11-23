@@ -13,8 +13,11 @@
  * is the correct result. The doubling case (difference == n) is impossible
  * because both scalars are < n. */
 
-/* All-ones iff z == 0 (constant-time). */
-static u64 p256fixed_zmask(u64 z) { return ((z | (0 - z)) >> 63) - 1; }
+/* All-ones iff z == 0 (constant-time; the barrier keeps the masked moves on
+ * it from becoming a branch or a selected load). */
+static u64 p256fixed_zmask(u64 z) {
+  return wired_arch_value_barrier(((z | (0 - z)) >> 63) - 1);
+}
 
 /* r <- a when mask is all-ones, unchanged when 0 (constant-time). */
 static void p256fixed_cmov(p256_fe r, const u64* a, u64 mask) {
@@ -100,18 +103,16 @@ static void p256fixed_step(p256fixed_pt* acc, const u64* row, u64 d) {
   *acc = nxt;
 }
 
-/* Jacobian -> affine; 0 if the point is infinity. */
+/* Jacobian -> affine; 0 if the point is infinity. Constant-time: Z == 0
+ * inverts to 0 (0^(p-2) = 0), so infinity comes out as (0, 0). */
 static int p256fixed_to_affine(p256_fe x, p256_fe y, const p256fixed_pt* j) {
   p256_fe zi, zi2;
-  if (p256_fp_is_zero(j->jz)) {
-    return 0;
-  }
   p256_fp_inv_p(zi, j->jz);
   p256_fp_sqr_p(zi2, zi);
   p256_fp_mul_p(x, j->jx, zi2);
   p256_fp_mul_p(zi2, zi2, zi);
   p256_fp_mul_p(y, j->jy, zi2);
-  return 1;
+  return p256_fp_is_zero(j->jz) ^ 1;
 }
 
 int p256fixed_mul_g(p256_fe out_x, p256_fe out_y, const u8 scalar[32]) {

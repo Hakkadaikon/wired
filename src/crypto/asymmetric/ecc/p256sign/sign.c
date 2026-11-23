@@ -10,15 +10,14 @@
  * (the RFC 6979 suitability pass must not be recomputed by the signer). */
 static usz ps_mulg_count;
 
-/* r = (k*G).x mod n, via the fixed-base G table. Returns 1 if r != 0. */
+/* r = (k*G).x mod n, via the fixed-base G table. Returns 1 if r != 0.
+ * Constant-time: k*G == infinity yields x = 0, so r == 0 covers it. */
 static int ps_compute_r(p256_fe r, const u8 kb[32]) {
   p256_fe x, y;
   ps_mulg_count++;
-  if (!p256fixed_mul_g(x, y, kb)) {
-    return 0;
-  }
+  (void)p256fixed_mul_g(x, y, kb);
   p256_fp_reduce_n(r, x);
-  return !p256_fp_is_zero(r);
+  return p256_fp_is_zero(r) ^ 1;
 }
 
 /* s = k^-1 * sum mod n, with sum = (e + r*d) mod n from the caller. */
@@ -29,13 +28,12 @@ static void ps_compute_s(p256_fe s, const u8 kb[32], const p256_fe sum) {
   p256_fp_mul_n(s, (fpab){kinv, sum});
 }
 
-/* Low-S (RFC 6979 / BoringSSL): replace s with min(s, n - s) so s <= n/2. */
+/* Low-S (RFC 6979 / BoringSSL): replace s with min(s, n - s) so s <= n/2.
+ * Constant-time: which of the two was taken would tell k from -k. */
 static void ps_low_s(p256_fe s) {
   p256_fe ns;
   p256_fp_sub(ns, (fpab){p256_n, s}, p256_n);
-  if (p256_fp_lt(ns, s)) {
-    p256_fp_set(s, ns);
-  }
+  p256_fp_cmov(s, ns, p256_fp_lt(ns, s));
 }
 
 /* Context threaded through the RFC 6979 candidate callback: the digest and
@@ -50,13 +48,12 @@ typedef struct {
 
 /* RFC 6979 Section 3.4 / FIPS 186-4 6.3: a candidate k is suitable only if it
  * yields both r != 0 and s != 0; otherwise the generation loop must draw a
- * new k. Stores r, s in the context for the caller to reuse. */
+ * new k. Stores r, s in the context for the caller to reuse. Branch-free:
+ * s is computed even when r == 0, and the verdict is combined at the end. */
 static int ps_k_suitable(const u8 kb[32], void* vctx) {
   ps_ctx* c = (ps_ctx*)vctx;
   p256_fe e, eh, d, rd, sum;
-  if (!ps_compute_r(c->rv, kb)) {
-    return 0;
-  }
+  int     rok = ps_compute_r(c->rv, kb);
   p256_fp_from_be(eh, c->hash);
   p256_fp_reduce_n(e, eh);
   p256_fp_from_be(d, c->priv);
@@ -64,7 +61,7 @@ static int ps_k_suitable(const u8 kb[32], void* vctx) {
   p256_fp_mul_n(rd, (fpab){c->rv, d});
   p256_fp_add(sum, (fpab){e, rd}, p256_n);
   ps_compute_s(c->sv, kb, sum);
-  return !p256_fp_is_zero(c->sv);
+  return rok & (p256_fp_is_zero(c->sv) ^ 1);
 }
 
 int p256sign_sign(const u8 priv[32], const u8 hash[32], u8 r[32], u8 s[32]) {
@@ -74,5 +71,8 @@ int p256sign_sign(const u8 priv[32], const u8 hash[32], u8 r[32], u8 s[32]) {
   ps_low_s(ctx.sv);
   p256_fp_to_be(r, ctx.rv);
   p256_fp_to_be(s, ctx.sv);
+  /* (r, s) is the published signature: public by design. */
+  p256_ct_public(r, 32);
+  p256_ct_public(s, 32);
   return 1;
 }

@@ -20,12 +20,14 @@ void ec_set(ec_point* r, const ec_point* p);
  * (or is infinity), else 0. */
 int ec_on_curve(const ec_point* p);
 
-/* r = p + q, r = 2p (affine, all mod p). r may alias p or q. */
+/* r = p + q, r = 2p (affine, all mod p). r may alias p or q. Variable time
+ * (branches on infinity / equal x): public inputs only (ECDSA verify). */
 void ec_add(ec_point* r, const ec_point* p, const ec_point* q);
 void ec_double(ec_point* r, const ec_point* p);
 
-/* r = k * p, k big-endian 32 bytes. Constant-time Montgomery ladder (see
- * p256_point.c): no branch keys off a scalar bit directly. */
+/* r = k * p, k big-endian 32 bytes. Constant-time in k (Montgomery
+ * ladder, see p256_point_jac.c); r->inf is 1 when k * p is infinity, and
+ * then r->x = r->y = 0. */
 void ec_mul(ec_point* r, const u8 k[32], const ec_point* p);
 
 #endif

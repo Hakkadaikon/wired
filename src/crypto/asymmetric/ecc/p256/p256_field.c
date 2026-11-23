@@ -11,8 +11,9 @@ const p256_fe p256_n = {
     0xf3b9cac2fc632551ULL, 0xbce6faada7179e84ULL, 0xffffffffffffffffULL,
     0xffffffff00000000ULL};
 
-/* Montgomery contexts (R = 2^256). Constants precomputed and cross-checked:
- * n0inv = -m[0]^-1 mod 2^64, rr = R^2 mod m, one = R mod m. */
+/* Montgomery contexts (R = 2^256), derived from p = 2^256 - 2^224 + 2^192 +
+ * 2^96 - 1 and n above: n0inv = -m[0]^-1 mod 2^64, rr = R^2 mod m,
+ * one = R mod m. */
 const mont p256_mont_p = {
     {0xffffffffffffffffULL, 0x00000000ffffffffULL, 0x0000000000000000ULL,
      0xffffffff00000001ULL},
@@ -53,7 +54,26 @@ int p256_fp_eq(const p256_fe a, const p256_fe b) {
   return d == 0;
 }
 
-int p256_fp_lt(const p256_fe a, const p256_fe b) { return !p256_fe_ge(a, b); }
+void p256_fp_cmov(p256_fe r, const p256_fe a, int cond) {
+  p256_fe_select(r, r, a, p256_mask((u64)cond));
+}
+
+int p256_scalar_in_range(const p256_fe v) {
+  return (p256_fp_is_zero(v) ^ 1) & p256_fp_lt(v, p256_n);
+}
+
+/* Weak so the secret-taint harness (tests/ct) can override it with a
+ * memcheck "defined" mark; production links this no-op. */
+__attribute__((weak)) void p256_ct_public(const void* p, usz n) {
+  (void)p;
+  (void)n;
+}
+
+/* The borrow of a - b, constant-time. */
+int p256_fp_lt(const p256_fe a, const p256_fe b) {
+  p256_fe t;
+  return (int)p256_fe_sub_raw(t, a, b);
+}
 
 /* t = a + b (256-bit); returns the carry out of bit 255. */
 static u64 fe_add_raw(p256_fe t, const p256_fe a, const p256_fe b) {
@@ -66,24 +86,20 @@ static u64 fe_add_raw(p256_fe t, const p256_fe a, const p256_fe b) {
   return (u64)c;
 }
 
+/* Constant-time: a,b < m gives a sum below 2m, so one masked subtract of m
+ * (p256_fe_csub) reduces it. */
 void p256_fp_add(p256_fe r, fpab ab, const p256_fe m) {
   p256_fe t;
   u64     carry = fe_add_raw(t, ab.a, ab.b);
-  /* Single subtract of m suffices since a,b < m (sum < 2m). */
-  int over = carry || p256_fe_ge(t, m);
-  if (over) {
-    p256_fe_sub_raw(r, t, m);
-  } else {
-    p256_fp_set(r, t);
-  }
+  p256_fe_csub(r, t, carry, m);
 }
 
+/* Constant-time: a - b, plus m masked in when the subtraction borrowed. */
 void p256_fp_sub(p256_fe r, fpab ab, const p256_fe m) {
-  if (p256_fe_ge(ab.a, ab.b)) {
-    p256_fe_sub_raw(r, ab.a, ab.b);
-  } else {
-    p256_fe t;
-    p256_fe_sub_raw(t, ab.b, ab.a);
-    p256_fe_sub_raw(r, m, t);
+  p256_fe t, mm;
+  u64     mask = p256_mask(p256_fe_sub_raw(t, ab.a, ab.b));
+  for (usz i = 0; i < 4; i++) {
+    mm[i] = m[i] & mask;
   }
+  (void)fe_add_raw(r, t, mm);
 }
