@@ -8,6 +8,8 @@ static void mix_one(u8* col);
 static void mix_columns(u8 s[16]);
 static void round_full(u8 s[16], const u32* rk);
 static void round_last(u8 s[16], const u32* rk);
+static void aes_encrypt_sw(const u32* rk, usz nr, const u8* in, u8* out);
+static void aes_encrypt_any(const u32* rk, usz nr, const u8* in, u8* out);
 
 /* AddRoundKey: XOR 4 round-key words into the 16-byte state. */
 static void add_round_key(u8 s[16], const u32* rk) {
@@ -19,10 +21,10 @@ static void add_round_key(u8 s[16], const u32* rk) {
   }
 }
 
+/* SubBytes (FIPS 197 5.1.1) with the table-free S-box, 8 bytes a call. */
 static void sub_bytes(u8 s[16]) {
-  for (usz i = 0; i < 16; i++) {
-    s[i] = SBOX[s[i]];
-  }
+  be_put_be64(s, aes128_sbox8(be_get_be64(s)));
+  be_put_be64(s + 8, aes128_sbox8(be_get_be64(s + 8)));
 }
 
 /* Fill one shifted column c of the output from state s. */
@@ -71,16 +73,31 @@ static void round_last(u8 s[16], const u32* rk) {
   add_round_key(s, rk);
 }
 
-void aes128_encrypt(
-    const aes128* a, const u8 in[AES_BLOCK], u8 out[AES_BLOCK]) {
+/* FIPS 197 5.1 Cipher in software: nr - 1 full rounds, then the last. */
+static void aes_encrypt_sw(const u32* rk, usz nr, const u8* in, u8* out) {
   u8 s[16];
   aes128_copy16(s, in);
-  add_round_key(s, a->rk);
-  for (usz r = 1; r < AES_ROUNDS; r++) {
-    round_full(s, a->rk + 4 * r);
+  add_round_key(s, rk);
+  for (usz r = 1; r < nr; r++) {
+    round_full(s, rk + 4 * r);
   }
-  round_last(s, a->rk + (usz)4 * AES_ROUNDS);
+  round_last(s, rk + 4 * nr);
   aes128_copy16(out, s);
+}
+
+/* AES-NI where the CPU has it, the constant-time software rounds
+ * otherwise. */
+static void aes_encrypt_any(const u32* rk, usz nr, const u8* in, u8* out) {
+  if (gcmx86_supported()) {
+    gcmx86_aes_words(rk, nr, in, out);
+    return;
+  }
+  aes_encrypt_sw(rk, nr, in, out);
+}
+
+void aes128_encrypt(
+    const aes128* a, const u8 in[AES_BLOCK], u8 out[AES_BLOCK]) {
+  aes_encrypt_any(a->rk, AES_ROUNDS, in, out);
 }
 
 void aes256_init(aes256* a, const u8 key[AES256_KEY]) {
@@ -95,12 +112,5 @@ void aes256_init(aes256* a, const u8 key[AES256_KEY]) {
 
 void aes256_encrypt(
     const aes256* a, const u8 in[AES_BLOCK], u8 out[AES_BLOCK]) {
-  u8 s[16];
-  aes128_copy16(s, in);
-  add_round_key(s, a->rk);
-  for (usz r = 1; r < AES256_ROUNDS; r++) {
-    round_full(s, a->rk + 4 * r);
-  }
-  round_last(s, a->rk + (usz)4 * AES256_ROUNDS);
-  aes128_copy16(out, s);
+  aes_encrypt_any(a->rk, AES256_ROUNDS, in, out);
 }

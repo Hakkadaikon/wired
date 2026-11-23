@@ -14,7 +14,7 @@
 #define GCMX86_TAG 16
 
 /**
- * Expanded AES-128-GCM key: 11 round keys (FIPS 197 byte order, as AESENC
+ * Expanded AES-GCM key: nr + 1 round keys (FIPS 197 byte order, as AESENC
  * consumes them) plus the GHASH subkey H = AES_K(0^128) and its powers.
  *
  * 16-byte aligned so the compiler may use aligned SSE loads; the accessors
@@ -22,15 +22,25 @@
  * placing the struct normally (its own alignment attribute suffices).
  */
 typedef struct __attribute__((aligned(16))) {
-  u8 rk[11][16]; /**< round keys 0..10, 16 bytes each */
-  u8 h[16];      /**< GHASH subkey H = AES_K(0^128) */
+  /** Round keys 0..nr, 16 bytes each (AES-256 uses all 15). */
+  u8 rk[15][16];
+  /** Rounds: 10 (AES-128) or 14 (AES-256), FIPS 197 5. */
+  usz nr;
+  u8  h[16]; /**< GHASH subkey H = AES_K(0^128) */
   /** H^1..H^4 as GHASH operands (byte-reversed), hp[i] = H^(i+1): GHASH
    * folds up to four blocks per reduction with them. */
   u8 hp[4][16];
 } gcmx86;
 
+/** 0 not yet known, 2 AES instructions present, 1 forced software path.
+ * Read through gcmx86_supported(). Tests and the ct harness only: they set
+ * 1 to run the constant-time software AES on a host with AES instructions,
+ * and 0 to re-probe; production never writes it. */
+extern int gcmx86_cached;
+
 /* 1 when the CPU has AES-NI, PCLMULQDQ and SSSE3 (CPUID.1:ECX bits 25, 1
- * and 9), 0 otherwise. Result is cached after the first call. */
+ * and 9), 0 otherwise. A successful probe is cached; a failed one is retried.
+ */
 int gcmx86_supported(void);
 
 /** One AES-128 block under x's key (ECB): out = AES_K(in). For a QUIC
@@ -40,6 +50,16 @@ void gcmx86_ecb(const gcmx86* x, const u8 in[16], u8 out[16]);
 /* Expand key into the round-key schedule and precompute H. Call only when
  * gcmx86_supported() returned 1. */
 void gcmx86_init(gcmx86* x, const u8 key[16]);
+
+/* Load an expanded FIPS 197 5.2 word schedule (aes128 / aes256 rk, nr = 10
+ * or 14) and precompute H. Call only when gcmx86_supported() returned 1. */
+void gcmx86_init_rk(gcmx86* x, const u32* rk, usz nr);
+
+/* SubWord (FIPS 197 5.2) through aesenclast: no table lookup. */
+u32 gcmx86_subword(u32 w);
+
+/* One block, out = AES(in), under a word schedule rk of nr rounds. */
+void gcmx86_aes_words(const u32* rk, usz nr, const u8 in[16], u8 out[16]);
 
 /* Seal: out receives ciphertext || 16-byte tag. Returns pt.n + 16. */
 usz gcmx86_seal(

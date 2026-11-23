@@ -171,6 +171,7 @@
 #include "app/qpack/qpack/relindex.c"
 #include "crypto/symmetric/aead/aes/aes.c"
 #include "crypto/symmetric/aead/aes/aes_shift.c"
+#include "crypto/symmetric/aead/aes/aes_sbox.c"
 #include "transport/recovery/congestion/cc/cc.c"
 #include "transport/recovery/congestion/cc/bbr.c"
 #include "transport/recovery/congestion/cc/cubic.c"
@@ -216,8 +217,10 @@
 #include "crypto/symmetric/aead/gcm/gcm.c"
 #include "crypto/symmetric/aead/gcm/gcm_ctr.c"
 #include "crypto/symmetric/aead/gcm/gcm_gcm256.c"
+#include "crypto/symmetric/aead/gcm/gcm_gcm256x86.c"
 #include "crypto/symmetric/aead/gcm/gcm_open.c"
 #include "crypto/symmetric/aead/gcmx86/gcmx86.c"
+#include "crypto/symmetric/aead/gcmx86/gcmx86_aes.c"
 #include "crypto/symmetric/aead/gcmx86/gcmx86_ctr.c"
 #include "crypto/symmetric/aead/gcmx86/gcmx86_ghash.c"
 #include "crypto/symmetric/aead/gcmx86/gcmx86_load.c"
@@ -936,6 +939,7 @@
 #include "crypto/aes_test.c"
 #include "crypto/gcm_test.c"
 #include "crypto/gcmx86_test.c"
+#include "crypto/aesct_test.c"
 #include "crypto/gcm256_test.c"
 #include "crypto/chacha20_test.c"
 #include "crypto/bssl_aes128gcm_test.c"
@@ -1423,6 +1427,7 @@ int main(void) {
   test_aes();
   test_gcm();
   test_gcmx86();
+  test_aesct();
   test_gcm256();
   test_chacha20();
   test_bssl_aes128gcm();

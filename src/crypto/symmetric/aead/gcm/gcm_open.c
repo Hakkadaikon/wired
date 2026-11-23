@@ -2,7 +2,6 @@
 
 static void data_ctr(const gcm_st* st, gcm_ctr* c);
 static void gcm_tag(const gcm_st* st, wired_span ct, u8 tag[16]);
-static void gcm_key_from_aes128(const aes128* a, u8 key[16]);
 static void gcm_x86_from(const gcm_ctx* g, gcmx86* x);
 static int  gcm_open_x86_empty(const gcm_ctx* g, wired_span ct);
 static int  gcm_open_x86(const gcm_ctx* g, wired_span ct, u8* pt);
@@ -34,24 +33,10 @@ static void gcm_tag(const gcm_st* st, wired_span ct, u8 tag[16]) {
   }
 }
 
-/* Recover the original 16-byte AES-128 key from the first four round-key
- * words (aes128_init sets rk[0..3] to the key itself, FIPS 197 5.2). */
-static void gcm_key_from_aes128(const aes128* a, u8 key[16]) {
-  for (usz i = 0; i < 4; i++) {
-    be_put_be32(key + 4 * i, a->rk[i]);
-  }
-}
-
-/* Build an AES-NI key schedule from the scalar aes128 already held by
- * g. Repeated per call by design (ponytail: caching would need per-
- * connection state this task doesn't touch; one AES key schedule + one AES
- * block is microseconds, already measured acceptable. Upgrade path: cache
- * the expanded gcmx86 on aes128 itself if profiling ever shows the
- * expansion cost matters). */
+/* Load the scalar aes128 schedule g holds into an AES-NI context. Repeated
+ * per call: one H block plus its three powers. */
 static void gcm_x86_from(const gcm_ctx* g, gcmx86* x) {
-  u8 key[16];
-  gcm_key_from_aes128(g->aes, key);
-  gcmx86_init(x, key);
+  gcmx86_init_rk(x, g->aes->rk, AES_ROUNDS);
 }
 
 /* gcmx86_open returns the plaintext length, so it cannot distinguish an

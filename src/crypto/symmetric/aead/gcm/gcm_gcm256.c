@@ -69,7 +69,8 @@ static void gcm_tag256(const gcm256_st* st, wired_span ct, u8 tag[16]) {
   }
 }
 
-usz gcm256_seal(const gcm256_ctx* g, wired_span pt, u8* out) {
+/* The software seal (no AES-NI): constant-time AES and bit-serial GHASH. */
+usz gcm256_seal_scalar(const gcm256_ctx* g, wired_span pt, u8* out) {
   gcm256_st  st;
   gcm256_ctr c;
   gcm_setup256(g, &st);
@@ -79,13 +80,11 @@ usz gcm256_seal(const gcm256_ctx* g, wired_span pt, u8* out) {
   return pt.n + GCM_TAG;
 }
 
-int gcm256_open(const gcm256_ctx* g, wired_span ct, u8* pt) {
+/* The software open of ct.n >= GCM_TAG bytes: verify, then decrypt. */
+int gcm256_open_scalar(const gcm256_ctx* g, wired_span ct, u8* pt) {
   gcm256_st  st;
   gcm256_ctr c;
   u8         want[16];
-  if (ct.n < GCM_TAG) {
-    return 0;
-  }
   wired_span body = wired_span_of(ct.p, ct.n - GCM_TAG);
   gcm_setup256(g, &st);
   gcm_tag256(&st, body, want);

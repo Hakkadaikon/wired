@@ -109,14 +109,17 @@ static inline gcmx86_v gcmx86_rev(gcmx86_v a) {
                                 7,  6,  5,  4,  3,  2,  1, 0};
   return wired_arch_pshufb(a, flip);
 }
-/* AES-128 encrypt one block with AES-NI: rounds 1..9 aesenc, 10 aesenclast.
+/* AES encrypt one block with AES-NI: rounds 1..nr-1 aesenc, nr aesenclast.
  */
 static inline gcmx86_v gcmx86_aes(const gcmx86* x, gcmx86_v in) {
   gcmx86_v s = in ^ gcmx86_load(x->rk[0]);
-  for (usz i = 1; i < 10; i++) {
+  for (usz i = 1; i < AES_ROUNDS; i++) {
     s = wired_arch_aesenc(s, gcmx86_load(x->rk[i]));
   }
-  return wired_arch_aesenclast(s, gcmx86_load(x->rk[10]));
+  for (usz i = AES_ROUNDS; i < x->nr; i++) {
+    s = wired_arch_aesenc(s, gcmx86_load(x->rk[i])); /* AES-256: 10..13 */
+  }
+  return wired_arch_aesenclast(s, gcmx86_load(x->rk[x->nr]));
 }
 /* GF(2^128) multiply of byte-reversed GHASH operands (SP 800-38D 6.3). */
 static inline gcmx86_v gcmx86_gfmul(gcmx86_v a, gcmx86_v b) {

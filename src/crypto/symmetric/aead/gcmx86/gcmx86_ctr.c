@@ -18,7 +18,6 @@ static usz gcmx86_ctr_x4_all(
     const gcmx86* x, gcmx86_cnt* k, wired_span in, u8* out);
 static usz gcmx86_ctr_x1_all(
     const gcmx86* x, gcmx86_cnt* k, wired_span in, u8* out, usz off);
-static void gcmx86_init_powers(gcmx86* x);
 
 /* AddRoundKey with rk[0] across 4 independent lanes. */
 static void gcmx86_aes4_init(const gcmx86* x, gcmx86_v s[4]) {
@@ -39,19 +38,22 @@ static void gcmx86_aes4_round(const gcmx86* x, gcmx86_v s[4], usz r) {
 
 /* Final aesenclast round across 4 independent lanes. */
 static void gcmx86_aes4_last(const gcmx86* x, gcmx86_v s[4]) {
-  gcmx86_v rk = gcmx86_load(x->rk[10]);
+  gcmx86_v rk = gcmx86_load(x->rk[x->nr]);
   for (usz i = 0; i < 4; i++) {
     s[i] = wired_arch_aesenclast(s[i], rk);
   }
 }
 
-/* AES-128 encrypt 4 independent blocks, interleaving their aesenc chains
+/* AES encrypt 4 independent blocks, interleaving their aesenc chains
  * (round r for all 4 lanes before round r+1 for any) to hide the aesenc
  * latency behind the other lanes' independent chains. */
 static void gcmx86_aes4(const gcmx86* x, gcmx86_v s[4]) {
   gcmx86_aes4_init(x, s);
-  for (usz r = 1; r < 10; r++) {
+  for (usz r = 1; r < AES_ROUNDS; r++) {
     gcmx86_aes4_round(x, s, r);
+  }
+  for (usz r = AES_ROUNDS; r < x->nr; r++) {
+    gcmx86_aes4_round(x, s, r); /* AES-256 only: rounds 10..13 */
   }
   gcmx86_aes4_last(x, s);
 }
@@ -125,27 +127,4 @@ void gcmx86_j0(u8 j[16], const u8 nonce[GCMX86_NONCE]) {
   j[13] = 0;
   j[14] = 0;
   j[15] = 1;
-}
-
-/* hp[i] = H^(i+1) as GHASH operands, for the four-block fold
- * (gcmx86_ghash.c). */
-static void gcmx86_init_powers(gcmx86* x) {
-  gcmx86_v h = gcmx86_load_rev(x->h, 16);
-  gcmx86_v p = h;
-  gcmx86_store(x->hp[0], p);
-  for (usz i = 1; i < 4; i++) {
-    p = gcmx86_gfmul(p, h);
-    gcmx86_store(x->hp[i], p);
-  }
-}
-
-void gcmx86_init(gcmx86* x, const u8 key[16]) {
-  aes128   a;
-  gcmx86_v zero = {0};
-  aes128_init(&a, key); /* cold path: reuse the scalar key schedule */
-  for (usz i = 0; i < AES_RK_WORDS; i++) {
-    be_put_be32((u8*)x->rk + 4 * i, a.rk[i]); /* be words = FIPS bytes */
-  }
-  gcmx86_store(x->h, gcmx86_aes(x, zero)); /* H = E(K, 0^128), 6.4 */
-  gcmx86_init_powers(x);
 }

@@ -49,6 +49,9 @@ typedef struct {
 } gcm256_st;
 
 void gcm_setup(const gcm_ctx* g, gcm_st* st);
+usz  gcm256_seal_scalar(const gcm256_ctx* g, wired_span pt, u8* out);
+/* Requires ct.n >= GCM_TAG (16); the caller checks. */
+int gcm256_open_scalar(const gcm256_ctx* g, wired_span ct, u8* pt);
 
 /* Forward declarations: the inline definitions below are unordered. */
 static inline usz  block_n(usz off, usz len);
