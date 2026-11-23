@@ -1,29 +1,93 @@
 "use client";
 
 import { npubEncode } from "nostr-tools/nip19";
-import { useId, useState } from "react";
-import { shortNpub } from "@/lib/nostr";
+import { useEffect, useId, useRef, useState } from "react";
+import { type NostrProfile, shortNpub } from "@/lib/nostr";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
 
-/** A Nostr author: the profile name (if any) always next to the short npub
- * and a "verified Nostr" badge, the full npub in the title -- so a name or
- * a legacy nickname cannot pass for someone's Nostr identity. */
+/** A Nostr author: avatar, then the kind 0 display_name over "@name"
+ * (NIP-24), falling back to name, then the short npub; the full npub is the
+ * title. Only verified pubkeys reach here, so a nickname cannot pose as one. */
 export function NostrAuthor({ pubkey }: { pubkey: string }) {
-	const profile = useMoqtChatStore((s) => s.nostrProfiles[pubkey]);
-	const name = profile?.name;
+	const profile = useMoqtChatStore((s) => s.nostrProfiles[pubkey]) ?? {};
+	const { title, handle, initial } = authorLabels(pubkey, profile);
 	return (
 		<span className="nostr-author" title={npubEncode(pubkey)}>
 			<NostrAvatar
-				key={profile?.picture}
+				key={profile.picture}
 				pubkey={pubkey}
-				picture={profile?.picture}
-				initial={name ? ([...name][0] ?? "") : ""}
+				picture={profile.picture}
+				initial={initial}
 			/>
-			{name && <span className="nostr-author__name">{name} </span>}
-			<span className="message__npub" data-testid="nostr-npub">
-				{shortNpub(pubkey)}
-			</span>{" "}
-			<span className="nostr-author__badge caption">✓ verified Nostr</span>
+			<span className="nostr-author__names">
+				<span className="nostr-author__name">{title}</span>
+				{handle && <span className="nostr-author__handle">@{handle}</span>}
+			</span>
+		</span>
+	);
+}
+
+/** The same label as NostrAuthor's line 1, text only. */
+export function NostrName({ pubkey }: { pubkey: string }) {
+	const profile = useMoqtChatStore((s) => s.nostrProfiles[pubkey]) ?? {};
+	return authorLabels(pubkey, profile).title;
+}
+
+// Line 1 (display_name, else name, else short npub), the line 2 handle
+// when both names exist, and the placeholder's initial (names only).
+function authorLabels(pubkey: string, p: NostrProfile) {
+	const named = p.displayName ?? p.name ?? "";
+	return {
+		title: named || shortNpub(pubkey),
+		handle: p.displayName && p.name,
+		initial: [...named][0] ?? "",
+	};
+}
+
+const VERIFIED = "Verified Nostr event: id and BIP-340 signature checked";
+
+/** The check under a Nostr post; its tooltip shows on hover and on focus. */
+function VerifiedMark() {
+	const tipId = useId();
+	const ref = useRef<HTMLSpanElement>(null);
+	const [dismissed, setDismissed] = useState(false);
+	// WCAG 1.4.13: Esc hides the shown tip without moving focus; the next
+	// hover or focus shows it again. The tip sits inside the hovered span.
+	useEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		const show = () => setDismissed(false);
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape" && el.matches(":hover, :focus-within"))
+				setDismissed(true);
+		};
+		window.addEventListener("keydown", onKey);
+		el.addEventListener("mouseenter", show);
+		el.addEventListener("focusin", show);
+		return () => {
+			window.removeEventListener("keydown", onKey);
+			el.removeEventListener("mouseenter", show);
+			el.removeEventListener("focusin", show);
+		};
+	}, []);
+	return (
+		<span
+			className="verified"
+			ref={ref}
+			data-dismissed={dismissed || undefined}
+		>
+			<button
+				type="button"
+				className="verified__mark"
+				aria-label="Verified Nostr event"
+				aria-describedby={tipId}
+				data-testid="nostr-verified"
+			>
+				✓
+			</button>
+			<span className="verified__tip caption" role="tooltip" id={tipId}>
+				{VERIFIED}
+			</span>
 		</span>
 	);
 }
@@ -93,25 +157,28 @@ function pretty(raw: string): string {
 	}
 }
 
-/** The "{ }" toggle on a Nostr chat message: the event JSON as carried in
- * the MoQ Object payload, rendered as text. Only verified events reach the
- * store, so it always reads "verified". */
+/** A Nostr post's foot: the verified check, and the "⋯" toggle (bottom
+ * right) opening the event JSON as carried in the MoQ Object payload, as
+ * text, below the post. Only verified events reach the store. */
 export function RawNostrEvent({ raw, id }: { raw: string; id: string }) {
 	const [open, setOpen] = useState(false);
 	const panelId = useId();
 	return (
 		<>
-			<button
-				type="button"
-				className="link message__raw-toggle"
-				aria-label="Show raw Nostr event"
-				aria-expanded={open}
-				aria-controls={panelId}
-				data-testid="nostr-raw-toggle"
-				onClick={() => setOpen(!open)}
-			>
-				{"{ }"}
-			</button>
+			<div className="message__foot">
+				<VerifiedMark />
+				<button
+					type="button"
+					className="link message__raw-toggle"
+					aria-label={open ? "Hide raw Nostr event" : "Show raw Nostr event"}
+					aria-expanded={open}
+					aria-controls={panelId}
+					data-testid="nostr-raw-toggle"
+					onClick={() => setOpen(!open)}
+				>
+					⋯
+				</button>
+			</div>
 			{open && (
 				<div className="message__raw" id={panelId} data-testid="nostr-raw">
 					<span className="caption">

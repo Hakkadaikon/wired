@@ -195,25 +195,38 @@ export function addNostrMessage(
 }
 
 /** This session's MoqNostr (moqNostr.ts) over client's chat track,
- * subscribed to the room's live chat; returns the client's onNostrEvent. */
+ * subscribed to the room's live chat; returns the client's onNostrEvent.
+ * A participant's Room label follows the pubkey of a verified event first
+ * seen live on its own chat track -- never its self-chosen nickname. */
 export function openMoqNostr(
 	client: () => Pick<MoqtChatClient, "sendNostrEvent">,
-	store: Pick<MoqtChatState, "addMessage">,
-): (json: string, live: boolean) => void {
+	store: Pick<MoqtChatState, "addMessage" | "setPeerPubkey">,
+): (json: string, live: boolean, participant?: string) => void {
 	const nostr = new MoqNostr((json) => client().sendNostrEvent(json));
 	nostr.subscribe(
 		{ kinds: [LIVE_CHAT_KIND], a: NOSTR_ROOM_A },
 		{ onEvent: (ev, raw) => addNostrMessage(store, ev, raw) },
 	);
 	chatNostr.current = nostr;
-	return (json, live) => nostr.receive(json, live);
+	return (json, live, participant) => {
+		const ev = nostr.receive(json, live);
+		// A history fill may replay anyone's old public event: live only.
+		if (ev && live && participant) {
+			store.setPeerPubkey(participant, ev.pubkey);
+			lookupNostrName(ev.pubkey);
+		}
+	};
 }
 
 // client: when given, Nostr payloads go to a fresh openMoqNostr session.
 export function moqtChatCallbacks(
 	store: Pick<
 		MoqtChatState,
-		"setConnectionState" | "addPeer" | "addMessage" | "setNickname"
+		| "setConnectionState"
+		| "addPeer"
+		| "addMessage"
+		| "setNickname"
+		| "setPeerPubkey"
 	>,
 	client?: () => Pick<MoqtChatClient, "sendNostrEvent">,
 ): Pick<

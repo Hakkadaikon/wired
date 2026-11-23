@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { shortNpub } from "@/lib/nostr";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
-import { NostrAuthor, RawNostrEvent } from "../rawNostrEvent";
+import { NostrAuthor, NostrName, RawNostrEvent } from "../rawNostrEvent";
 
 beforeAll(() => {
 	(
@@ -77,24 +77,96 @@ describe("RawNostrEvent with unsigned extra keys", () => {
 	});
 });
 
-describe("NostrAuthor", () => {
-	const PK = "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f";
-
-	it("shows the profile name next to the short npub and the badge, full npub as title", () => {
-		useMoqtChatStore.getState().setNostrProfile(PK, { name: "alice" });
-		const el = render(<NostrAuthor pubkey={PK} />);
-		const author = el.querySelector(".nostr-author");
-		expect(author?.getAttribute("title")).toBe(npubEncode(PK));
-		expect(el.textContent).toBe(`alice ${shortNpub(PK)} ✓ verified Nostr`);
+describe("RawNostrEvent foot", () => {
+	it("the ⋯ toggle relabels itself to Hide once open", () => {
+		const el = render();
+		expect(toggle(el)?.textContent).toBe("⋯");
+		act(() => toggle(el)?.click());
+		expect(toggle(el)?.getAttribute("aria-label")).toBe("Hide raw Nostr event");
 	});
 
-	it("shows the short npub alone (with the badge) before a name lands", () => {
-		const other = PK.replace(/^1b/, "2b");
-		const el = render(<NostrAuthor pubkey={other} />);
-		expect(el.querySelector('[data-testid="nostr-npub"]')?.textContent).toBe(
-			shortNpub(other),
+	it("has a focusable check described by the verified tooltip", () => {
+		const el = render();
+		const mark = el.querySelector<HTMLButtonElement>(
+			'[data-testid="nostr-verified"]',
 		);
-		expect(el.textContent).toContain("✓ verified Nostr");
+		expect(mark?.getAttribute("aria-label")).toBe("Verified Nostr event");
+		const tip = document.getElementById(
+			mark?.getAttribute("aria-describedby") ?? "",
+		);
+		expect(tip?.getAttribute("role")).toBe("tooltip");
+		expect(tip?.textContent).toBe(
+			"Verified Nostr event: id and BIP-340 signature checked",
+		);
+	});
+});
+
+describe("VerifiedMark tooltip", () => {
+	it("Esc hides the shown tip without moving focus; a new focus shows it", () => {
+		const el = render();
+		const mark = el.querySelector<HTMLButtonElement>(
+			'[data-testid="nostr-verified"]',
+		);
+		const wrap = () => mark?.parentElement?.hasAttribute("data-dismissed");
+		act(() => mark?.focus());
+		act(() => {
+			window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+		});
+		expect(wrap()).toBe(true);
+		expect(document.activeElement).toBe(mark);
+		act(() => mark?.blur());
+		act(() => mark?.focus());
+		expect(wrap()).toBe(false);
+	});
+
+	it("ignores Esc while the tip is not shown", () => {
+		const el = render();
+		act(() => {
+			window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+		});
+		expect(el.querySelector("[data-dismissed]")).toBeNull();
+	});
+});
+
+describe("NostrName", () => {
+	it("is NostrAuthor's line 1 as plain text", () => {
+		const pk =
+			"6b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f";
+		expect(render(<NostrName pubkey={pk} />).textContent).toBe(shortNpub(pk));
+		act(() => useMoqtChatStore.getState().setNostrProfile(pk, { name: "dee" }));
+		expect(document.body.textContent).toContain("dee");
+	});
+});
+
+describe("NostrAuthor", () => {
+	const PK = "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f";
+	const names = (el: HTMLElement) =>
+		Array.from(el.querySelectorAll(".nostr-author__names > *")).map(
+			(n) => n.textContent,
+		);
+
+	it("shows display_name over @name, full npub as title, no npub text", () => {
+		useMoqtChatStore
+			.getState()
+			.setNostrProfile(PK, { displayName: "Alice A", name: "alice" });
+		const el = render(<NostrAuthor pubkey={PK} />);
+		expect(el.querySelector(".nostr-author")?.getAttribute("title")).toBe(
+			npubEncode(PK),
+		);
+		expect(names(el)).toEqual(["Alice A", "@alice"]);
+	});
+
+	it("shows name alone when display_name is missing", () => {
+		const other = PK.replace(/^1b/, "5b");
+		useMoqtChatStore.getState().setNostrProfile(other, { name: "bob" });
+		expect(names(render(<NostrAuthor pubkey={other} />))).toEqual(["bob"]);
+	});
+
+	it("falls back to the short npub alone before a profile lands", () => {
+		const other = PK.replace(/^1b/, "2b");
+		expect(names(render(<NostrAuthor pubkey={other} />))).toEqual([
+			shortNpub(other),
+		]);
 	});
 });
 

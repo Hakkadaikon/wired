@@ -85,6 +85,7 @@ describe("moqtChatCallbacks", () => {
 			addPeer: vi.fn(),
 			addMessage: vi.fn(),
 			setNickname: vi.fn(),
+			setPeerPubkey: vi.fn(),
 		});
 		callbacks.onStatusChange("connecting");
 		callbacks.onStatusChange("connected");
@@ -100,6 +101,7 @@ describe("moqtChatCallbacks", () => {
 			addPeer,
 			addMessage,
 			setNickname: vi.fn(),
+			setPeerPubkey: vi.fn(),
 		});
 		callbacks.onMessage("user2", "hello", [], "user2:5");
 		expect(addMessage.mock.calls[0][0].key).toBe("user2:5");
@@ -121,6 +123,7 @@ describe("moqtChatCallbacks", () => {
 			addPeer,
 			addMessage,
 			setNickname: vi.fn(),
+			setPeerPubkey: vi.fn(),
 		});
 		callbacks.onMessage("user2", "hi", []);
 		callbacks.onMessage("user3", "yo", []);
@@ -140,6 +143,7 @@ describe("moqtChatCallbacks", () => {
 			addPeer,
 			addMessage,
 			setNickname: vi.fn(),
+			setPeerPubkey: vi.fn(),
 		});
 		callbacks.onMessage("user2", "", [
 			{ bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" },
@@ -170,6 +174,7 @@ describe("moqtChatCallbacks", () => {
 			addPeer: vi.fn(),
 			addMessage,
 			setNickname: vi.fn(),
+			setPeerPubkey: vi.fn(),
 		});
 		callbacks.onMessage("user2", "look", [
 			{ bytes: new Uint8Array([1]), mimeType: "image/png" },
@@ -200,6 +205,7 @@ describe("moqtChatCallbacks", () => {
 			addPeer,
 			addMessage,
 			setNickname,
+			setPeerPubkey: vi.fn(),
 		});
 		callbacks.onMessage("user2", "hello", []);
 		must(callbacks.onNickname)("user2", "Alice");
@@ -594,7 +600,7 @@ describe("openMoqNostr", () => {
 			},
 			sk,
 		);
-		const store = { addMessage: vi.fn() };
+		const store = { addMessage: vi.fn(), setPeerPubkey: vi.fn() };
 		const receive = openMoqNostr(() => ({ sendNostrEvent: vi.fn() }), store);
 		const raw = JSON.stringify(signed, null, 1);
 		receive(JSON.stringify({ ...signed, content: "forged" }), false);
@@ -609,6 +615,29 @@ describe("openMoqNostr", () => {
 			at: 1_700_000_000_000,
 			raw,
 		});
+		expect(store.setPeerPubkey).not.toHaveBeenCalled(); // history only
+		closeMoqNostr();
+	});
+
+	it("maps a participant to the pubkey of a new live verified event on its track", () => {
+		const live = (content: string, n: number) =>
+			finalizeEvent(
+				{
+					kind: 1311,
+					created_at: Math.floor(Date.now() / 1000),
+					tags: [["a", NOSTR_ROOM_A]],
+					content,
+				},
+				new Uint8Array(32).fill(n),
+			);
+		const store = { addMessage: vi.fn(), setPeerPubkey: vi.fn() };
+		const receive = openMoqNostr(() => ({ sendNostrEvent: vi.fn() }), store);
+		const ev = live("hi", 8);
+		const forged = { ...live("x", 9), content: "tampered" };
+		receive(JSON.stringify(forged), true, "user3");
+		receive(JSON.stringify(ev), true, "user2");
+		receive(JSON.stringify(ev), true, "user3"); // a replay claims nothing
+		expect(store.setPeerPubkey.mock.calls).toEqual([["user2", ev.pubkey]]);
 		closeMoqNostr();
 	});
 });

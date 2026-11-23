@@ -2,10 +2,12 @@
 // and user2 get a mocked window.nostr (signing happens here in Node with a
 // fixed test key per user, via page.exposeFunction), log in, and exchange
 // messages; each must show the other's message with the author's short
-// npub. user3 has no extension: it still sends in the old format (shown
-// under its participant id) and still sees the Nostr messages. `?relays=`
-// keeps every page off the public profile relays, so names stay npubs. The
-// "{ }" toggle on a received message shows the verified event JSON.
+// npub (the name fallback) and the Room list must name the other by the
+// pubkey of its verified event. user3 has no extension: it still sends in
+// the old format (shown under its participant id) and still sees the Nostr
+// messages. `?relays=` keeps every page off the public profile relays, so
+// names stay npubs. A received message carries the verified check, and its
+// "⋯" toggle shows the verified event JSON.
 //
 //   just e2e-stability s24-nostr-chat
 
@@ -22,7 +24,7 @@ const shortNpub = (pk) => {
 	return `${npub.slice(0, 11)}…${npub.slice(-4)}`;
 };
 // The sender label of a Nostr message with no profile name (?relays=).
-const nostrLabel = (pk) => `${shortNpub(pk)} ✓ verified Nostr`;
+const nostrLabel = (pk) => shortNpub(pk);
 
 // Mocks a NIP-07 extension injected late (after load), then logs in.
 function nostrLogin(sk) {
@@ -70,7 +72,7 @@ async function labelOf(client, sender, text) {
 				)
 					.find((m) => m.textContent.includes(t))
 					?.querySelector(".message__sender")?.textContent,
-			// A Nostr author shows "<short npub> ✓ verified Nostr"; a legacy
+			// A Nostr author with no profile shows its short npub; a legacy
 			// sender just its id.
 			{ timeout: WAIT_MS },
 			sender,
@@ -80,6 +82,68 @@ async function labelOf(client, sender, text) {
 	} catch {
 		return null;
 	}
+}
+
+// The Room list names the peer by its verified event's pubkey.
+async function checkRoomList(client, pk, report) {
+	report.roomList = await client.page
+		.waitForFunction(
+			(want) =>
+				Array.from(document.querySelectorAll(".peers .nostr-author"))
+					.map((a) => a.textContent)
+					.find((t) => t === want),
+			{ timeout: WAIT_MS },
+			nostrLabel(pk),
+		)
+		.then((h) => h.jsonValue())
+		.catch(() => null);
+	return report.roomList === nostrLabel(pk)
+		? []
+		: [`room list lacks ${nostrLabel(pk)}`];
+}
+
+// The check is labelled; "⋯" opens, relabels, and closes the raw panel.
+async function checkFoot(client, sender, text, report) {
+	const foot = await client.page.evaluate(
+		async (s, t) => {
+			const m = Array.from(
+				document.querySelectorAll(
+					`[data-testid="message"][data-sender="${s}"]`,
+				),
+			).find((x) => x.textContent.includes(t));
+			const mark = m?.querySelector('[data-testid="nostr-verified"]');
+			const btn = m?.querySelector('[data-testid="nostr-raw-toggle"]');
+			const tick = () => new Promise((r) => setTimeout(r, 100));
+			const panel = () =>
+				m?.querySelector('[data-testid="nostr-raw"]')?.textContent ?? null;
+			btn?.click();
+			await tick();
+			const open = [btn?.getAttribute("aria-label"), panel()];
+			btn?.click();
+			await tick();
+			return {
+				mark: mark?.getAttribute("aria-label"),
+				text: btn?.textContent,
+				openLabel: open[0],
+				rawPanel: open[1],
+				closed: panel() === null,
+			};
+		},
+		sender,
+		text,
+	);
+	Object.assign(report, foot);
+	const failures = [];
+	const raw = foot.rawPanel ?? "";
+	if (!raw.includes("verified") || !raw.includes(`"content": "${text}"`))
+		failures.push(`raw panel missing the event: ${raw}`);
+	if (foot.mark !== "Verified Nostr event")
+		failures.push(`verified check label: ${foot.mark}`);
+	const toggles =
+		foot.text === "⋯" && foot.openLabel === "Hide raw Nostr event";
+	if (!toggles || !foot.closed)
+		failures.push(`⋯ toggle: ${JSON.stringify(foot)}`);
+	return failures;
 }
 
 export async function run({ pageUrl, serverUrl, server, log }) {
@@ -130,28 +194,8 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 		await expectLabel("user1 sees legacy", user1, "user3", m3, "user3");
 		await expectLabel("own nostr label", user1, "user1", m1, nostrLabel(pk1));
 
-		// The "{ }" toggle shows the verified event as carried on the wire.
-		report.rawPanel = await user2.page.evaluate(
-			(s, t) => {
-				const m = Array.from(
-					document.querySelectorAll(
-						`[data-testid="message"][data-sender="${s}"]`,
-					),
-				).find((x) => x.textContent.includes(t));
-				m?.querySelector('[data-testid="nostr-raw-toggle"]')?.click();
-				return new Promise((r) =>
-					setTimeout(
-						() => r(m?.querySelector('[data-testid="nostr-raw"]')?.textContent),
-						100,
-					),
-				);
-			},
-			pk1,
-			m1,
-		);
-		const raw = report.rawPanel ?? "";
-		if (!raw.includes("verified") || !raw.includes(`"content": "${m1}"`))
-			failures.push(`raw panel missing the event: ${raw}`);
+		failures.push(...(await checkRoomList(user2, pk1, report)));
+		failures.push(...(await checkFoot(user2, pk1, m1, report)));
 
 		for (const c of clients) {
 			if (c.errors.length > 0)

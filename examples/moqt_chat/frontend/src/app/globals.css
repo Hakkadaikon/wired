@@ -12,8 +12,8 @@
    padding block 0.618rem x phi. Minimum width: primary (Join, Send) =
    height x phi^2, others = height x phi, icon-only = height (square).
    Gaps between buttons in a row: --s-2; above a primary action: --s-4.
-   Text links (.link) keep the 44px height; the per-message raw toggle is
-   exempt as an inline target (2.5.5 exception) so rows stay dense. */
+   Text links (.link) keep the 44px height; the per-message check and "⋯"
+   are exempt as inline targets (2.5.5 exception) so rows stay dense. */
 :root {
 	--s-1: 0.382rem;
 	--s-2: 0.618rem;
@@ -29,6 +29,10 @@
 	--ink: #000;
 	--paper: #fff;
 	--mark: var(--red);
+	/* Off the NASA palette on purpose (user brief): the Nostr login sign.
+	   #8e30eb with #fff is 5.57:1; dark #b57cff with #000 is 7.29:1. */
+	--nostr: #8e30eb;
+	--on-nostr: #fff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -37,6 +41,8 @@
 		--ink: #fff;
 		--paper: #000;
 		--mark: #fff;
+		--nostr: #b57cff;
+		--on-nostr: #000;
 		color-scheme: dark;
 	}
 }
@@ -124,6 +130,39 @@ input {
 	gap: var(--s-2);
 }
 
+/* Join masthead's right end: identification block, then the Nostr account,
+ * right edge on the column's; wraps right-aligned under the wordmark. */
+.masthead__end {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: flex-end;
+	gap: var(--s-2) var(--s-4);
+	margin-left: auto;
+}
+
+.account {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 0 var(--s-2);
+	max-width: 100%;
+}
+
+.account__error {
+	flex-basis: 100%;
+	text-align: right;
+}
+
+.account__who {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	max-width: 16em;
+	min-height: var(--control-h);
+}
+
 .rule {
 	border: 0;
 	border-top: 1px solid var(--ink);
@@ -174,6 +213,12 @@ input {
 .sign--outline {
 	background: transparent;
 	color: var(--ink);
+}
+
+.sign--nostr {
+	border-color: var(--nostr);
+	background: var(--nostr);
+	color: var(--on-nostr);
 }
 
 .sign--red,
@@ -293,6 +338,10 @@ input {
 
 .field .link {
 	display: block;
+	margin-top: 0;
+}
+
+.account .link {
 	margin-top: 0;
 }
 
@@ -422,6 +471,9 @@ input {
 
 .volume__label {
 	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	margin-bottom: 0.15em;
 	font-size: 0.8em;
 	color: var(--gray);
@@ -574,43 +626,141 @@ input {
 	overflow-wrap: anywhere;
 }
 
+/* Nostr post: author (avatar | display name over @name) and time on row 1,
+ * then half a line (--s-2), the text, and the foot: check left, ⋯ right. */
+.message--nostr {
+	grid-template-columns: 1fr auto;
+	gap: 0 var(--s-2);
+}
+
+.message--nostr .message__sender {
+	min-width: 0;
+}
+
+.message--nostr .message__time {
+	grid-area: 1 / 2;
+}
+
+.message--nostr .message__text,
+.message__raw {
+	grid-column: 1 / -1;
+}
+
+.message--nostr .message__text {
+	grid-row: auto;
+	margin-top: var(--s-2);
+}
+
+.nostr-author {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--s-1);
+	max-width: 100%;
+	min-width: 0;
+	vertical-align: middle;
+}
+
+.nostr-author__names {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.nostr-author__name,
+.nostr-author__handle {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.nostr-author__name {
+	font-weight: 700;
+	color: var(--ink);
+}
+
+.nostr-author__handle {
+	font-weight: 400;
+	font-size: 0.85em;
+	color: var(--gray);
+}
+
+/* The sidebar keeps one line per participant. */
+.peers .nostr-author__handle {
+	display: none;
+}
+
 .nostr-avatar {
-	display: inline-block;
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	width: 24px;
 	height: 24px;
-	margin-right: 0.35em;
 	border-radius: 50%;
 	object-fit: cover;
-	vertical-align: middle;
+}
+
+.message--nostr .nostr-avatar {
+	width: var(--s-5);
+	height: var(--s-5);
 }
 
 .nostr-avatar--placeholder::before {
 	content: attr(data-initial);
-	display: block;
 	color: #fff;
 	font-size: 14px;
-	line-height: 24px;
-	text-align: center;
 }
 
-.nostr-author__badge {
-	white-space: nowrap;
-}
-
-.message__npub {
-	font-family: monospace;
-	font-size: 0.85em;
+.message__foot {
+	grid-column: 1 / -1;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
 }
 
 .message__raw-toggle {
-	grid-column: 2;
-	justify-self: start;
 	min-height: auto;
-	font-family: monospace;
+	margin-top: 0;
+	text-decoration: none;
+	padding-inline: var(--s-1);
+	font-size: var(--s-3);
 }
 
-.message__raw {
-	grid-column: 2 / -1;
+.verified {
+	position: relative;
+}
+
+.verified__mark {
+	padding: 0 var(--s-1);
+	border: 0;
+	background: none;
+	color: var(--gray);
+	font: inherit;
+	cursor: help;
+}
+
+/* Hover AND keyboard focus (not hover-only). */
+.verified__tip {
+	position: absolute;
+	left: 0;
+	bottom: 100%;
+	z-index: 1;
+	display: none;
+	width: max-content;
+	max-width: 16rem;
+	padding: var(--s-1) var(--s-2);
+	border: 1px solid var(--ink);
+	background: var(--paper);
+	color: var(--ink);
+}
+
+.verified:hover .verified__tip,
+.verified__mark:focus-visible + .verified__tip {
+	display: block;
+}
+
+.verified[data-dismissed] .verified__tip {
+	display: none;
 }
 
 .message__raw pre {
@@ -719,7 +869,7 @@ input {
 		display: none;
 	}
 
-	.message {
+	.message:not(.message--nostr) {
 		grid-template-columns: 5em 1fr auto;
 	}
 }

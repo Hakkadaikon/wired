@@ -32,7 +32,7 @@ import {
 	resolveDisplayName,
 	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
-import { NostrAuthor, RawNostrEvent } from "./rawNostrEvent";
+import { NostrAuthor, NostrName, RawNostrEvent } from "./rawNostrEvent";
 import { VideoSection } from "./videoSection";
 import { Wordmark } from "./wordmark";
 
@@ -327,6 +327,7 @@ function Peers() {
 	const speaking = useMoqtChatStore((s) => s.speaking);
 	const localSpeaking = useMoqtChatStore((s) => s.localSpeaking);
 	const nicknames = useMoqtChatStore((s) => s.nicknames);
+	const peerPubkeys = useMoqtChatStore((s) => s.peerPubkeys);
 	return (
 		<section>
 			<h2>Room</h2>
@@ -350,7 +351,11 @@ function Peers() {
 							}
 							data-speaking={speaking[p] || undefined}
 						/>
-						{resolveDisplayName(p, nicknames)}
+						{peerPubkeys[p] ? (
+							<NostrAuthor pubkey={peerPubkeys[p]} />
+						) : (
+							resolveDisplayName(p, nicknames)
+						)}
 					</li>
 				))}
 			</ul>
@@ -366,6 +371,7 @@ function Volume() {
 	const setMasterVolume = useMoqtChatStore((s) => s.setMasterVolume);
 	const setPeerVolume = useMoqtChatStore((s) => s.setPeerVolume);
 	const nicknames = useMoqtChatStore((s) => s.nicknames);
+	const peerPubkeys = useMoqtChatStore((s) => s.peerPubkeys);
 	return (
 		<section>
 			<h2>Volume</h2>
@@ -384,7 +390,11 @@ function Volume() {
 			{peers.map((p) => (
 				<label key={p} className="volume volume--peer">
 					<span className="volume__label">
-						{resolveDisplayName(p, nicknames)}
+						{peerPubkeys[p] ? (
+							<NostrName pubkey={peerPubkeys[p]} />
+						) : (
+							resolveDisplayName(p, nicknames)
+						)}
 					</span>
 					<input
 						type="range"
@@ -489,8 +499,13 @@ function MessageAttachment({
 	);
 }
 
-function Message({ m }: { m: ChatMessage }) {
+function Sender({ m }: { m: ChatMessage }) {
 	const nicknames = useMoqtChatStore((s) => s.nicknames);
+	if (m.author) return <NostrAuthor pubkey={m.author} />;
+	return m.own ? "You" : resolveDisplayName(m.senderId, nicknames);
+}
+
+function Message({ m }: { m: ChatMessage }) {
 	const time = new Date(m.at).toLocaleTimeString([], {
 		hour: "2-digit",
 		minute: "2-digit",
@@ -510,15 +525,13 @@ function Message({ m }: { m: ChatMessage }) {
 	// load harness matches "msg:<tag>:<seq>" in textContent, and a time
 	// directly after the text would extend the digits.
 	return (
-		<div className="message" data-testid="message" data-sender={m.senderId}>
+		<div
+			className={m.author ? "message message--nostr" : "message"}
+			data-testid="message"
+			data-sender={m.senderId}
+		>
 			<span className={m.own ? "message__sender you" : "message__sender"}>
-				{m.author ? (
-					<NostrAuthor pubkey={m.author} />
-				) : m.own ? (
-					"You"
-				) : (
-					resolveDisplayName(m.senderId, nicknames)
-				)}
+				<Sender m={m} />
 			</span>
 			<span className="message__time caption">{time}</span>
 			{m.text && <span className="message__text">{m.text}</span>}
@@ -768,15 +781,8 @@ const DEFAULT_RELAYS_TEXT = DEFAULT_NOSTR_RELAYS.join("\n");
 
 // NIP-07 login: the extension holds the key and signs; this page only learns
 // the pubkey. Logged in, text messages go out as signed kind 1311 events.
-function NostrLogin({
-	relaysText,
-	setRelaysText,
-	setNickname,
-}: {
-	relaysText: string;
-	setRelaysText: (v: string) => void;
-	setNickname: (v: string) => void;
-}) {
+// Lives in the join masthead's top right; errors are a caption under it.
+function NostrAccount({ setNickname }: { setNickname: (v: string) => void }) {
 	const pubkey = useMoqtChatStore((s) => s.nostrPubkey);
 	const [error, setError] = useState<string | null>(null);
 	const login = async () => {
@@ -795,54 +801,75 @@ function NostrLogin({
 		setNickname("");
 	};
 	return (
-		<>
-			<div className="field">
-				<span className="field__label">Nostr</span>
-				{pubkey ? (
-					<span data-testid="nostr-user">
-						<NostrAuthor pubkey={pubkey} />{" "}
-						<button type="button" className="link" onClick={logout}>
-							Log out
-						</button>
+		<div className="account">
+			{pubkey ? (
+				<>
+					<span className="account__who" data-testid="nostr-user">
+						<NostrAuthor pubkey={pubkey} />
 					</span>
-				) : (
-					<button
-						type="button"
-						className="sign sign--outline"
-						data-testid="nostr-login"
-						onClick={() => void login()}
-					>
-						Log in with Nostr
+					<button type="button" className="link" onClick={logout}>
+						Log out
 					</button>
-				)}
-				<span className="field__hint caption" aria-live="polite">
-					{error}
-				</span>
-			</div>
-			<div className="field">
-				<label className="field__label" htmlFor="nostr-relays">
-					Profile relays (read-only, one wss:// URL per line)
-				</label>
-				<textarea
-					id="nostr-relays"
-					rows={5}
-					value={relaysText}
-					data-testid="nostr-relays"
-					onChange={(e) => setRelaysText(e.target.value)}
-					onBlur={() => setRelaysText(parseRelayList(relaysText).join("\n"))}
-				/>
-				<span className="field__hint caption">
-					Only names (kind 0) are read from these; chat stays on the hub.
-				</span>
+				</>
+			) : (
 				<button
 					type="button"
-					className="link"
-					onClick={() => setRelaysText(DEFAULT_RELAYS_TEXT)}
+					className="sign sign--nostr"
+					data-testid="nostr-login"
+					onClick={() => void login()}
 				>
-					Reset relays to defaults
+					Log in with Nostr
 				</button>
-			</div>
-		</>
+			)}
+			<span className="account__error caption" aria-live="polite">
+				{error}
+			</span>
+		</div>
+	);
+}
+
+/** The logged-in identity at the end of the room masthead's tool row. */
+function NostrIdentity() {
+	const pubkey = useMoqtChatStore((s) => s.nostrPubkey);
+	if (!pubkey) return null;
+	return (
+		<span className="account__who" data-testid="nostr-identity">
+			<NostrAuthor pubkey={pubkey} />
+		</span>
+	);
+}
+
+function NostrRelays({
+	relaysText,
+	setRelaysText,
+}: {
+	relaysText: string;
+	setRelaysText: (v: string) => void;
+}) {
+	return (
+		<div className="field">
+			<label className="field__label" htmlFor="nostr-relays">
+				Profile relays (read-only, one wss:// URL per line)
+			</label>
+			<textarea
+				id="nostr-relays"
+				rows={5}
+				value={relaysText}
+				data-testid="nostr-relays"
+				onChange={(e) => setRelaysText(e.target.value)}
+				onBlur={() => setRelaysText(parseRelayList(relaysText).join("\n"))}
+			/>
+			<span className="field__hint caption">
+				Only names (kind 0) are read from these; chat stays on the hub.
+			</span>
+			<button
+				type="button"
+				className="link"
+				onClick={() => setRelaysText(DEFAULT_RELAYS_TEXT)}
+			>
+				Reset relays to defaults
+			</button>
+		</div>
 	);
 }
 
@@ -922,11 +949,7 @@ function JoinScreen({
 						onChange={(e) => setNickname(e.target.value)}
 					/>
 				</label>
-				<NostrLogin
-					relaysText={relaysText}
-					setRelaysText={setRelaysText}
-					setNickname={setNickname}
-				/>
+				<NostrRelays relaysText={relaysText} setRelaysText={setRelaysText} />
 				<div className="field">
 					<span className="field__label">Participant ID</span>
 					<div className="tiles" data-testid="author">
@@ -1065,13 +1088,17 @@ export default function Home() {
 						>
 							← Leave
 						</button>
+						<NostrIdentity />
 					</div>
 				) : (
-					<p className="masthead__id">
-						Media over QUIC Transport
-						<br />
-						draft-ietf-moq-transport-23
-					</p>
+					<div className="masthead__end">
+						<p className="masthead__id">
+							Media over QUIC Transport
+							<br />
+							draft-ietf-moq-transport-23
+						</p>
+						<NostrAccount setNickname={setNickname} />
+					</div>
 				)}
 			</header>
 			<hr className="rule" />

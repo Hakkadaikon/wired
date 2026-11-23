@@ -361,8 +361,9 @@ export interface MoqtChatCallbacks {
 		key?: string,
 	): void;
 	// A Nostr event's JSON from a peer's chat track, still unverified:
-	// moqNostr.ts verifies and filters it. live is false for a history fill.
-	onNostrEvent?(json: string, live: boolean): void;
+	// moqNostr.ts verifies and filters it. live is false for a history fill;
+	// participant is the chat track it came on.
+	onNostrEvent?(json: string, live: boolean, participant: string): void;
 	// A nickname self-announce (buildNicknameObjectMessage) from participantId
 	// -- never forwarded to onMessage, so it never appears in the chat log.
 	onNickname?(participantId: string, nickname: string): void;
@@ -1505,7 +1506,7 @@ export class MoqtChatClient {
 		}
 		const text = bytesToUtf8(payload);
 		if (kind === "nostr") {
-			this.#callbacks.onNostrEvent?.(text, live);
+			this.#callbacks.onNostrEvent?.(text, live, participant);
 			return;
 		}
 		if (kind === "nickname") {

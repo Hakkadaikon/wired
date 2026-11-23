@@ -183,6 +183,16 @@ describe("moqtChatStore", () => {
 			user2: "Bob",
 		});
 	});
+	it("a peer's Nostr pubkey goes when it leaves or the room clears", () => {
+		const s = useMoqtChatStore.getState();
+		s.setPeerPubkey("user2", "aa");
+		s.setPeerPubkey("user3", "bb");
+		s.removePeer("user2");
+		expect(useMoqtChatStore.getState().peerPubkeys).toEqual({ user3: "bb" });
+		s.clearPeers();
+		expect(useMoqtChatStore.getState().peerPubkeys).toEqual({});
+	});
+
 	it("removeScreenTile forgets that tile's variant", () => {
 		const s = useMoqtChatStore.getState();
 		s.addScreenTile("user2");

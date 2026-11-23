@@ -841,7 +841,7 @@ describe("MoqtChatClient message aggregation", () => {
 		const nostr: string[] = [];
 		const client = new MoqtChatClient("user1", {
 			onStatusChange: () => {},
-			onNostrEvent: (json, live) => nostr.push(`${live}:${json}`),
+			onNostrEvent: (json, live, from) => nostr.push(`${live}:${from}:${json}`),
 			onMessage: (participantId, text, attachments, key) => {
 				messages.push({ participantId, text, attachments });
 				if (key) keys.push(key);
@@ -946,7 +946,7 @@ describe("MoqtChatClient message aggregation", () => {
 			wireObject(SENDER_ALIAS, 0n, utf8ToBytes(json)),
 		);
 		await vi.advanceTimersByTimeAsync(0);
-		expect(nostr).toEqual([`true:${json}`]);
+		expect(nostr).toEqual([`true:user2:${json}`]);
 		expect(messages).toEqual([]);
 	});
 

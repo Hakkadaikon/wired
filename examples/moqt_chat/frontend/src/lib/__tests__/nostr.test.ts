@@ -181,6 +181,19 @@ describe("kind 0 profile name", () => {
 		).toEqual({ name: "n", picture: undefined });
 	});
 
+	it("keeps display_name and name apart; displayName is the NIP-24 fallback", () => {
+		expect(
+			profileOf(PK, [profile({ display_name: " D ", name: "n" }, 1)]),
+		).toEqual({ displayName: "D", name: "n" });
+		expect(
+			profileOf(PK, [profile({ displayName: "old", name: "n" }, 1)]),
+		).toEqual({ displayName: "old", name: "n" });
+		expect(
+			profileOf(PK, [profile({ display_name: "new", displayName: "old" }, 1)])
+				?.displayName,
+		).toBe("new");
+	});
+
 	it("caps the name at 64 chars", () => {
 		const long = "a".repeat(200);
 		expect(profileName(PK, [profile({ name: long }, 1)])).toHaveLength(64);

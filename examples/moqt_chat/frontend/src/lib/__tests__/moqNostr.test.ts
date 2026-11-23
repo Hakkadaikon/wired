@@ -62,6 +62,14 @@ describe("MoqNostr.publish", () => {
 });
 
 describe("MoqNostr.subscribe", () => {
+	it("receive returns a new verified event, nothing for a repeat or junk", () => {
+		const n = new MoqNostr(vi.fn());
+		const ev = chat("once");
+		expect(n.receive(wire(ev))?.id).toBe(ev.id);
+		expect(n.receive(wire(ev))).toBeUndefined();
+		expect(n.receive("{not json")).toBeUndefined();
+	});
+
 	it("delivers history, then the end marker, then live events", () => {
 		const n = new MoqNostr(vi.fn());
 		n.receive(wire(chat("old")));

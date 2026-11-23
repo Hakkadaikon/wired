@@ -45,6 +45,7 @@ export type MoqtChatState = {
 	messages: ChatMessage[];
 	peers: string[]; // found participant ids, in observation order
 	nicknames: Record<string, string>; // per-participant self-announced nickname; absent key means none set
+	peerPubkeys: Record<string, string>; // participant id -> pubkey of a verified Nostr event live on its own chat track
 	screenSharing: boolean; // am I currently sharing my screen
 	screenTiles: string[]; // participant ids currently sharing, for rendering tiles
 	screenShareError: string | null; // screen-share-only error; never surfaces in chat/voice errors
@@ -71,6 +72,7 @@ export type MoqtChatState = {
 	addMessage: (message: Omit<ChatMessage, "id">) => number;
 	removeMessage: (id: number) => void;
 	setNickname: (id: string, nickname: string) => void;
+	setPeerPubkey: (id: string, pubkey: string) => void;
 	addPeer: (id: string) => void;
 	removePeer: (id: string) => void;
 	clearPeers: () => void;
@@ -113,6 +115,7 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 	messages: [],
 	peers: [],
 	nicknames: {},
+	peerPubkeys: {},
 	screenSharing: false,
 	screenTiles: [],
 	screenShareError: null,
@@ -151,6 +154,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 		set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
 	setNickname: (id, nickname) =>
 		set((s) => ({ nicknames: { ...s.nicknames, [id]: nickname } })),
+	setPeerPubkey: (id, pubkey) =>
+		set((s) => ({ peerPubkeys: { ...s.peerPubkeys, [id]: pubkey } })),
 	addPeer: (id) =>
 		set((s) => (s.peers.includes(id) ? s : { peers: [...s.peers, id] })),
 	// A leaving peer's screen tile choice and label go with it: ids come from
@@ -159,15 +164,18 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 		set((s) => {
 			const screenTileQuality = { ...s.screenTileQuality };
 			const screenTileVariants = { ...s.screenTileVariants };
+			const { [id]: _, ...peerPubkeys } = s.peerPubkeys;
 			delete screenTileQuality[id];
 			delete screenTileVariants[id];
 			return {
 				peers: s.peers.filter((p) => p !== id),
 				screenTileQuality,
 				screenTileVariants,
+				peerPubkeys,
 			};
 		}),
-	clearPeers: () => set({ peers: [], voiceQuality: {}, speaking: {} }),
+	clearPeers: () =>
+		set({ peers: [], voiceQuality: {}, speaking: {}, peerPubkeys: {} }),
 	clearMessages: () => set({ messages: [] }),
 	setScreenSharing: (screenSharing) => set({ screenSharing }),
 	addScreenTile: (id) =>

@@ -196,7 +196,12 @@ function isOwnProfile(pubkey: string, e: Event): boolean {
 	return e.kind === 0 && e.pubkey === pubkey && verifyEvent(e);
 }
 
-export type NostrProfile = { name?: string; picture?: string };
+/** NIP-24: `display_name` (rich name), `name` (short handle). */
+export type NostrProfile = {
+	displayName?: string;
+	name?: string;
+	picture?: string;
+};
 
 const PICTURE_URL_MAX = 2048;
 
@@ -215,24 +220,27 @@ export function safePictureUrl(v: unknown): string | undefined {
 	}
 }
 
-function nameOf(m: { display_name?: unknown; name?: unknown }) {
-	const pick = [m.display_name, m.name].find(
-		(v) => typeof v === "string" && v.trim() !== "",
-	) as string | undefined;
-	return pick?.trim().slice(0, NAME_MAX);
+function text(v: unknown): string | undefined {
+	const t = typeof v === "string" ? v.trim().slice(0, NAME_MAX) : "";
+	return t || undefined;
 }
 
 function profileFrom(content: string): NostrProfile | undefined {
 	try {
 		const m = JSON.parse(content);
-		const p = { name: nameOf(m), picture: safePictureUrl(m.picture) };
-		return p.name || p.picture ? p : undefined;
+		// NIP-24: `displayName` is the deprecated spelling, still seen.
+		const p = {
+			displayName: text(m.display_name) ?? text(m.displayName),
+			name: text(m.name),
+			picture: safePictureUrl(m.picture),
+		};
+		return p.displayName || p.name || p.picture ? p : undefined;
 	} catch {
 		return undefined;
 	}
 }
 
-/** The name (display_name, else name) and picture of the newest valid kind
+/** The display_name, name and picture of the newest valid kind
  * 0 event by pubkey. Untrusted text: React renders it as text, never HTML. */
 export function profileOf(
 	pubkey: string,
@@ -245,7 +253,8 @@ export function profileOf(
 }
 
 export function profileName(pubkey: string, events: Event[]) {
-	return profileOf(pubkey, events)?.name;
+	const p = profileOf(pubkey, events);
+	return p?.displayName ?? p?.name;
 }
 
 const PROFILE_DEBOUNCE_MS = 300;

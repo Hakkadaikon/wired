@@ -102,20 +102,21 @@ export class MoqNostr {
 
 	/** Feeds one Nostr payload from a peer's chat track (live, or its
 	 * history fill); invalid or implausible ones are counted and dropped, a
-	 * repeat of a held id is ignored. */
-	receive(json: string, live = true): void {
+	 * repeat of a held id is ignored. Returns the event when it is new. */
+	receive(json: string, live = true): Event | undefined {
 		const ev = json.length > PAYLOAD_MAX ? undefined : parseVerifiedEvent(json);
 		if (!ev || !plausibleTime(ev, live, this.#start)) {
 			this.invalid++;
-			return;
+			return undefined;
 		}
-		if (this.#seen.has(ev.id)) return;
+		if (this.#seen.has(ev.id)) return undefined;
 		this.#seen.add(ev.id);
 		this.#history.push({ ev, raw: json });
 		if (this.#history.length > HISTORY_MAX)
 			this.#seen.delete(this.#history.shift()?.ev.id ?? "");
 		for (const s of this.#subs)
 			if (matches(s.filter, ev)) s.handlers.onEvent(ev, json);
+		return ev;
 	}
 
 	/** History received so far (newest `limit`), then onHistoryEnd, then live
