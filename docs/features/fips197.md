@@ -35,6 +35,7 @@
 - [x] F197-005 (§5.1.1) 実装は、SUBBYTES() で SBOX の置換表(Table 4)をステートの各バイトに独立に適用しなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
+  - test: `tests/crypto/aesct_test.c` — `test_aesct_sbox8` (表を使わない S-box を、Figure 7 の 256 値すべてと比べる)
 - [x] F197-006 (§5.1.2) 実装は、SHIFTROWS() でステートの r 行目を左へ r 位置だけ巡回シフトし、0 行目は変えずに残さなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_b_rounds` (Appendix B の 10 ラウンドすべてで、`shift_rows` の後の状態を比べる)
 - [x] F197-007 (§5.1.3) 実装は、MIXCOLUMNS() でステートの各列に固定行列 [{02},{01},{01},{03}] を掛けて混ぜなければならない。
@@ -49,7 +50,8 @@
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
   - test: `tests/crypto/aes_test.c` — `test_aes256_appendix_c3`
-  - gap: Nk=4(`schedule_word`)と Nk=8(`aes128_schedule_word256`。i mod 8 = 4 での追加の SUBWORD を含む)の分岐は、暗号化の出力を通じてしか確かめていません。Nk=6 の分岐(AES-192)は提供していません。
+  - test: `tests/crypto/aesct_test.c` — `test_aesct_keysched` (Appendix A.1 の w[4]、w[43] と A.3 の w[8]、w[12]、w[59] を、AES 命令の経路とソフトウェアの経路の両方で比べる)
+  - gap: Nk=6 の分岐(AES-192)は提供していません。
 - [x] F197-010 (§5.2, Table 5) 実装は、KEYEXPANSION() で 10 個の固定のラウンド定数 Rcon[1..10] = {01,02,04,08,10,20,40,80,1b,36}(それぞれ値を持つのは左端のバイトだけで、下位 3 バイトはゼロ)を使わなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
@@ -89,7 +91,7 @@ F197-011 から F197-015(INVCIPHER、INVSHIFTROWS、INVSUBBYTES、INVMIXCOLUMNS�
 - (Abstract, §1, §5, Table 3, App. A.2) AES-192(Nk=6、Nr=12)。TLS 1.3 のどの暗号スイートも AES-192 を使いません。AES-256(App. A.3, C.3)は実装済みで(`src/crypto/symmetric/aead/aes/aes.h` の `aes256_*`)、`TLS_AES_256_GCM_SHA384` での QUIC のパケット保護とヘッダー保護の鍵に使っています(`tests/crypto/aes_test.c` の `test_aes256_appendix_c3`、`tests/transport/hp_suite_test.c` の `test_hp_suite`)。
 - (§5.3 F197-011, §5.3.1 F197-012, §5.3.2 F197-013, §5.3.3 F197-014, §5.3.5 F197-015) INVCIPHER()、EQINVCIPHER() と、それらを構成するすべての変換(INVSHIFTROWS、INVSUBBYTES、INVMIXCOLUMNS、KEYEXPANSIONEIC)。QUIC は生の AES で復号することがありません。GCM(SP 800-38D)はカウンターモードで順方向の暗号だけを使い、RFC 9001 5.4.3 のヘッダー保護は送信側でも受信側でもサンプルを AES-ECB で*暗号化*します(暗号化とは別にヘッダーを「復号」する操作はありません)。この SDK は AES の復号プリミティブをまったく提供していません。
 - (§6.3) パラメーターの拡張(将来の改訂で新しい Nk/Nb/Nr の値を定める場合についての、実装者向けの指針)。標準の実装者に向けた将来の指針であり、本標準のテスト可能な要件ではありません。
-- (§6.4) 各種プラットフォームに関する実装上の提案。「実装攻撃から実装を保護することを……検討するべきである」も含みます。本標準はこれを自身の範囲の外に置いています。スカラーの経路は表引きの S-box を使います(`gcmx86` の AES-NI の経路は表引きを使いません)。
+- (§6.4) 各種プラットフォームに関する実装上の提案。「実装攻撃から実装を保護することを……検討するべきである」も含みます。本標準はこれを自身の範囲の外に置いています。鍵拡張とラウンドは、どちらの経路でも秘密の値で表を引かず、秘密の値で分岐もしません。AES 命令のある CPU(x86 の AES-NI、ARMv8 の AES 拡張)では、ラウンドを aesenc/aesenclast(ARMv8 では AESE/AESMC)で、鍵拡張の SubWord を aesenclast(AESE)で計算します(`gcmx86_aes.c`)。AES 命令のない CPU では、S-box を GF(2^8) の逆元(x^254 を固定の加法連鎖で求める)とアフィン変換から、8 バイトずつ算術で計算します(`aes_sbox.c`)。`tests/ct/ct_taint.c` の `aes*gcm_seal*` と `hp_aes*` の case が、両方の経路で valgrind memcheck の報告が 0 件であることを確かめます(`_sw` の case はソフトウェアの経路を強制します)。
 - (App. A.2, C.2) AES-192 の鍵拡張と例示ベクター。AES-192 は提供していません(上を参照)。
 - (Announcement 8) 輸出規制の順守(「すべての連邦法に従わなければならない」)。法的な告知であり、実装の規則ではありません。
 - (Appendix D) 変更履歴(参考)。刊行物の編集の経緯であり、規範的な要件ではありません。
