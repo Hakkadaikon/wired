@@ -9,7 +9,7 @@
  * any branch or memory index that depends on the secret is reported
  * ("Conditional jump or move depends on uninitialised value(s)" / "Use of
  * uninitialised value of size N") and fails the run (RFC 7748 5 / 5.1,
- * RFC 8032 8.1, RFC 8439 4).
+ * RFC 8032 8.1, RFC 8439 4, FIPS 197 5, SP 800-38D 6.4).
  *
  * `ct_taint <case>` runs one case (2 if no case has that name);
  * `ct_taint neg` runs the negative control, a function that branches on the
@@ -25,9 +25,13 @@
 #include "crypto/asymmetric/ecc/p256sign/sign.h"
 #include "crypto/kdf/hkdf/hkdf.h"
 #include "crypto/symmetric/aead/chacha/aead.h"
+#include "crypto/symmetric/aead/gcm/gcm.h"
+#include "crypto/symmetric/aead/gcm/gcm256.h"
+#include "crypto/symmetric/aead/gcmx86/gcmx86.h"
 #include "crypto/symmetric/hash/hash/hmac.h"
 #include "tls/handshake/core/tls/x25519.h"
 #include "transport/packet/protect/hp/hp_chacha.h"
+#include "transport/packet/protect/protect_suite/hp_suite.h"
 
 #define CT_SECRET_MAX 32
 #define CT_OUT_MAX 80
@@ -94,6 +98,78 @@ static void ct_hkdf(const u8* s, u8* out) {
   hkdf_extract(wired_span_of(ct_nonce, 12), wired_span_of(s, 32), prk);
   (void)hkdf_expand(
       prk, wired_span_of(ct_msg, sizeof ct_msg), wired_mspan_of(out, 64));
+}
+
+/* AES-GCM seal (SP 800-38D 7.1) with a secret key: the key schedule,
+ * every AES block and GHASH under the secret H. */
+static void ct_aes128gcm(const u8* s, u8* out) {
+  aes128  a;
+  gcm_ctx g = {&a, ct_nonce, wired_span_of(0, 0)};
+  aes128_init(&a, s);
+  (void)gcm_seal(&g, wired_span_of(ct_msg, sizeof ct_msg), out);
+}
+
+static void ct_aes256gcm(const u8* s, u8* out) {
+  aes256     a;
+  gcm256_ctx g = {&a, ct_nonce, wired_span_of(0, 0)};
+  aes256_init(&a, s);
+  (void)gcm256_seal(&g, wired_span_of(ct_msg, sizeof ct_msg), out);
+}
+
+/* Secret plaintext under a public key. */
+static void ct_aes128gcm_pt(const u8* s, u8* out) {
+  aes128  a;
+  gcm_ctx g = {&a, ct_nonce, wired_span_of(0, 0)};
+  aes128_init(&a, ct_msg);
+  (void)gcm_seal(&g, wired_span_of(s, 32), out);
+}
+
+static void ct_aes256gcm_pt(const u8* s, u8* out) {
+  aes256     a;
+  gcm256_ctx g = {&a, ct_nonce, wired_span_of(0, 0)};
+  aes256_init(&a, ct_msg);
+  (void)gcm256_seal(&g, wired_span_of(s, 32), out);
+}
+
+/* RFC 9001 5.4.3: AES-ECB of the public sample under the secret key. */
+static void ct_hp_aes128(const u8* s, u8* out) {
+  (void)hp_suite_mask(0x1301, s, ct_msg, out);
+}
+
+static void ct_hp_aes256(const u8* s, u8* out) {
+  (void)hp_suite_mask(0x1302, s, ct_msg, out);
+}
+
+/* The same operations on the software AES and GHASH an AES-NI host never
+ * reaches on its own: gcmx86_cached = 1 reads as "no AES-NI". */
+static void ct_sw(void (*op)(const u8*, u8*), const u8* s, u8* out) {
+  gcmx86_cached = 1;
+  op(s, out);
+  gcmx86_cached = 0;
+}
+
+static void ct_aes128gcm_sw(const u8* s, u8* out) {
+  ct_sw(ct_aes128gcm, s, out);
+}
+
+static void ct_aes256gcm_sw(const u8* s, u8* out) {
+  ct_sw(ct_aes256gcm, s, out);
+}
+
+static void ct_aes128gcm_pt_sw(const u8* s, u8* out) {
+  ct_sw(ct_aes128gcm_pt, s, out);
+}
+
+static void ct_aes256gcm_pt_sw(const u8* s, u8* out) {
+  ct_sw(ct_aes256gcm_pt, s, out);
+}
+
+static void ct_hp_aes128_sw(const u8* s, u8* out) {
+  ct_sw(ct_hp_aes128, s, out);
+}
+
+static void ct_hp_aes256_sw(const u8* s, u8* out) {
+  ct_sw(ct_hp_aes256, s, out);
 }
 
 /* Both tag operands are secret-derived in an AEAD open. */
@@ -167,6 +243,18 @@ static const ct_case ct_cases[] = {
     {"p256_keygen", ct_p256_keygen, 32, 1 + P256_PUBKEY_LEN, 0},
     {"p256_sign", ct_p256_sign, 32, 64, 0},
     {"cvecdsa_build", ct_cvecdsa, 32, CT_OUT_MAX, 0},
+    {"aes128gcm_seal", ct_aes128gcm, 16, 48, 0},
+    {"aes256gcm_seal", ct_aes256gcm, 32, 48, 0},
+    {"aes128gcm_seal_pt", ct_aes128gcm_pt, 32, 48, 0},
+    {"aes256gcm_seal_pt", ct_aes256gcm_pt, 32, 48, 0},
+    {"hp_aes128", ct_hp_aes128, 16, 5, 0},
+    {"hp_aes256", ct_hp_aes256, 32, 5, 0},
+    {"aes128gcm_seal_sw", ct_aes128gcm_sw, 16, 48, 0},
+    {"aes256gcm_seal_sw", ct_aes256gcm_sw, 32, 48, 0},
+    {"aes128gcm_seal_pt_sw", ct_aes128gcm_pt_sw, 32, 48, 0},
+    {"aes256gcm_seal_pt_sw", ct_aes256gcm_pt_sw, 32, 48, 0},
+    {"hp_aes128_sw", ct_hp_aes128_sw, 16, 5, 0},
+    {"hp_aes256_sw", ct_hp_aes256_sw, 32, 5, 0},
     {"neg", ct_neg, 1, 1, 1},
 };
 
