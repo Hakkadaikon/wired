@@ -37,7 +37,7 @@ export function VideoSection({
 		</button>
 	);
 	return (
-		<section>
+		<section className="video">
 			<h2>Video</h2>
 			{toggle("camera", "Camera")}
 			<label className="volume">

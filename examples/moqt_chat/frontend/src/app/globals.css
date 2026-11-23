@@ -2,8 +2,25 @@
    white paper, black ink, NASA Red and NASA Warm Gray, Helvetica set
    flush-left / ragged-right, hairline rules instead of boxes. Red goes only
    on white; on a dark ground the mark is white and red survives only as a
-   red panel carrying white text. */
+   red panel carrying white text.
+
+   Control sizing follows a golden-ratio scale (phi = 1.618, base 1rem):
+     --s-1 0.382rem   --s-2 0.618rem   --s-3 1rem   --s-4 1.618rem
+     --s-5 2.618rem
+   Every button shares one height, --control-h: --s-5 raised to the 44px
+   touch minimum (WCAG 2.5.5). Label 1rem (--s-3); padding inline 1rem =
+   padding block 0.618rem x phi. Minimum width: primary (Join, Send) =
+   height x phi^2, others = height x phi, icon-only = height (square).
+   Gaps between buttons in a row: --s-2; above a primary action: --s-4.
+   Text links (.link) keep the 44px height; the per-message raw toggle is
+   exempt as an inline target (2.5.5 exception) so rows stay dense. */
 :root {
+	--s-1: 0.382rem;
+	--s-2: 0.618rem;
+	--s-3: 1rem;
+	--s-4: 1.618rem;
+	--s-5: 2.618rem;
+	--control-h: max(44px, var(--s-5));
 	--red: #fc3d21;
 	--gray: #a19d94;
 	--gray-light: #e8e6e1;
@@ -104,7 +121,7 @@ input {
 .masthead__tools {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.5em;
+	gap: var(--s-2);
 }
 
 .rule {
@@ -122,8 +139,19 @@ input {
 
 /* Signs: black panel with white text; red panel with white text; or a
    white panel with a black outline. Arrows are text, not icons. */
+.sign,
+.tile {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: calc(var(--control-h) * 1.618);
+	min-height: var(--control-h);
+	padding: var(--s-2) var(--s-3);
+	font-size: var(--s-3);
+	line-height: 1.2;
+}
+
 .sign {
-	padding: 0.6em 1em;
 	border: 1px solid var(--ink);
 	background: var(--ink);
 	color: var(--paper);
@@ -148,8 +176,19 @@ input {
 	color: var(--ink);
 }
 
+.sign--red,
+.sign--primary {
+	min-width: calc(var(--control-h) * 2.618);
+}
+
+.sign--icon {
+	min-width: var(--control-h);
+	padding-inline: 0;
+}
+
 .link {
 	align-self: flex-start;
+	min-height: var(--control-h);
 	margin-top: 1em;
 	border: 0;
 	background: none;
@@ -236,19 +275,38 @@ input {
 	background: transparent;
 }
 
+.field textarea {
+	display: block;
+	width: 100%;
+	padding: 0.25em 0;
+	border: 0;
+	border-bottom: 1px solid var(--gray);
+	background: transparent;
+	font-family: monospace;
+	resize: vertical;
+}
+
 .field__hint {
+	display: block;
 	margin-top: 0.35em;
+}
+
+.field .link {
+	display: block;
+	margin-top: 0;
 }
 
 .tiles {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.5em;
+	gap: var(--s-2);
 	margin-top: 0.35em;
 }
 
+/* Picker cells keep the phi min-width but pad by --s-2 so four fit one row
+   at 375px. */
 .tile {
-	padding: 0.5em 0.9em;
+	padding-inline: var(--s-2);
 	border: 1px solid var(--ink);
 	background: var(--paper);
 	color: var(--ink);
@@ -263,7 +321,7 @@ input {
 
 .form .sign--red {
 	align-self: flex-start;
-	margin-top: 1.5em;
+	margin-top: var(--s-4);
 }
 
 /* Room: identification rail on the left, body on the right. */
@@ -369,6 +427,20 @@ input {
 	color: var(--gray);
 }
 
+/* Video rail: --s-2 from a toggle to its setting, --s-3 between groups. */
+.video .sign {
+	display: flex;
+	width: fit-content;
+}
+
+.video .sign + .volume {
+	margin-top: var(--s-2);
+}
+
+.video .volume + .sign {
+	margin-top: var(--s-3);
+}
+
 .volume input[type="range"] {
 	width: 100%;
 	accent-color: var(--ink);
@@ -468,8 +540,6 @@ input {
 
 .screen-tile__bar .sign--small {
 	margin-left: auto;
-	padding: 0.2em 0.6em;
-	font-size: 0.75em;
 }
 
 .messages {
@@ -535,6 +605,7 @@ input {
 .message__raw-toggle {
 	grid-column: 2;
 	justify-self: start;
+	min-height: auto;
 	font-family: monospace;
 }
 
@@ -593,7 +664,7 @@ input {
 .compose {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 0.5em;
+	gap: var(--s-2);
 	padding: 0.75em 0;
 	border-top: 1px solid var(--ink);
 }
@@ -631,6 +702,7 @@ input {
 .compose input {
 	flex: 1;
 	min-width: 0;
+	min-height: var(--control-h);
 	padding: 0.4em 0;
 	border: 0;
 	border-bottom: 1px solid var(--gray);

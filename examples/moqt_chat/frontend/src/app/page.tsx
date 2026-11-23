@@ -176,7 +176,8 @@ function ScreenTiles({
 					/>
 					{stalledScreenTiles.own && (
 						<span className="caption" data-testid="screen-stalled-own">
-							画面共有が停止しているようです。一度停止してから再度共有してください
+							Screen sharing seems to have stalled. Stop sharing, then share
+							again.
 						</span>
 					)}
 				</div>
@@ -743,7 +744,9 @@ function Compose({
 			/>
 			<button
 				type="button"
-				className="sign sign--outline"
+				className="sign sign--outline sign--icon"
+				aria-label="Attach images or videos"
+				title="Attach images or videos"
 				disabled={disabled}
 				onClick={() => fileInputRef.current?.click()}
 			>
@@ -751,7 +754,7 @@ function Compose({
 			</button>
 			<button
 				type="button"
-				className="sign"
+				className="sign sign--primary"
 				disabled={disabled || !canSend}
 				onClick={submit}
 			>
@@ -809,19 +812,20 @@ function NostrLogin({
 						data-testid="nostr-login"
 						onClick={() => void login()}
 					>
-						Nostr でログイン
+						Log in with Nostr
 					</button>
 				)}
 				<span className="field__hint caption" aria-live="polite">
 					{error}
 				</span>
 			</div>
-			<label className="field">
-				<span className="field__label">
+			<div className="field">
+				<label className="field__label" htmlFor="nostr-relays">
 					Profile relays (read-only, one wss:// URL per line)
-				</span>
+				</label>
 				<textarea
-					rows={4}
+					id="nostr-relays"
+					rows={5}
 					value={relaysText}
 					data-testid="nostr-relays"
 					onChange={(e) => setRelaysText(e.target.value)}
@@ -830,14 +834,14 @@ function NostrLogin({
 				<span className="field__hint caption">
 					Only names (kind 0) are read from these; chat stays on the hub.
 				</span>
-			</label>
-			<button
-				type="button"
-				className="link"
-				onClick={() => setRelaysText(DEFAULT_RELAYS_TEXT)}
-			>
-				Reset relays to defaults
-			</button>
+				<button
+					type="button"
+					className="link"
+					onClick={() => setRelaysText(DEFAULT_RELAYS_TEXT)}
+				>
+					Reset relays to defaults
+				</button>
+			</div>
 		</>
 	);
 }
