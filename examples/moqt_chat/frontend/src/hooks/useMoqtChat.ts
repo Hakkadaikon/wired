@@ -11,6 +11,7 @@
 // handleIncomingStream replace sendDatagram/handleDatagram, and the
 // participant id itself is the sender key (no senderId bytes to hex-encode).
 
+import type { Event as NostrEvent } from "nostr-tools/pure";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	type AudioContextGate,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/audioContextGate";
 import { JitterBufferManager } from "@/lib/jitterBuffer";
 import { type MicPipeline, startMicPipeline } from "@/lib/micPipeline";
+import { MoqNostr } from "@/lib/moqNostr";
 import {
 	type MoqtChatCallbacks,
 	MoqtChatClient,
@@ -38,6 +40,12 @@ import {
 	type NoiseSuppressorHandle,
 	startNoiseSuppressor,
 } from "@/lib/noiseSuppressor";
+import {
+	checkOwnChatEvent,
+	LIVE_CHAT_KIND,
+	NOSTR_ROOM_A,
+	signChatEvent,
+} from "@/lib/nostr";
 import { effectiveGain } from "@/lib/outputMixer";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
 import { createPlaybackSink, type PlaybackSink } from "@/lib/playbackSink";
@@ -71,6 +79,7 @@ import {
 import type { VoiceTapEvent } from "@/lib/voiceTap";
 import {
 	type ConnectionState,
+	lookupNostrName,
 	type MoqtChatState,
 	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
@@ -153,13 +162,66 @@ function attachBlobUrls(attachments: WireChatAttachment[]) {
 	}));
 }
 
+// The page's one MoQ session's Nostr client (openMoqNostr); module scope
+// keeps it out of useMoqtChat, which is at its Halstead cap.
+const chatNostr: { current: MoqNostr | null } = { current: null };
+
+/** Drops the session's MoqNostr (teardownSession): a later send must not
+ * reach a closed session's client. */
+export function closeMoqNostr(): void {
+	chatNostr.current = null;
+}
+
+// Longer content is shown cut (the payload itself is capped by MoqNostr).
+const NOSTR_TEXT_MAX = 4000;
+
+/** A verified room chat event from MoqNostr; the key drops the history
+ * fill's repeat on a rejoin. */
+export function addNostrMessage(
+	store: Pick<MoqtChatState, "addMessage">,
+	ev: Pick<NostrEvent, "id" | "pubkey" | "content" | "created_at">,
+	raw: string,
+): void {
+	store.addMessage({
+		senderId: ev.pubkey,
+		text: ev.content.slice(0, NOSTR_TEXT_MAX),
+		at: ev.created_at * 1000,
+		own: false,
+		author: ev.pubkey,
+		key: `nostr:${ev.id}`,
+		raw,
+	});
+	void lookupNostrName(ev.pubkey);
+}
+
+/** This session's MoqNostr (moqNostr.ts) over client's chat track,
+ * subscribed to the room's live chat; returns the client's onNostrEvent. */
+export function openMoqNostr(
+	client: () => Pick<MoqtChatClient, "sendNostrEvent">,
+	store: Pick<MoqtChatState, "addMessage">,
+): (json: string, live: boolean) => void {
+	const nostr = new MoqNostr((json) => client().sendNostrEvent(json));
+	nostr.subscribe(
+		{ kinds: [LIVE_CHAT_KIND], a: NOSTR_ROOM_A },
+		{ onEvent: (ev, raw) => addNostrMessage(store, ev, raw) },
+	);
+	chatNostr.current = nostr;
+	return (json, live) => nostr.receive(json, live);
+}
+
+// client: when given, Nostr payloads go to a fresh openMoqNostr session.
 export function moqtChatCallbacks(
 	store: Pick<
 		MoqtChatState,
 		"setConnectionState" | "addPeer" | "addMessage" | "setNickname"
 	>,
-): Pick<MoqtChatCallbacks, "onStatusChange" | "onMessage" | "onNickname"> {
+	client?: () => Pick<MoqtChatClient, "sendNostrEvent">,
+): Pick<
+	MoqtChatCallbacks,
+	"onStatusChange" | "onMessage" | "onNickname" | "onNostrEvent"
+> {
 	return {
+		...(client && { onNostrEvent: openMoqNostr(client, store) }),
 		onStatusChange: (status) => store.setConnectionState(status),
 		onMessage: (participantId, text, attachments, key) => {
 			store.addPeer(participantId);
@@ -200,22 +262,41 @@ export function moqtChatCallbacks(
 // timeline trace of the attempt. Pulled out of the hook's own closure so
 // it's testable without a real MoqtChatClient (same pattern as
 // connectChatThenVoice below).
+// Logged in via NIP-07 (nostrPubkey), a text-only message is a signed kind
+// 1311 event published through MoqNostr -- after checkOwnChatEvent, since
+// the extension's answer is untrusted; a message with attachments keeps the
+// extension-less format.
 export async function sendChatMessage(
 	client: Pick<MoqtChatClient, "sendMessage"> | null,
-	store: Pick<MoqtChatState, "addMessage" | "setMessageSendError">,
+	store: Pick<
+		MoqtChatState,
+		"addMessage" | "setMessageSendError" | "nostrPubkey"
+	>,
 	senderId: string,
 	text: string,
 	attachments: WireChatAttachment[],
+	nostr: Pick<MoqNostr, "publish"> | null = chatNostr.current,
+	sign: (text: string) => Promise<NostrEvent> = signChatEvent,
 ): Promise<void> {
 	if (!client) return;
 	try {
-		await client.sendMessage(text, attachments);
+		const pubkey = nostr && attachments.length === 0 && store.nostrPubkey;
+		const ev = pubkey
+			? checkOwnChatEvent(await sign(text), pubkey, text)
+			: undefined;
+		if (ev) await nostr?.publish(ev);
+		else await client.sendMessage(text, attachments);
 		store.addMessage({
 			senderId,
-			text,
+			text: ev?.content ?? text,
 			at: Date.now(),
 			own: true,
 			attachments: attachBlobUrls(attachments),
+			...(ev && {
+				author: ev.pubkey,
+				key: `nostr:${ev.id}`,
+				raw: JSON.stringify(ev), // what MoqNostr.publish sends
+			}),
 		});
 	} catch {
 		store.setMessageSendError("message send failed");
@@ -441,6 +522,7 @@ export function teardownSession(
 		| "clearCameraTiles"
 	>,
 ): void {
+	closeMoqNostr();
 	if (refs.drainTimer.current !== null) {
 		clearTimeout(refs.drainTimer.current);
 		refs.drainTimer.current = null;
@@ -1010,7 +1092,7 @@ export function useMoqtChat() {
 				);
 			};
 			const client: MoqtChatClient = new MoqtChatClient(localId, {
-				...moqtChatCallbacks(store),
+				...moqtChatCallbacks(store, () => client),
 				onStatusChange: reportStatus,
 				onUnknownUniStream: (header, firstChunkTail, reader) =>
 					routeUniStream(header, firstChunkTail, reader, {

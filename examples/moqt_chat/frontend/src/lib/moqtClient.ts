@@ -323,13 +323,16 @@ export function parseNicknameFromChatText(text: string): string | undefined {
  * (0xFD/0xFE) that is not a valid UTF-8 lead byte (RFC 3629 caps lead bytes
  * at 0xF4), so neither can ever collide with real chat text; the nickname
  * marker (NUL, 0x00) is likewise not producible by hand in the chat input.
+ * A payload starting with "{" is a Nostr event (nostr.ts): own text is never
+ * sent bare (sendMessage wraps it in a 0xFE text part), so no collision.
  * #readChatObjectStream uses this to pick a decode path without running
  * binary attachment bytes through the UTF-8 decoder. */
 export function classifyChatPayload(
 	payload: Uint8Array,
-): "text" | "nickname" | "attachment-text" | "attachment-chunk" {
+): "text" | "nickname" | "attachment-text" | "attachment-chunk" | "nostr" {
 	if (isAttachmentChunkPayload(payload)) return "attachment-chunk";
 	if (isTextPartPayload(payload)) return "attachment-text";
+	if (payload[0] === 0x7b) return "nostr";
 	if (bytesToUtf8(payload).startsWith(NICKNAME_MARKER)) return "nickname";
 	return "text";
 }
@@ -357,6 +360,9 @@ export interface MoqtChatCallbacks {
 		attachments: ChatAttachment[],
 		key?: string,
 	): void;
+	// A Nostr event's JSON from a peer's chat track, still unverified:
+	// moqNostr.ts verifies and filters it. live is false for a history fill.
+	onNostrEvent?(json: string, live: boolean): void;
 	// A nickname self-announce (buildNicknameObjectMessage) from participantId
 	// -- never forwarded to onMessage, so it never appears in the chat log.
 	onNickname?(participantId: string, nickname: string): void;
@@ -800,6 +806,18 @@ export class MoqtChatClient {
 		await this.#sendUniStream(wire);
 	}
 
+	/** Sends one signed Nostr event's JSON (unchanged) as one chat Object. */
+	async sendNostrEvent(json: string): Promise<void> {
+		if (!this.#wt) throw new Error("not connected");
+		await this.#sendUniStream(
+			buildChatObjectMessage({
+				trackAlias: this.#localTrackAlias,
+				groupId: this.#groupId++,
+				text: json,
+			}),
+		);
+	}
+
 	/** Sends one chat message: one text-part uni stream, then one uni stream
 	 * per attachment carrying every chunk as consecutive Objects
 	 * (splitAttachmentIntoChunks, moqtAttachmentWire.ts). All streams share
@@ -1237,7 +1255,7 @@ export class MoqtChatClient {
 	#subscribeChat(peer: string): Promise<boolean> {
 		return this.subscribeTrack(utf8ToBytes(peer), peer, {
 			joiningStart: CHAT_HISTORY_GROUPS,
-			onObject: (o) => this.#dispatchChatPayload(peer, o.payload),
+			onObject: (o) => this.#dispatchChatPayload(peer, o.payload, false),
 			onDone: () => {},
 		});
 	}
@@ -1471,7 +1489,11 @@ export class MoqtChatClient {
 		}
 	}
 
-	#dispatchChatPayload(participant: string, payload: Uint8Array): void {
+	#dispatchChatPayload(
+		participant: string,
+		payload: Uint8Array,
+		live = true,
+	): void {
 		const kind = classifyChatPayload(payload);
 		if (kind === "attachment-chunk") {
 			this.#handleAttachmentChunkPayload(participant, payload);
@@ -1482,6 +1504,10 @@ export class MoqtChatClient {
 			return;
 		}
 		const text = bytesToUtf8(payload);
+		if (kind === "nostr") {
+			this.#callbacks.onNostrEvent?.(text, live);
+			return;
+		}
 		if (kind === "nickname") {
 			this.#callbacks.onNickname?.(
 				participant,

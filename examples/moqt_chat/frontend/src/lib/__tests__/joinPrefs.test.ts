@@ -62,6 +62,27 @@ describe("joinPrefs", () => {
 		expect(loadJoinPrefs()).toBeNull();
 	});
 
+	it("round-trips the Nostr relay list and rejects a malformed one", () => {
+		const prefs = {
+			url: "u",
+			certHash: "c",
+			name: "user1",
+			relays: ["wss://a"],
+		};
+		saveJoinPrefs(prefs);
+		expect(loadJoinPrefs()).toEqual(prefs);
+		localStorage.setItem(
+			"moqt-chat.join",
+			JSON.stringify({ ...prefs, relays: "wss://a" }),
+		);
+		expect(loadJoinPrefs()).toBeNull();
+		localStorage.setItem(
+			"moqt-chat.join",
+			JSON.stringify({ ...prefs, relays: [1] }),
+		);
+		expect(loadJoinPrefs()).toBeNull();
+	});
+
 	it("clears saved fields", () => {
 		saveJoinPrefs({ url: "u", certHash: "c", name: "user2" });
 		clearJoinPrefs();

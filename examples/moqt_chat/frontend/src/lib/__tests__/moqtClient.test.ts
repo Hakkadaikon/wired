@@ -153,6 +153,10 @@ describe("classifyChatPayload", () => {
 		expect(classifyChatPayload(utf8ToBytes("hello everyone"))).toBe("text");
 	});
 
+	it("classifies a JSON object payload as a Nostr event", () => {
+		expect(classifyChatPayload(utf8ToBytes('{"kind":1311}'))).toBe("nostr");
+	});
+
 	it("classifies a nickname-marker payload as nickname", () => {
 		expect(classifyChatPayload(utf8ToBytes("\u0000nick:Alice"))).toBe(
 			"nickname",
@@ -834,8 +838,10 @@ describe("MoqtChatClient message aggregation", () => {
 			text: string;
 			attachments: { bytes: Uint8Array; mimeType: string }[];
 		}[] = [];
+		const nostr: string[] = [];
 		const client = new MoqtChatClient("user1", {
 			onStatusChange: () => {},
+			onNostrEvent: (json, live) => nostr.push(`${live}:${json}`),
 			onMessage: (participantId, text, attachments, key) => {
 				messages.push({ participantId, text, attachments });
 				if (key) keys.push(key);
@@ -845,7 +851,7 @@ describe("MoqtChatClient message aggregation", () => {
 		const connected = client.connect("https://hub.example/", []);
 		fake.resolveReady();
 		await connected;
-		return { fake, client, messages, keys };
+		return { fake, client, messages, keys, nostr };
 	}
 
 	// user2's track alias (CANDIDATE_PARTICIPANT_IDS index 1).
@@ -932,6 +938,25 @@ describe("MoqtChatClient message aggregation", () => {
 			]),
 		);
 	}
+
+	it("hands a Nostr event payload to onNostrEvent unchanged, not onMessage", async () => {
+		const { fake, messages, nostr } = await connectedListening();
+		const json = '{"kind":1311,"content":"hi"}';
+		fake.incomingUnidirectionalStreams.push(
+			wireObject(SENDER_ALIAS, 0n, utf8ToBytes(json)),
+		);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(nostr).toEqual([`true:${json}`]);
+		expect(messages).toEqual([]);
+	});
+
+	it("sendNostrEvent rejects when not connected", async () => {
+		const client = new MoqtChatClient("user1", {
+			onStatusChange: () => {},
+			onMessage: () => {},
+		});
+		await expect(client.sendNostrEvent("{}")).rejects.toThrow("not connected");
+	});
 
 	it("reassembles an attachment whose chunks arrive as Objects on a single stream", async () => {
 		const { fake, messages } = await connectedListening();

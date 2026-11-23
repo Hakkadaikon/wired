@@ -16,7 +16,14 @@ export type JoinPrefs = {
 	// nickname self-announce). Older saved prefs lack it -- isJoinPrefs below
 	// accepts a missing field and loadJoinPrefs backfills "".
 	nickname?: string;
+	// Relays for Nostr kind 0 profile lookups (nostr.ts parseRelayList
+	// re-validates them on load). Absent = the defaults.
+	relays?: string[];
 };
+
+function isStringArray(v: unknown): v is string[] {
+	return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
 
 function isJoinPrefs(v: unknown): v is JoinPrefs {
 	if (typeof v !== "object" || v === null) return false;
@@ -25,7 +32,8 @@ function isJoinPrefs(v: unknown): v is JoinPrefs {
 		typeof p.url === "string" &&
 		typeof p.certHash === "string" &&
 		typeof p.name === "string" &&
-		(p.nickname === undefined || typeof p.nickname === "string")
+		(p.nickname === undefined || typeof p.nickname === "string") &&
+		(p.relays === undefined || isStringArray(p.relays))
 	);
 }
 

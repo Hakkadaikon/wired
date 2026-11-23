@@ -13,6 +13,7 @@
 import { create } from "zustand";
 import { noiseSuppressionDefault } from "@/lib/joinPrefs";
 import type { ScreenQuality, ScreenVariant } from "@/lib/moqtScreenClient";
+import { ProfileResolver } from "@/lib/nostr";
 import { SCREEN_TILE_DEFAULT_PX } from "@/lib/screenTileSize";
 import type { VideoSourceView } from "@/lib/videoSourceController";
 import type { QualityLevel } from "@/lib/voiceQuality";
@@ -34,6 +35,8 @@ export type ChatMessage = {
 	failed?: boolean; // own message whose send failed
 	attachments?: ChatAttachment[]; // images/files attached to this message
 	key?: string; // "<sender>:<messageId>" for a received message; a repeat is dropped
+	author?: string; // hex pubkey of a verified Nostr chat event (kind 1311)
+	raw?: string; // that event's JSON exactly as carried in the MoQ Object payload
 };
 
 export type MoqtChatState = {
@@ -60,6 +63,9 @@ export type MoqtChatState = {
 	localSpeaking: boolean; // this client's own speaking indicator
 	noiseSuppressionEnabled: boolean; // RNNoise on/off (masthead "NS" toggle)
 	messageSendError: string | null; // text/attachment send error, independent of other error state
+	nostrPubkey: string | null; // own pubkey after NIP-07 login; null = chat in the extension-less format
+	nostrRelays: string[]; // read-only profile relays in effect; [] until the page sets them
+	nostrNames: Record<string, string>; // pubkey -> kind 0 profile name; absent = show the short npub
 	setConnectionState: (state: ConnectionState) => void;
 	setMuted: (muted: boolean) => void;
 	addMessage: (message: Omit<ChatMessage, "id">) => number;
@@ -91,9 +97,13 @@ export type MoqtChatState = {
 	setLocalSpeaking: (speaking: boolean) => void;
 	setNoiseSuppressionEnabled: (enabled: boolean) => void;
 	setMessageSendError: (msg: string | null) => void;
+	setNostrPubkey: (pubkey: string | null) => void;
+	setNostrRelays: (relays: string[]) => void;
+	setNostrName: (pubkey: string, name: string) => void;
 };
 
 let nextMessageId = 1;
+const NOSTR_NAMES_MAX = 256;
 
 export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 	// "disconnected" until the user actually joins -- the join button must not
@@ -124,6 +134,9 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 			? true
 			: noiseSuppressionDefault(window.location.search),
 	messageSendError: null,
+	nostrPubkey: null,
+	nostrRelays: [],
+	nostrNames: {},
 	setConnectionState: (connectionState) => set({ connectionState }),
 	setMuted: (muted) => set({ muted }),
 	addMessage: (message) => {
@@ -223,7 +236,27 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 	setNoiseSuppressionEnabled: (noiseSuppressionEnabled) =>
 		set({ noiseSuppressionEnabled }),
 	setMessageSendError: (messageSendError) => set({ messageSendError }),
+	setNostrPubkey: (nostrPubkey) => set({ nostrPubkey }),
+	setNostrRelays: (nostrRelays) => set({ nostrRelays }),
+	// Bounded like ProfileResolver's cache: the oldest name goes first.
+	setNostrName: (pubkey, name) =>
+		set((s) => {
+			const { [pubkey]: _, ...rest } = s.nostrNames;
+			const keys = Object.keys(rest);
+			if (keys.length >= NOSTR_NAMES_MAX) delete rest[keys[0]];
+			return { nostrNames: { ...rest, [pubkey]: name } };
+		}),
 }));
+
+const profiles = new ProfileResolver((pubkey, name) =>
+	useMoqtChatStore.getState().setNostrName(pubkey, name),
+);
+
+/** Queues pubkey's kind 0 name lookup on the profile relays (batched,
+ * rate-capped); the UI shows the short npub until a name lands. */
+export function lookupNostrName(pubkey: string): void {
+	profiles.request(pubkey, useMoqtChatStore.getState().nostrRelays);
+}
 
 /** id -> nickname if one is known, else the id itself -- used everywhere a
  * participant id is rendered (Peers, Volume, screen tile captions, chat

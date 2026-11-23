@@ -13,6 +13,13 @@ import {
 	type ChatAttachment as WireChatAttachment,
 } from "@/lib/moqtClient";
 import type { ScreenQuality } from "@/lib/moqtScreenClient";
+import {
+	DEFAULT_NOSTR_RELAYS,
+	nostrLogin,
+	nostrRelays,
+	parseRelayList,
+	shortNpub,
+} from "@/lib/nostr";
 import { canPickOutput } from "@/lib/outputMixer";
 import {
 	SCREEN_TILE_MAX_PX,
@@ -21,9 +28,11 @@ import {
 } from "@/lib/screenTileSize";
 import {
 	type ChatMessage,
+	lookupNostrName,
 	resolveDisplayName,
 	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
+import { NostrAuthor, RawNostrEvent } from "./rawNostrEvent";
 import { VideoSection } from "./videoSection";
 import { Wordmark } from "./wordmark";
 
@@ -502,10 +511,19 @@ function Message({ m }: { m: ChatMessage }) {
 	return (
 		<div className="message" data-testid="message" data-sender={m.senderId}>
 			<span className={m.own ? "message__sender you" : "message__sender"}>
-				{m.own ? "You" : resolveDisplayName(m.senderId, nicknames)}
+				{m.author ? (
+					<NostrAuthor pubkey={m.author} />
+				) : m.own ? (
+					"You"
+				) : (
+					resolveDisplayName(m.senderId, nicknames)
+				)}
 			</span>
 			<span className="message__time caption">{time}</span>
 			{m.text && <span className="message__text">{m.text}</span>}
+			{m.raw && m.key && (
+				<RawNostrEvent raw={m.raw} id={m.key.slice("nostr:".length)} />
+			)}
 			{m.attachments && m.attachments.length > 0 && (
 				<div className="message__attachments">
 					{m.attachments.map((a, i) => (
@@ -743,6 +761,87 @@ function Compose({
 	);
 }
 
+const DEFAULT_RELAYS_TEXT = DEFAULT_NOSTR_RELAYS.join("\n");
+
+// NIP-07 login: the extension holds the key and signs; this page only learns
+// the pubkey. Logged in, text messages go out as signed kind 1311 events.
+function NostrLogin({
+	relaysText,
+	setRelaysText,
+	setNickname,
+}: {
+	relaysText: string;
+	setRelaysText: (v: string) => void;
+	setNickname: (v: string) => void;
+}) {
+	const pubkey = useMoqtChatStore((s) => s.nostrPubkey);
+	const [error, setError] = useState<string | null>(null);
+	const login = async () => {
+		try {
+			const pk = await nostrLogin();
+			useMoqtChatStore.getState().setNostrPubkey(pk);
+			setNickname(shortNpub(pk));
+			setError(null);
+			lookupNostrName(pk);
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		}
+	};
+	const logout = () => {
+		useMoqtChatStore.getState().setNostrPubkey(null);
+		setNickname("");
+	};
+	return (
+		<>
+			<div className="field">
+				<span className="field__label">Nostr</span>
+				{pubkey ? (
+					<span data-testid="nostr-user">
+						<NostrAuthor pubkey={pubkey} />{" "}
+						<button type="button" className="link" onClick={logout}>
+							Log out
+						</button>
+					</span>
+				) : (
+					<button
+						type="button"
+						className="sign sign--outline"
+						data-testid="nostr-login"
+						onClick={() => void login()}
+					>
+						Nostr でログイン
+					</button>
+				)}
+				<span className="field__hint caption" aria-live="polite">
+					{error}
+				</span>
+			</div>
+			<label className="field">
+				<span className="field__label">
+					Profile relays (read-only, one wss:// URL per line)
+				</span>
+				<textarea
+					rows={4}
+					value={relaysText}
+					data-testid="nostr-relays"
+					onChange={(e) => setRelaysText(e.target.value)}
+					onBlur={() => setRelaysText(parseRelayList(relaysText).join("\n"))}
+				/>
+				<span className="field__hint caption">
+					Only names (kind 0) are read from these; chat stays on the hub.
+				</span>
+			</label>
+			<button
+				type="button"
+				className="link"
+				onClick={() => setRelaysText(DEFAULT_RELAYS_TEXT)}
+			>
+				Reset relays to defaults
+			</button>
+		</>
+	);
+}
+
 function JoinScreen({
 	url,
 	setUrl,
@@ -755,6 +854,8 @@ function JoinScreen({
 	connecting,
 	onJoin,
 	onClearSaved,
+	relaysText,
+	setRelaysText,
 }: {
 	url: string;
 	setUrl: (v: string) => void;
@@ -767,6 +868,8 @@ function JoinScreen({
 	connecting: boolean;
 	onJoin: () => void;
 	onClearSaved: () => void;
+	relaysText: string;
+	setRelaysText: (v: string) => void;
 }) {
 	return (
 		<div className="cover">
@@ -815,6 +918,11 @@ function JoinScreen({
 						onChange={(e) => setNickname(e.target.value)}
 					/>
 				</label>
+				<NostrLogin
+					relaysText={relaysText}
+					setRelaysText={setRelaysText}
+					setNickname={setNickname}
+				/>
 				<div className="field">
 					<span className="field__label">Participant ID</span>
 					<div className="tiles" data-testid="author">
@@ -857,6 +965,7 @@ export default function Home() {
 	const [nickname, setNickname] = useState("");
 	const [participantId, setParticipantId] = useState(DEFAULT_PARTICIPANT_ID);
 	const [joined, setJoined] = useState(false);
+	const [relaysText, setRelaysText] = useState(DEFAULT_RELAYS_TEXT);
 	const {
 		connect,
 		sendMessage,
@@ -900,9 +1009,19 @@ export default function Home() {
 			setCertHash(saved.certHash);
 			if (saved.name) setParticipantId(saved.name);
 			if (saved.nickname) setNickname(saved.nickname);
+			if (saved.relays) setRelaysText(saved.relays.join("\n"));
 		}, 0);
 		return () => window.clearTimeout(t);
 	}, []);
+
+	// The profile relays in effect: ?relays= (e2e) wins over the user's list.
+	useEffect(() => {
+		useMoqtChatStore
+			.getState()
+			.setNostrRelays(
+				nostrRelays(window.location.search, parseRelayList(relaysText)),
+			);
+	}, [relaysText]);
 
 	const clearSaved = () => {
 		clearJoinPrefs();
@@ -910,6 +1029,7 @@ export default function Home() {
 		setCertHash("");
 		setNickname("");
 		setParticipantId(DEFAULT_PARTICIPANT_ID);
+		setRelaysText(DEFAULT_RELAYS_TEXT);
 	};
 
 	const connecting = connectionState === "connecting";
@@ -1028,7 +1148,13 @@ export default function Home() {
 					setParticipantId={setParticipantId}
 					connecting={connecting}
 					onJoin={() => {
-						saveJoinPrefs({ url, certHash, name: participantId, nickname });
+						saveJoinPrefs({
+							url,
+							certHash,
+							name: participantId,
+							nickname,
+							relays: parseRelayList(relaysText),
+						});
 						void connect(
 							url,
 							participantId,
@@ -1037,6 +1163,8 @@ export default function Home() {
 						);
 					}}
 					onClearSaved={clearSaved}
+					relaysText={relaysText}
+					setRelaysText={setRelaysText}
 				/>
 			)}
 			<footer className="folio">MOQT Chat · wired</footer>

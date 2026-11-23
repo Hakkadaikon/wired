@@ -504,6 +504,35 @@ input {
 	overflow-wrap: anywhere;
 }
 
+.nostr-author__badge {
+	white-space: nowrap;
+}
+
+.message__npub {
+	font-family: monospace;
+	font-size: 0.85em;
+}
+
+.message__raw-toggle {
+	grid-column: 2;
+	justify-self: start;
+	font-family: monospace;
+}
+
+.message__raw {
+	grid-column: 2 / -1;
+}
+
+.message__raw pre {
+	max-height: 16em;
+	overflow: auto;
+	margin: 0.25em 0;
+	font-family: monospace;
+	font-size: 0.85em;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
 .message__attachments {
 	grid-area: 2 / 2;
 	display: flex;

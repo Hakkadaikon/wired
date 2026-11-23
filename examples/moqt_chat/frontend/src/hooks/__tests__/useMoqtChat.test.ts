@@ -1,3 +1,8 @@
+import {
+	finalizeEvent,
+	getPublicKey,
+	type Event as NostrEvent,
+} from "nostr-tools/pure";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	FakeWebTransport,
@@ -5,6 +10,7 @@ import {
 	stubWebTransport,
 } from "@/lib/__tests__/fakeWebTransport";
 import { MoqtChatClient } from "@/lib/moqtClient";
+import { NOSTR_ROOM_A } from "@/lib/nostr";
 import { createQualityWindow, qualityLevel } from "@/lib/voiceQuality";
 import {
 	applyVoiceTapEvent,
@@ -12,6 +18,7 @@ import {
 	captureThenPublishScreen,
 	chainVoiceTap,
 	clearOwnScreenStall,
+	closeMoqNostr,
 	connectChatThenVoice,
 	handleGoaway,
 	handleRoomNamespace,
@@ -21,6 +28,7 @@ import {
 	moqtChatCallbacks,
 	noteScreenTileVariant,
 	OWN_SCREEN_KEY,
+	openMoqNostr,
 	type ReconnectRefs,
 	reconnectDelayMs,
 	type SessionRefs,
@@ -440,8 +448,8 @@ describe("handleRoomNamespace", () => {
 });
 
 describe("sendChatMessage", () => {
-	function fakeStore() {
-		return { addMessage: vi.fn(), setMessageSendError: vi.fn() };
+	function fakeStore(nostrPubkey: string | null = null) {
+		return { addMessage: vi.fn(), setMessageSendError: vi.fn(), nostrPubkey };
 	}
 
 	it("does nothing when there is no client", async () => {
@@ -453,7 +461,10 @@ describe("sendChatMessage", () => {
 
 	it("on success, adds the message as own with no failed flag", async () => {
 		const store = fakeStore();
-		const client = { sendMessage: vi.fn().mockResolvedValue(undefined) };
+		const client = {
+			sendMessage: vi.fn().mockResolvedValue(undefined),
+			sendNostrEvent: vi.fn(),
+		};
 		await sendChatMessage(client, store, "user1", "hi", []);
 
 		expect(client.sendMessage).toHaveBeenCalledWith("hi", []);
@@ -473,6 +484,7 @@ describe("sendChatMessage", () => {
 		const store = fakeStore();
 		const client = {
 			sendMessage: vi.fn().mockRejectedValue(new Error("transport gone")),
+			sendNostrEvent: vi.fn(),
 		};
 		await sendChatMessage(client, store, "user1", "hi", []);
 
@@ -485,6 +497,119 @@ describe("sendChatMessage", () => {
 		expect(arg.text).toBe("hi");
 		expect(arg.own).toBe(true);
 		expect(arg.failed).toBe(true);
+	});
+
+	// A real signed event, as off the wire from the extension (plain JSON).
+	const SK = new Uint8Array(32).fill(7);
+	const PK = getPublicKey(SK);
+	const signedBy = (sk: Uint8Array, content = "hi"): NostrEvent =>
+		JSON.parse(
+			JSON.stringify(
+				finalizeEvent(
+					{
+						kind: 1311,
+						created_at: 1,
+						tags: [["a", NOSTR_ROOM_A]],
+						content,
+					},
+					sk,
+				),
+			),
+		);
+	const ev = signedBy(SK);
+	const okClient = () => ({
+		sendMessage: vi.fn().mockResolvedValue(undefined),
+	});
+	const fakeNostr = () => ({ publish: vi.fn().mockResolvedValue(undefined) });
+
+	it("logged in, a text-only message is signed and published via MoqNostr", async () => {
+		const store = fakeStore(PK);
+		const client = okClient();
+		const nostr = fakeNostr();
+		const sign = vi.fn().mockResolvedValue(ev);
+		await sendChatMessage(client, store, "user1", "hi", [], nostr, sign);
+
+		expect(sign).toHaveBeenCalledWith("hi");
+		expect(nostr.publish).toHaveBeenCalledWith(ev);
+		expect(client.sendMessage).not.toHaveBeenCalled();
+		const arg = store.addMessage.mock.calls[0][0];
+		expect(arg).toMatchObject({
+			own: true,
+			text: "hi",
+			author: PK,
+			key: `nostr:${ev.id}`,
+			raw: JSON.stringify(ev),
+		});
+	});
+
+	it.each([
+		["another key's event", () => signedBy(new Uint8Array(32).fill(9))],
+		["other text than typed", () => signedBy(SK, "not typed")],
+		["a broken signature", () => ({ ...ev, sig: "00".repeat(64) })],
+	])("refuses to publish %s and shows a send failure", async (_n, make) => {
+		const store = fakeStore(PK);
+		const nostr = fakeNostr();
+		const sign = vi.fn().mockResolvedValue(make());
+		await sendChatMessage(okClient(), store, "user1", "hi", [], nostr, sign);
+		expect(nostr.publish).not.toHaveBeenCalled();
+		expect(store.setMessageSendError).toHaveBeenCalled();
+		expect(store.addMessage.mock.calls[0][0].failed).toBe(true);
+	});
+
+	it("logged out, the message keeps the extension-less format", async () => {
+		const client = okClient();
+		const nostr = fakeNostr();
+		await sendChatMessage(client, fakeStore(), "user1", "hi", [], nostr);
+		expect(nostr.publish).not.toHaveBeenCalled();
+		expect(client.sendMessage).toHaveBeenCalledWith("hi", []);
+	});
+
+	it("logged in, a message with attachments keeps the extension-less format", async () => {
+		const client = okClient();
+		const nostr = fakeNostr();
+		const att = [{ bytes: new Uint8Array([1]), mimeType: "image/png" }];
+		await sendChatMessage(client, fakeStore("p1"), "user1", "hi", att, nostr);
+		expect(nostr.publish).not.toHaveBeenCalled();
+		expect(client.sendMessage).toHaveBeenCalledWith("hi", att);
+	});
+
+	it("a rejected publish shows the message as failed", async () => {
+		const store = fakeStore(PK);
+		const nostr = { publish: vi.fn().mockRejectedValue(new Error("reset")) };
+		const sign = vi.fn().mockResolvedValue(ev);
+		await sendChatMessage(okClient(), store, "user1", "hi", [], nostr, sign);
+		expect(store.addMessage.mock.calls[0][0].failed).toBe(true);
+	});
+});
+
+describe("openMoqNostr", () => {
+	it("routes a verified room event from the chat track into the store", () => {
+		const sk = new Uint8Array(32).fill(7);
+		const signed = finalizeEvent(
+			{
+				kind: 1311,
+				created_at: 1_700_000_000,
+				tags: [["a", NOSTR_ROOM_A]],
+				content: "yo",
+			},
+			sk,
+		);
+		const store = { addMessage: vi.fn() };
+		const receive = openMoqNostr(() => ({ sendNostrEvent: vi.fn() }), store);
+		const raw = JSON.stringify(signed, null, 1);
+		receive(JSON.stringify({ ...signed, content: "forged" }), false);
+		receive(raw, false); // a history fill: an old created_at is fine
+		expect(store.addMessage).toHaveBeenCalledOnce();
+		expect(store.addMessage.mock.calls[0][0]).toMatchObject({
+			senderId: signed.pubkey,
+			text: "yo",
+			own: false,
+			author: signed.pubkey,
+			key: `nostr:${signed.id}`,
+			at: 1_700_000_000_000,
+			raw,
+		});
+		closeMoqNostr();
 	});
 });
 
