@@ -126,6 +126,11 @@ def _visit(graph, seen, name):
     return list(graph[name] - seen)
 
 
+# Application API that no example calls but a production app does: client
+# certificate authentication (#195) needs a trust store the app fills.
+APP_ROOTS = ["wired_castore_init", "wired_castore_add"]
+
+
 def _sources(*globs):
     return sorted(p for g in globs for p in glob.glob(g, recursive=True))
 
@@ -149,7 +154,7 @@ class Tree:
         # identifiers used anywhere (struct fields, constants) and path parts
         # (`moqt_chat`) are not dead pointers even though they define nothing
         self.words = set(self.prod).union(*self.prod.values(), _path_words(self.files))
-        self.live = closure(self.prod, build(ex)[0])
+        self.live = closure(self.prod, list(build(ex)[0]) + APP_ROOTS)
         self.test, self.test_defined = build(
             src + _sources("tests/**/*.c", "tests/**/*.h")
         )
