@@ -19,7 +19,10 @@
 #include <valgrind/memcheck.h>
 
 #include "common/bytes/util/ct.h"
+#include "crypto/asymmetric/ecc/cvecdsa/cvecdsa.h"
 #include "crypto/asymmetric/ecc/ed25519/ed25519.h"
+#include "crypto/asymmetric/ecc/p256/p256_ecdhe.h"
+#include "crypto/asymmetric/ecc/p256sign/sign.h"
 #include "crypto/kdf/hkdf/hkdf.h"
 #include "crypto/symmetric/aead/chacha/aead.h"
 #include "crypto/symmetric/hash/hash/hmac.h"
@@ -96,6 +99,42 @@ static void ct_hkdf(const u8* s, u8* out) {
 /* Both tag operands are secret-derived in an AEAD open. */
 static void ct_diff(const u8* s, u8* out) { out[0] = ct_diff16(s, s + 16); }
 
+static void ct_p256_pubkey(const u8* s, u8* out) {
+  (void)p256_pubkey_encode(out, s);
+}
+
+static void ct_p256_ecdh(const u8* s, u8* out) {
+  static const u8 peer_priv[32] = {[31] = 7};
+  u8              peer[P256_PUBKEY_LEN];
+  (void)p256_pubkey_encode(peer, peer_priv);
+  (void)p256_ecdh(out, s, peer);
+}
+
+/* memcheck cannot taint the getrandom output, so the secret stands in for
+ * one draw: the range check, then the public key of the accepted scalar. */
+static void ct_p256_keygen(const u8* s, u8* out) {
+  out[0] = (u8)p256_keygen_accept(s);
+  (void)p256_pubkey_encode(out + 1, s);
+}
+
+/* The RFC 6979 nonce k is derived from priv, so it is tainted too. */
+static void ct_p256_sign(const u8* s, u8* out) {
+  (void)p256sign_sign(s, ct_msg, out, out + 32);
+}
+
+/* RFC 8446 4.4.3 CertificateVerify signed with the long-term key. */
+static void ct_cvecdsa(const u8* s, u8* out) {
+  usz n = 0;
+  memset(out, 0, CT_OUT_MAX);
+  (void)cvecdsa_build(s, wired_span_of(ct_msg, sizeof ct_msg), out, 80, &n);
+}
+
+/* Declassification hook (weak no-op in the library): the P-256 code passes
+ * only values that are public by design -- the RFC 6979 / key-generation
+ * accept bit of a candidate (a rejected candidate is discarded) and the
+ * signature (r, s) it publishes. */
+void p256_ct_public(const void* p, usz n) { VALGRIND_MAKE_MEM_DEFINED(p, n); }
+
 /* Negative control: branches on the secret (the volatile store keeps the
  * compiler from turning it into a branchless select). Must be reported. */
 static volatile u8 ct_sink;
@@ -123,6 +162,11 @@ static const ct_case ct_cases[] = {
     {"hmac_sha256", ct_hmac_sha256, 32, 32, 0},
     {"hkdf_sha256", ct_hkdf, 32, 64, 0},
     {"ct_diff16", ct_diff, 32, 1, 0},
+    {"p256_pubkey", ct_p256_pubkey, 32, P256_PUBKEY_LEN, 0},
+    {"p256_ecdh", ct_p256_ecdh, 32, 32, 0},
+    {"p256_keygen", ct_p256_keygen, 32, 1 + P256_PUBKEY_LEN, 0},
+    {"p256_sign", ct_p256_sign, 32, 64, 0},
+    {"cvecdsa_build", ct_cvecdsa, 32, CT_OUT_MAX, 0},
     {"neg", ct_neg, 1, 1, 1},
 };
 
