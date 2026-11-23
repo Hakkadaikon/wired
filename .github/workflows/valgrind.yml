@@ -1,0 +1,33 @@
+name: Valgrind nightly
+
+# Scheduled, not per-push/PR: both runs take long. `valgrind` is the unity
+# test under memcheck (about 2 hours), and the RFC 7748 5.2
+# 1,000,000-iteration X25519 vector is opt-in in `just test` because it
+# takes minutes. The secret-taint `ct-check` is fast and runs per push in
+# ci.yml.
+on:
+  schedule:
+    - cron: "0 20 * * 0-5" # 05:00 JST, skipping Saturday's interop run
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  valgrind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - name: unity test under valgrind --track-origins
+        run: nix develop -c just valgrind
+
+  x25519-1m:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - name: unity test with the 1,000,000-iteration X25519 vector
+        run: WIRED_X25519_1M=1 nix develop -c just test
