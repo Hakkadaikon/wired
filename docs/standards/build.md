@@ -74,6 +74,7 @@ flowchart LR
 | `wire-check` | 全ソースが `run.c` に 1 回ずつあり、オブジェクトを 1 つずつ作るか |
 | `cov` | ユニティテストの行カバレッジ |
 | `valgrind` | ユニティテストを valgrind で動かす。ときどき起きるハングは、まず未初期化の変数を疑う |
+| `ct-check [case]` | 秘密の入力を未初期化として印を付け、暗号プリミティブを valgrind memcheck で動かす(`tests/ct/ct_taint.c`)。秘密に依存する分岐やメモリの添字があれば失敗する。陰性対照(秘密で分岐する関数)が報告されることも毎回確かめる。`ct-check neg` は陰性対照だけを動かし、失敗する |
 | `test-san` | ASan + UBSan 下のユニティテスト。CI の `sanitize` ジョブで実行する |
 | `san-check [ids]` | UBSan と境界検査をトラップにした本番ビルドで guide のスニペットを動かす。go と node 22 が要る |
 | `golden-check` | `tests/app/moqt_golden.h` がベクターと一致するか |
