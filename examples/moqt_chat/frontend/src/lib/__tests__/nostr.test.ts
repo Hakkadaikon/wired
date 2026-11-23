@@ -11,6 +11,8 @@ import {
 	parseRelayList,
 	parseVerifiedEvent,
 	profileName,
+	profileOf,
+	safePictureUrl,
 	shortNpub,
 	signChatEvent,
 } from "@/lib/nostr";
@@ -164,6 +166,21 @@ describe("kind 0 profile name", () => {
 		expect(profileName(PK, [junk, good])).toBeUndefined();
 	});
 
+	it("keeps an https picture with the name, and a picture-only profile", () => {
+		const pic = "https://img.example/a.png";
+		expect(profileOf(PK, [profile({ name: "n", picture: pic }, 1)])).toEqual({
+			name: "n",
+			picture: pic,
+		});
+		expect(profileOf(PK, [profile({ picture: pic }, 1)])).toEqual({
+			name: undefined,
+			picture: pic,
+		});
+		expect(
+			profileOf(PK, [profile({ name: "n", picture: "http://x/a.png" }, 1)]),
+		).toEqual({ name: "n", picture: undefined });
+	});
+
 	it("caps the name at 64 chars", () => {
 		const long = "a".repeat(200);
 		expect(profileName(PK, [profile({ name: long }, 1)])).toHaveLength(64);
@@ -232,7 +249,7 @@ describe("public relays are read-only", () => {
 		vi.stubGlobal("WebSocket", FakeWs);
 		try {
 			const got = await new Promise((resolve) =>
-				new ProfileResolver((_pk, name) => resolve(name)).request(pk, [
+				new ProfileResolver((_pk, p) => resolve(p.name)).request(pk, [
 					"wss://fake.example",
 				]),
 			);
@@ -315,7 +332,7 @@ describe("ProfileResolver", () => {
 			answer(),
 		);
 		const names: string[] = [];
-		const r = new ProfileResolver((_pk, name) => names.push(name), query);
+		const r = new ProfileResolver((_pk, p) => names.push(p.name ?? ""), query);
 		return { r, query, names };
 	}
 
@@ -396,5 +413,35 @@ describe("ProfileResolver", () => {
 		r.request(pkOf(25), []);
 		await vi.advanceTimersByTimeAsync(300);
 		expect(query).not.toHaveBeenCalled();
+	});
+});
+
+describe("safePictureUrl", () => {
+	it("accepts an https URL", () => {
+		expect(safePictureUrl("https://img.example/p.jpg?s=1")).toBe(
+			"https://img.example/p.jpg?s=1",
+		);
+	});
+
+	it.each([
+		"http://img.example/p.jpg",
+		"data:image/png;base64,AAAA",
+		"javascript:alert(1)",
+		"blob:https://img.example/uuid",
+		"ftp://img.example/p.jpg",
+		"//img.example/p.jpg",
+		"https://user:pass@img.example/p.jpg",
+		"https://user@img.example/p.jpg",
+		"not a url",
+		"",
+	])("rejects %s", (url) => {
+		expect(safePictureUrl(url)).toBeUndefined();
+	});
+
+	it("rejects non-strings and URLs over 2048 chars", () => {
+		expect(safePictureUrl(42)).toBeUndefined();
+		expect(safePictureUrl(null)).toBeUndefined();
+		const long = `https://img.example/${"a".repeat(2048)}`;
+		expect(safePictureUrl(long)).toBeUndefined();
 	});
 });

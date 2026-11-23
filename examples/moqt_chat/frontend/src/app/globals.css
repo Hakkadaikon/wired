@@ -504,6 +504,25 @@ input {
 	overflow-wrap: anywhere;
 }
 
+.nostr-avatar {
+	display: inline-block;
+	width: 24px;
+	height: 24px;
+	margin-right: 0.35em;
+	border-radius: 50%;
+	object-fit: cover;
+	vertical-align: middle;
+}
+
+.nostr-avatar--placeholder::before {
+	content: attr(data-initial);
+	display: block;
+	color: #fff;
+	font-size: 14px;
+	line-height: 24px;
+	text-align: center;
+}
+
 .nostr-author__badge {
 	white-space: nowrap;
 }

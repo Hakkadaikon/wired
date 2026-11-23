@@ -196,28 +196,56 @@ function isOwnProfile(pubkey: string, e: Event): boolean {
 	return e.kind === 0 && e.pubkey === pubkey && verifyEvent(e);
 }
 
-function nameOf(content: string): string | undefined {
+export type NostrProfile = { name?: string; picture?: string };
+
+const PICTURE_URL_MAX = 2048;
+
+/** A kind 0 `picture` usable as an <img src>: https: only (no http, data:,
+ * javascript:, blob: ...), at most PICTURE_URL_MAX chars. */
+export function safePictureUrl(v: unknown): string | undefined {
+	if (typeof v !== "string" || v.length > PICTURE_URL_MAX) return undefined;
 	try {
-		const m = JSON.parse(content) as { display_name?: unknown; name?: unknown };
-		const pick = [m.display_name, m.name].find(
-			(v) => typeof v === "string" && v.trim() !== "",
-		) as string | undefined;
-		return pick?.trim().slice(0, NAME_MAX);
+		const u = new URL(v);
+		// Credentials in a subresource URL are blocked by browsers anyway.
+		return u.protocol === "https:" && !u.username && !u.password
+			? u.href
+			: undefined;
 	} catch {
 		return undefined;
 	}
 }
 
-/** display_name, else name, of the newest valid kind 0 event by pubkey.
- * Untrusted text: React renders it as text, never HTML. */
-export function profileName(
+function nameOf(m: { display_name?: unknown; name?: unknown }) {
+	const pick = [m.display_name, m.name].find(
+		(v) => typeof v === "string" && v.trim() !== "",
+	) as string | undefined;
+	return pick?.trim().slice(0, NAME_MAX);
+}
+
+function profileFrom(content: string): NostrProfile | undefined {
+	try {
+		const m = JSON.parse(content);
+		const p = { name: nameOf(m), picture: safePictureUrl(m.picture) };
+		return p.name || p.picture ? p : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** The name (display_name, else name) and picture of the newest valid kind
+ * 0 event by pubkey. Untrusted text: React renders it as text, never HTML. */
+export function profileOf(
 	pubkey: string,
 	events: Event[],
-): string | undefined {
+): NostrProfile | undefined {
 	const newest = events
 		.filter((e) => isOwnProfile(pubkey, e))
 		.sort((a, b) => b.created_at - a.created_at)[0];
-	return newest && nameOf(newest.content);
+	return newest && profileFrom(newest.content);
+}
+
+export function profileName(pubkey: string, events: Event[]) {
+	return profileOf(pubkey, events)?.name;
 }
 
 const PROFILE_DEBOUNCE_MS = 300;
@@ -226,9 +254,9 @@ const PROFILE_REQS_PER_MINUTE = 6;
 const PROFILE_CACHE_MAX = 256;
 const PROFILE_RETRY_MS = 5 * 60_000; // a miss/failure is retried after this
 
-type Cached = { name?: string; at: number; relays: string };
+type Cached = { profile?: NostrProfile; at: number; relays: string };
 
-/** Resolves kind 0 names for many authors with few REQs: new pubkeys are
+/** Resolves kind 0 profiles (name, picture) for many authors with few REQs: new pubkeys are
  * debounced into one REQ (authors: [...], chunked), REQs are capped per
  * minute, and the cache is bounded (drop-oldest). A miss or failure is
  * cached only until PROFILE_RETRY_MS passes or the relay list changes. */
@@ -240,14 +268,14 @@ export class ProfileResolver {
 	#timer: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(
-		readonly onName: (pubkey: string, name: string) => void,
+		readonly onProfile: (pubkey: string, profile: NostrProfile) => void,
 		readonly query: ProfileQuery = poolQuery,
 	) {}
 
 	#fresh(c: Cached | undefined, relays: string): boolean {
 		if (!c) return false;
 		return (
-			c.name !== undefined ||
+			c.profile !== undefined ||
 			(Date.now() - c.at < PROFILE_RETRY_MS && c.relays === relays)
 		);
 	}
@@ -256,7 +284,7 @@ export class ProfileResolver {
 		if (relays.length === 0) return;
 		const c = this.#cache.get(pubkey);
 		if (this.#fresh(c, relays.join(","))) {
-			if (c?.name) this.onName(pubkey, c.name);
+			if (c?.profile) this.onProfile(pubkey, c.profile);
 			return;
 		}
 		if (this.#pending.size >= PROFILE_CACHE_MAX) return;
@@ -302,9 +330,9 @@ export class ProfileResolver {
 		this.query(relays, { kinds: [0], authors, limit: authors.length })
 			.then((evs) => {
 				for (const pk of authors) {
-					const name = profileName(pk, evs);
-					this.#remember(pk, { ...miss, name });
-					if (name) this.onName(pk, name);
+					const profile = profileOf(pk, evs);
+					this.#remember(pk, { ...miss, profile });
+					if (profile) this.onProfile(pk, profile);
 				}
 			})
 			.catch(() => {});

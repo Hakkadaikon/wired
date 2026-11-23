@@ -81,7 +81,7 @@ describe("NostrAuthor", () => {
 	const PK = "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f";
 
 	it("shows the profile name next to the short npub and the badge, full npub as title", () => {
-		useMoqtChatStore.getState().setNostrName(PK, "alice");
+		useMoqtChatStore.getState().setNostrProfile(PK, { name: "alice" });
 		const el = render(<NostrAuthor pubkey={PK} />);
 		const author = el.querySelector(".nostr-author");
 		expect(author?.getAttribute("title")).toBe(npubEncode(PK));
@@ -95,5 +95,46 @@ describe("NostrAuthor", () => {
 			shortNpub(other),
 		);
 		expect(el.textContent).toContain("✓ verified Nostr");
+	});
+});
+
+describe("NostrAvatar", () => {
+	const PK = "3b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f";
+	const PIC = "https://img.example/a.png";
+
+	it("renders the picture as a decorative, no-referrer, lazy img", () => {
+		useMoqtChatStore
+			.getState()
+			.setNostrProfile(PK, { name: "carol", picture: PIC });
+		const el = render(<NostrAuthor pubkey={PK} />);
+		const img = el.querySelector("img");
+		expect(img?.getAttribute("src")).toBe(PIC);
+		expect(img?.getAttribute("alt")).toBe("");
+		expect(img?.getAttribute("referrerpolicy")).toBe("no-referrer");
+		expect(img?.getAttribute("loading")).toBe("lazy");
+		expect(img?.getAttribute("decoding")).toBe("async");
+		expect(el.textContent).toContain("carol");
+	});
+
+	it("falls back to the placeholder when the image fails to load", () => {
+		useMoqtChatStore
+			.getState()
+			.setNostrProfile(PK, { name: "carol", picture: PIC });
+		const el = render(<NostrAuthor pubkey={PK} />);
+		act(() => {
+			el.querySelector("img")?.dispatchEvent(new Event("error"));
+		});
+		expect(el.querySelector("img")).toBeNull();
+		const ph = el.querySelector(".nostr-avatar--placeholder");
+		expect(ph?.getAttribute("data-initial")).toBe("C");
+		expect(ph?.getAttribute("aria-hidden")).toBe("true");
+	});
+
+	it("shows the placeholder without a picture, initial kept out of the text", () => {
+		const other = PK.replace(/^3b/, "4b");
+		const el = render(<NostrAuthor pubkey={other} />);
+		expect(el.querySelector("img")).toBeNull();
+		expect(el.querySelector(".nostr-avatar--placeholder")).not.toBeNull();
+		expect(el.textContent?.startsWith("npub1")).toBe(true);
 	});
 });
