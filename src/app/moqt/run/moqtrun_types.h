@@ -15,6 +15,7 @@
 #include "app/moqt/sess/moqsess.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
+#include "common/profile/moqt_room.h"
 
 /** Fixed capacity: concurrent sessions the hub tracks at once. Small on
  * purpose -- a room-sized deployment, not a general server.
@@ -573,8 +574,12 @@ typedef struct {
  * screen + the screen's low-rate SSTS variant, screen-lo, + camera). Each
  * track slot is ~13 KB (31 subs + 4 relays), so 4 -> 5 grows the peer
  * table by ~32 slots of that; SUB_NAMES and CTL_SEND_BUF scale with it
- * below. */
+ * below.
+ * The moqt_chat room profile (WIRED_PROFILE_MOQT_ROOM,
+ * common/profile/moqt_room.h) raises it. */
+#ifndef WIRED_MOQTRUN_MAX_TRACKS_PER_PEER
 #define WIRED_MOQTRUN_MAX_TRACKS_PER_PEER 5
+#endif
 
 /** Fixed capacity: Track Names one peer remembers having SUBSCRIBEd to
  * (wired_moqtrun_peer.sub_names). The chat app subscribes to every track
@@ -642,8 +647,12 @@ typedef struct {
  * request per stream): each of 4 peers holds 5 PUBLISH + 4 namespace
  * requests + 3x5 SUBSCRIBEs = 24 streams (96 hub-wide), so 128 keeps the
  * per-session quarter (32) above 24 with headroom for a fill or FETCH.
- * ponytail: room-sized; raise when rooms grow. */
+ * ponytail: room-sized; raise when rooms grow.
+ * The moqt_chat room profile (WIRED_PROFILE_MOQT_ROOM,
+ * common/profile/moqt_room.h) raises it. */
+#ifndef WIRED_MOQTRUN_MAX_REQS
 #define WIRED_MOQTRUN_MAX_REQS 128
+#endif
 /** u64 words of a bitmap holding one bit per reqs[] slot. */
 #define WIRED_MOQTRUN_REQ_WORDS ((WIRED_MOQTRUN_MAX_REQS + 63) / 64)
 
@@ -657,6 +666,11 @@ typedef struct {
  * take the whole pool: a fair quarter of it. Past it a new request stream
  * is reset with EXCESSIVE_LOAD (draft-ietf-moq-transport-19 3.3.4). */
 #define WIRED_MOQTRUN_MAX_REQS_PER_SESSION (WIRED_MOQTRUN_MAX_REQS / 4)
+_Static_assert(
+    WIRED_MOQTRUN_MAX_REQS_PER_SESSION >=
+        WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4 + 4 + 4,
+    "a full 4-person room's requests (own + 3 others' tracks, 4 namespace "
+    "requests) fit one session's quarter with 4 spare");
 
 /** Replies one control-stream dispatch can queue: the shared control
  * stream can carry several requests per call (moqtrun_dispatch_ctl_stream's
@@ -827,8 +841,12 @@ typedef struct {
  * rendezvous-timeout) or two (two subscribers of one track). Past it, or
  * past WIRED_MOQTRUN_RDV_PER_SESSION, the SUBSCRIBE is refused
  * EXCESSIVE_LOAD at once, never dropped. Each slot ~1.3 KB of BSS.
- * ponytail: room-sized; raise with WIRED_MOQTRUN_MAX_REQS. */
+ * ponytail: room-sized; raise with WIRED_MOQTRUN_MAX_REQS.
+ * The moqt_chat room profile (WIRED_PROFILE_MOQT_ROOM,
+ * common/profile/moqt_room.h) raises it. */
+#ifndef WIRED_MOQTRUN_MAX_RDV
 #define WIRED_MOQTRUN_MAX_RDV 16
+#endif
 
 /** Holds one session may own, so one session cannot take the whole table
  * (the WIRED_MOQTRUN_MAX_REQS_PER_SESSION pattern). */
@@ -1011,8 +1029,15 @@ typedef struct {
 /** Fixed capacity: FETCH responses (draft-ietf-moq-transport-19 10.12.3)
  * being served at once, hub-wide. A FETCH past it is answered
  * REQUEST_ERROR INTERNAL_ERROR.
- * ponytail: room-sized; raise when clients fetch in parallel. */
+ * ponytail: room-sized; raise when clients fetch in parallel.
+ * The moqt_chat room profile (WIRED_PROFILE_MOQT_ROOM,
+ * common/profile/moqt_room.h) raises it. */
+#ifndef WIRED_MOQTRUN_MAX_FETCHES
 #define WIRED_MOQTRUN_MAX_FETCHES 8
+#endif
+_Static_assert(
+    MOQCACHE_GONE_MAX >= 2 * WIRED_MOQTRUN_MAX_FETCHES,
+    "the cache remembers two Gone ranges per running fetch leg");
 
 /** Longest an upstream FETCH may run (draft-ietf-moq-transport-22 3.2.3:
  * a relay fetches what it lacks from upstream; 9.20.5: FILL_TIMEOUT is

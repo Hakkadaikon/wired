@@ -4,6 +4,7 @@
 #include "app/http3/core/h3settings/settings_build.h"
 #include "app/qpack/qpack/dyntable.h"
 #include "common/platform/sys/syscall.h"
+#include "common/profile/moqt_room.h"
 
 /** RFC 9114 4.2.2 / 7.2.4.1: the field-section limit this server advertises
  * (SETTINGS_MAX_FIELD_SECTION_SIZE) and, equally, the capacity of the
@@ -30,18 +31,27 @@
  * session may open before a
  * WT_MAX_STREAMS raise (srvrun sends one per stream that ends, 5.6). The
  * whole WT bidi reassembly table (WIRED_SRVLOOP_MAX_WT_STREAMS, 24): a MoQT
- * client keeps its request streams open for the session's life. */
+ * client keeps its request streams open for the session's life.
+ * The moqt_chat room profile (WIRED_PROFILE_MOQT_ROOM,
+ * common/profile/moqt_room.h) raises it. */
+#ifndef H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE
 #define H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE 24
+#endif
 
 /** draft-ietf-webtrans-http3-16 5.5.1: the value of
  * SETTINGS_WT_INITIAL_MAX_STREAMS_UNI. The WT uni reassembly table
  * (WIRED_SRVLOOP_MAX_WT_UNI_STREAMS, 9) less the three uni streams an HTTP/3
- * client holds for control and QPACK. */
+ * client holds for control and QPACK.
+ * The moqt_chat room profile (WIRED_PROFILE_MOQT_ROOM,
+ * common/profile/moqt_room.h) raises it. */
+#ifndef H3SETTINGS_WT_INIT_STREAMS_UNI_VALUE
 #define H3SETTINGS_WT_INIT_STREAMS_UNI_VALUE 6
+#endif
 
 /** draft-ietf-webtrans-http3-16 5.5.3: the SETTINGS_WT_INITIAL_MAX_DATA
  * value, one receive window (WIRED_SRVLOOP_WT_BUF_CAP, 49152) for each
- * stream the two limits above let a session hold open: 30 * 49152. srvrun
+ * stream the two limits above let a session hold open: (24 + 6) * 49152 =
+ * 1474560 by default (srvrun_impl_wtx.h checks the window size). srvrun
  * raises it to the bytes consumed plus this much as the app takes data.
  *
  * All three are non-zero, so flow control is enabled (5.1: this server
@@ -49,7 +59,10 @@
  * enable it); srvrun raises WT_MAX_STREAMS / WT_MAX_DATA by capsule on the
  * CONNECT stream's send slot, which retransmits lost bytes (RFC 9000
  * 13.3). */
-#define H3SETTINGS_WT_INIT_DATA_VALUE 1474560
+#define H3SETTINGS_WT_INIT_DATA_VALUE       \
+  ((H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE + \
+    H3SETTINGS_WT_INIT_STREAMS_UNI_VALUE) * \
+   49152ULL)
 
 /** Bytes one server control stream's type + SETTINGS frame can take
  * (h3settings_control_stream); every caller sizes its buffer with this.

@@ -60,6 +60,9 @@ _Static_assert(
         WIRED_SRVLOOP_MAX_WT_UNI_STREAMS,
     "the WT uni table backs the advertised session stream limit");
 _Static_assert(
+    WIRED_SRVLOOP_MAX_STREAMS >= H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE + 2,
+    "the QUIC bidi limit covers CONNECT, every WT stream and one past it");
+_Static_assert(
     H3SETTINGS_WT_INIT_DATA_VALUE == (H3SETTINGS_WT_INIT_STREAMS_BIDI_VALUE +
                                       H3SETTINGS_WT_INIT_STREAMS_UNI_VALUE) *
                                          (u64)WIRED_SRVLOOP_WT_BUF_CAP,

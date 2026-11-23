@@ -2,6 +2,7 @@
 #define MOQCACHE_H
 
 #include "app/moqt/ctl/moqctl.h"
+#include "common/profile/moqt_room.h"
 
 /** @file
  * Object cache for FETCH (draft-ietf-moq-transport-19 10.12.3) in a
@@ -49,8 +50,12 @@
  * restart or retention boundary (2.1.2), so it carries one such range
  * at most, and WIRED_MOQTRUN_MAX_FETCHES (8) legs run at once: 16 keeps
  * two per leg. A full table drops its oldest range, which then reads
- * Unknown again -- never a wrong answer. */
+ * Unknown again -- never a wrong answer.
+ * The moqt_chat room profile (WIRED_PROFILE_MOQT_ROOM,
+ * common/profile/moqt_room.h) raises it. */
+#ifndef MOQCACHE_GONE_MAX
 #define MOQCACHE_GONE_MAX 16
+#endif
 
 /** One Gone range [lo, hi) of tag, kept while the cache clock is below
  * exp; exp 0 (a zeroed entry) is never live. */

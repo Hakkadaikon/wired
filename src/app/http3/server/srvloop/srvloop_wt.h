@@ -12,6 +12,7 @@
 #include "app/http3/server/srvloop/srvloop_pending_priority.h"
 #include "app/http3/server/srvloop/srvloop_stray.h"
 #include "common/bytes/span/span.h"
+#include "common/profile/moqt_room.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/roles/server/server.h"
 #include "transport/conn/pnspace/pnspaces/recv_spaces.h"
@@ -126,7 +127,9 @@ typedef void (*wired_srvloop_on_body_abort)(
  * (quic-go does) never retries a stream this SDK's own slot table dropped,
  * so anything short of 40 silently loses requests past the cap forever.
  * Overridable at build time (-DWIRED_SRVLOOP_MAX_STREAMS=N); 40 is the
- * floor the zerortt testcase demands. */
+ * floor the zerortt testcase demands.
+ * The moqt_chat room profile (WIRED_PROFILE_MOQT_ROOM,
+ * common/profile/moqt_room.h) raises it. */
 #ifndef WIRED_SRVLOOP_MAX_STREAMS
 #define WIRED_SRVLOOP_MAX_STREAMS 40
 #endif
@@ -245,7 +248,9 @@ typedef struct {
  * plus the server's control stream. A stream past the table is refused on
  * the wire (wt_refused below), never dropped. Each slot owns one
  * WIRED_SRVLOOP_WT_BUF_CAP window, so this is the main per-connection BSS
- * knob: overridable per build (-DWIRED_SRVLOOP_MAX_WT_STREAMS=N). */
+ * knob: overridable per build (-DWIRED_SRVLOOP_MAX_WT_STREAMS=N).
+ * The moqt_chat room profile (WIRED_PROFILE_MOQT_ROOM,
+ * common/profile/moqt_room.h) raises it. */
 #ifndef WIRED_SRVLOOP_MAX_WT_STREAMS
 #define WIRED_SRVLOOP_MAX_WT_STREAMS 24
 #endif
@@ -403,8 +408,12 @@ typedef struct {
  * uni stream per MoQT subgroup) has no plumbing and may hold all 9 open as
  * data streams at once -- with only 6 slots the last 3 would be ACKed yet
  * land nowhere (RawQuic plan K3). Cost: 3 more WIRED_SRVLOOP_WT_BUF_CAP
- * windows per connection. */
+ * windows per connection.
+ * The moqt_chat room profile (WIRED_PROFILE_MOQT_ROOM,
+ * common/profile/moqt_room.h) raises it. */
+#ifndef WIRED_SRVLOOP_MAX_WT_UNI_STREAMS
 #define WIRED_SRVLOOP_MAX_WT_UNI_STREAMS 9
+#endif
 
 /** RFC 9000 4.6: the client-initiated UNI stream limit the server initially
  * advertises, sized to what its receive side actually backs -- the same
