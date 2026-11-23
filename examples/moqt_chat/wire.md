@@ -88,6 +88,30 @@ FILL_PARAMETERS(0x23、9.19.15)は、Length を持たない Parameter の数と 
 
 50 MiB はこのアプリケーションの上限で、プロトコルの上限ではない。
 
+### 5.2 Nostr のイベント
+
+Nostr のイベントは、チャットの Track の 1 つの Group の 1 つの Object で運ぶ。ペイロードは、拡張機能が署名して返したイベントの JSON そのものである。添付の印(0xFD、0xFE)とニックネームの印(0x00)のどれでもなく、`{` で始まるペイロードを Nostr のイベントとして扱う(`classifyChatPayload`)。
+
+`moqNostr.ts` の `MoqNostr` は、NIP-01 の操作を次のように MoQ に写す。
+
+| NIP-01 | MoQ |
+|---|---|
+| EVENT(送信) | 自分のチャットの Track の Object 1 つ(`publish`) |
+| OK | Object の送信が受け付けられた(`publish` の Promise が解決する)。接続していないとき(`sendNostrEvent` が "not connected" で reject)やストリームの失敗は、理由付きの reject |
+| REQ のフィルター | ピアのチャットの Track の購読と、その履歴の fill(4 節)。kind、`#a`、`authors`、`since` はクライアントで照らし、`limit` は履歴にだけ当てる |
+| EOSE | `onHistoryEnd`。NIP-01 の EOSE と違い、`subscribe` を呼んだその場で、それまでに受け取った分を渡した直後に呼ぶ。ピアの購読の fill はたいていそのあとに届き、ライブのイベントとして渡る |
+| CLOSE | `subscribe` が返す関数で購読を外す |
+
+受け取ったペイロードはすべて `verifyEvent`(id と BIP-340 の署名)を通し、不正なものは数えて捨てる。64 KiB を超えるペイロード、`created_at` が 10 分より先のもの、セッションの開始より 1 日以上前のライブのイベントも捨てる。fill(`live` が false)は古くてもよい。同じ id は 2 度目から無視するので、fill の再送で履歴と `limit` がふくらまない。
+
+| kind の範囲(NIP-01) | MoQ の写し方 | 状態 |
+|---|---|---|
+| regular(1、2、4〜44、1000〜9999) | イベントごとに 1 つの Group。履歴にすべて残す | 実装済み(kind 1311) |
+| replaceable(0、3、10000〜19999)、addressable(30000〜39999) | 鍵ごとに最新だけを履歴に残す | 未実装。`publish` は拒否する |
+| ephemeral(20000〜29999) | 履歴を残さない(データグラム) | 未実装。`publish` は拒否する |
+
+ハブはイベントを確かめずに中継する。不正なイベントはクライアントが捨てるが、履歴(fill)の枠は占める。
+
 ## 6. Track 切り替え(実験的)
 
 画面共有の高レートと低レートの別版を、ハブの Track 切り替えで選ぶ。使うのは moqtail 互換の SWITCH_FROM(0x24)と SSTS(SWITCHING_SET_ASSIGNMENT 0x41、Setup Option SSTS_ALGORITHMS 0x3F01)の拡張である。どのコードポイントも draft-23 にはない。draft-23 の Setup Option 0x09 は MAX_CONTROL_MESSAGE_SIZE である。
