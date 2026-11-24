@@ -1,12 +1,14 @@
-/* Palette and typography after the 1976 NASA Graphics Standards Manual:
-   white paper, black ink, NASA Red and NASA Warm Gray, Helvetica set
-   flush-left / ragged-right, hairline rules instead of boxes. Red goes only
-   on white; on a dark ground the mark is white and red survives only as a
-   red panel carrying white text.
+/* Palette: one primary (#7C3AED purple) for actions, focus and "on",
+   success / danger for status, neutral grays for text and hairlines; ink
+   and paper follow the colour scheme. Helvetica set flush-left / ragged-
+   right, hairline rules instead of boxes.
 
-   Control sizing follows a golden-ratio scale (phi = 1.618, base 1rem):
+   Sizing follows a golden-ratio scale (phi = 1.618, base 1rem):
      --s-1 0.382rem   --s-2 0.618rem   --s-3 1rem   --s-4 1.618rem
      --s-5 2.618rem
+   Type: body and headings at --s-3 (the review's 14/16px map to 1rem),
+   body regular 400, headings medium 500, the page title --s-4. Hints are
+   tooltips (.tip) at --s-3, never smaller text.
    Every button shares one height, --control-h: --s-5 raised to the 44px
    touch minimum (WCAG 2.5.5). Label 1rem (--s-3); padding inline 1rem =
    padding block 0.618rem x phi. Minimum width: primary (Join, Send) =
@@ -21,28 +23,36 @@
 	--s-4: 1.618rem;
 	--s-5: 2.618rem;
 	--control-h: max(44px, var(--s-5));
-	--red: #fc3d21;
-	--gray: #a19d94;
-	--gray-light: #e8e6e1;
-	/* Off the NASA palette on purpose: connected / good reads as green. */
-	--green: #1f9d55;
+	/* #7C3AED: 5.7:1 under white text, 3.7:1 as a ring on black. */
+	--primary: #7c3aed;
+	--on-primary: #fff;
+	/* Purple as text: #7C3AED on white 5.7:1; dark #b57cff on black 7.3:1. */
+	--primary-text: #7c3aed;
+	--primary-tint: rgb(124 58 237 / 0.12);
+	--success: #10b981;
+	/* Success as text: #047857 on white 5.5:1; #10b981 on black 8.9:1. */
+	--success-text: #047857;
+	/* #EF4444: non-text only (invalid underline), 3.8:1 on white. */
+	--danger: #ef4444;
+	/* Danger as text: #b91c1c on white 6.5:1; dark #f87171 on black 7.6:1. */
+	--danger-text: #b91c1c;
+	--muted: #6b7280;
+	--line: rgb(0 0 0 / 0.08);
 	--ink: #000;
 	--paper: #fff;
-	--mark: var(--red);
-	/* Off the NASA palette on purpose (user brief): the Nostr login sign.
-	   #8e30eb with #fff is 5.57:1; dark #b57cff with #000 is 7.29:1. */
-	--nostr: #8e30eb;
-	--on-nostr: #fff;
+	--mark: var(--primary);
 }
 
 @media (prefers-color-scheme: dark) {
 	:root {
-		--gray-light: #3f3c38;
+		--primary-text: #b57cff;
+		--danger-text: #f87171;
+		--success-text: #10b981;
+		--muted: #9ca3af;
+		--line: rgb(255 255 255 / 0.08);
 		--ink: #fff;
 		--paper: #000;
 		--mark: #fff;
-		--nostr: #b57cff;
-		--on-nostr: #000;
 		color-scheme: dark;
 	}
 }
@@ -63,22 +73,24 @@ body {
 	color: var(--ink);
 	font-family:
 		"Helvetica Neue", Helvetica, Arial, "Liberation Sans", sans-serif;
-	font-weight: 300;
-	line-height: 1.3;
+	font-size: var(--s-3);
+	font-weight: 400;
+	line-height: 1.4;
 	letter-spacing: normal;
 	text-align: left;
 	-webkit-font-smoothing: antialiased;
 }
 
 button,
-input {
+input,
+textarea {
 	font: inherit;
 	color: inherit;
 	border-radius: 0;
 }
 
 :focus-visible {
-	outline: 2px solid var(--ink);
+	outline: 2px solid var(--primary);
 	outline-offset: 2px;
 }
 
@@ -90,7 +102,7 @@ input {
 	max-width: 64em;
 	min-height: 100dvh;
 	margin: 0 auto;
-	padding: 0 1.5em;
+	padding: 0 var(--s-4);
 }
 
 .page--room {
@@ -102,8 +114,8 @@ input {
 	flex-wrap: wrap;
 	align-items: flex-end;
 	justify-content: space-between;
-	gap: 1em 2em;
-	padding: 1.5em 0 0.75em;
+	gap: var(--s-3) var(--s-4);
+	padding: var(--s-4) 0 var(--s-3);
 }
 
 .masthead__brand {
@@ -114,14 +126,14 @@ input {
 }
 
 .masthead__stem {
-	font-size: 1.6em;
-	font-weight: 300;
+	font-size: 2em;
+	font-weight: 400;
 	line-height: 1;
 	color: var(--ink);
 }
 
 .masthead__id {
-	font-size: 0.8em;
+	color: var(--muted);
 }
 
 .masthead__tools {
@@ -171,18 +183,18 @@ input {
 .folio {
 	margin-top: auto;
 	padding: 1em 0;
-	font-size: 0.75em;
-	color: var(--gray);
+	color: var(--muted);
 	text-align: right;
 }
 
-/* Signs: black panel with white text; red panel with white text; or a
-   white panel with a black outline. Arrows are text, not icons. */
+/* Signs: ink panel; primary (filled purple); outline; Nostr (tinted purple
+   outline); danger. An icon leads the label. */
 .sign,
 .tile {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
+	gap: var(--s-1);
 	min-width: calc(var(--control-h) * 1.618);
 	min-height: var(--control-h);
 	padding: var(--s-2) var(--s-3);
@@ -194,20 +206,28 @@ input {
 	border: 1px solid var(--ink);
 	background: var(--ink);
 	color: var(--paper);
-	font-weight: 700;
+	font-weight: 500;
 	white-space: nowrap;
 	cursor: pointer;
 }
 
-.sign:disabled {
+.sign:disabled,
+.sign[aria-disabled="true"] {
 	opacity: 0.5;
 	cursor: default;
 }
 
-.sign--red {
-	border-color: var(--red);
-	background: var(--red);
-	color: #fff;
+.sign--primary {
+	min-width: calc(var(--control-h) * 2.618);
+	border-color: var(--primary);
+	background: var(--primary);
+	color: var(--on-primary);
+}
+
+.sign--danger {
+	border-color: var(--danger-text);
+	background: var(--danger-text);
+	color: var(--paper);
 }
 
 .sign--outline {
@@ -216,14 +236,9 @@ input {
 }
 
 .sign--nostr {
-	border-color: var(--nostr);
-	background: var(--nostr);
-	color: var(--on-nostr);
-}
-
-.sign--red,
-.sign--primary {
-	min-width: calc(var(--control-h) * 2.618);
+	border-color: var(--primary-text);
+	background: var(--primary-tint);
+	color: var(--primary-text);
 }
 
 .sign--icon {
@@ -232,6 +247,9 @@ input {
 }
 
 .link {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--s-1);
 	align-self: flex-start;
 	min-height: var(--control-h);
 	margin-top: 1em;
@@ -242,8 +260,7 @@ input {
 }
 
 .caption {
-	font-size: 0.8em;
-	color: var(--gray);
+	color: var(--muted);
 }
 
 /* Warning panel: bold heading, light body, outlined sign on the right. */
@@ -252,9 +269,9 @@ input {
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: space-between;
-	gap: 0.5em 1em;
-	margin-top: 0.75em;
-	padding: 0.75em 1em;
+	gap: var(--s-2) var(--s-3);
+	margin-top: var(--s-3);
+	padding: var(--s-2) var(--s-3);
 	background: var(--ink);
 	color: var(--paper);
 }
@@ -268,31 +285,31 @@ input {
 	color: var(--paper);
 }
 
-/* Cover: heading column, form column, the mark in the space below. */
+/* Join: one centered card on the page ground. */
 .cover {
-	display: grid;
-	grid-template-columns: 1fr 2fr;
-	grid-template-rows: auto 1fr;
-	gap: 2em;
+	display: flex;
+	justify-content: center;
 	flex: 1;
-	padding: 2em 0;
+	padding: var(--s-4) 0;
+}
+
+.card {
+	width: 100%;
+	max-width: 31.25rem;
+	align-self: flex-start;
+	padding: var(--s-4);
+	border: 1px solid var(--line);
 }
 
 .cover h1 {
-	margin-bottom: 0.5em;
-	font-size: 1.5em;
-	font-weight: 700;
+	margin-bottom: var(--s-2);
+	font-size: var(--s-4);
+	font-weight: 500;
 	line-height: 1.2;
 }
 
 .cover__lede {
-	max-width: 22em;
-}
-
-.cover__mark {
-	grid-column: 1 / -1;
-	align-self: end;
-	color: var(--mark);
+	color: var(--muted);
 }
 
 .form {
@@ -302,38 +319,57 @@ input {
 
 .field {
 	display: block;
-	padding: 0.75em 0;
-	border-bottom: 1px solid var(--gray-light);
+	padding: var(--s-3) 0;
+	border-bottom: 1px solid var(--line);
 }
 
 .field__label {
-	display: block;
-	margin-bottom: 0.35em;
-	font-size: 0.8em;
-	font-weight: 700;
+	display: flex;
+	align-items: center;
+	gap: var(--s-1);
+	margin-bottom: var(--s-1);
+	font-weight: 500;
+}
+
+/* An input and its copy button on one line. */
+.field__row {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--s-2);
 }
 
 .field input {
 	width: 100%;
-	padding: 0.25em 0;
+	min-height: var(--control-h);
+	padding: var(--s-1) 0;
 	border: 0;
+	border-bottom: 1px solid var(--muted);
 	background: transparent;
+}
+
+.field input[aria-invalid="true"] {
+	border-bottom-color: var(--danger);
 }
 
 .field textarea {
 	display: block;
 	width: 100%;
-	padding: 0.25em 0;
+	padding: var(--s-1) 0;
 	border: 0;
-	border-bottom: 1px solid var(--gray);
+	border-bottom: 1px solid var(--muted);
 	background: transparent;
 	font-family: monospace;
 	resize: vertical;
 }
 
-.field__hint {
+.field__error {
 	display: block;
-	margin-top: 0.35em;
+	margin-top: var(--s-1);
+	color: var(--danger-text);
+}
+
+.field__error:empty {
+	display: none;
 }
 
 .field .link {
@@ -349,26 +385,27 @@ input {
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--s-2);
-	margin-top: 0.35em;
+	margin-top: var(--s-1);
 }
 
 /* Picker cells keep the phi min-width but pad by --s-2 so four fit one row
    at 375px. */
 .tile {
 	padding-inline: var(--s-2);
-	border: 1px solid var(--ink);
-	background: var(--paper);
+	border: 1px solid var(--line);
+	background: transparent;
 	color: var(--ink);
-	font-weight: 700;
+	font-weight: 500;
 	cursor: pointer;
 }
 
 .tile[aria-pressed="true"] {
-	background: var(--ink);
-	color: var(--paper);
+	border-color: var(--primary);
+	background: var(--primary);
+	color: var(--on-primary);
 }
 
-.form .sign--red {
+.form .sign--primary {
 	align-self: flex-start;
 	margin-top: var(--s-4);
 }
@@ -392,9 +429,9 @@ input {
 
 .rail h2,
 .body h2 {
-	margin-bottom: 0.25em;
-	font-size: 1em;
-	font-weight: 700;
+	margin-bottom: var(--s-1);
+	font-size: var(--s-3);
+	font-weight: 500;
 }
 
 .rail section + section {
@@ -436,23 +473,23 @@ input {
 }
 
 .status__block[data-status="connected"] {
-	border-color: var(--green);
-	background: var(--green);
+	border-color: var(--success);
+	background: var(--success);
 }
 
 .status__block[data-status="connecting"] {
-	border-color: var(--gray);
-	background: var(--gray);
+	border-color: var(--muted);
+	background: var(--muted);
 }
 
 .status__block[data-quality="good"] {
-	border-color: var(--green);
-	background: var(--green);
+	border-color: var(--success);
+	background: var(--success);
 }
 
 .status__block[data-quality="degraded"] {
-	border-color: var(--gray);
-	background: var(--gray);
+	border-color: var(--muted);
+	background: var(--muted);
 }
 
 .status__block[data-speaking="true"] {
@@ -475,8 +512,7 @@ input {
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	margin-bottom: 0.15em;
-	font-size: 0.8em;
-	color: var(--gray);
+	color: var(--muted);
 }
 
 /* Video rail: --s-2 from a toggle to its setting, --s-3 between groups. */
@@ -503,7 +539,7 @@ input {
 	margin-top: 0.35em;
 	padding: 0.3em 0;
 	border: 0;
-	border-bottom: 1px solid var(--gray);
+	border-bottom: 1px solid var(--muted);
 	background: transparent;
 	color: inherit;
 }
@@ -584,7 +620,7 @@ input {
 .screen-tile__quality {
 	padding: 0.1em 0;
 	border: 0;
-	border-bottom: 1px solid var(--gray);
+	border-bottom: 1px solid var(--muted);
 	background: transparent;
 	color: inherit;
 	font-size: 0.8em;
@@ -608,12 +644,12 @@ input {
 	gap: 0.75em;
 	align-items: baseline;
 	padding: 0.5em 0;
-	border-bottom: 1px solid var(--gray-light);
+	border-bottom: 1px solid var(--line);
 }
 
 .message__sender {
 	grid-area: 1 / 1;
-	font-weight: 700;
+	font-weight: 500;
 	overflow-wrap: anywhere;
 }
 
@@ -674,14 +710,14 @@ input {
 }
 
 .nostr-author__name {
-	font-weight: 700;
+	font-weight: 500;
 	color: var(--ink);
 }
 
 .nostr-author__handle {
 	font-weight: 400;
 	font-size: 0.85em;
-	color: var(--gray);
+	color: var(--muted);
 }
 
 /* The sidebar keeps one line per participant. */
@@ -741,7 +777,7 @@ input {
 	min-width: var(--control-h);
 	min-height: var(--control-h);
 	padding: 0 var(--s-2);
-	border: 1px solid var(--gray-light);
+	border: 1px solid var(--line);
 	background: none;
 	color: var(--ink);
 	font: inherit;
@@ -754,7 +790,7 @@ input {
 
 .reaction--add {
 	border-color: var(--ink);
-	font-weight: 700;
+	font-weight: 500;
 }
 
 .message__delete {
@@ -789,14 +825,13 @@ input {
 	gap: var(--s-2);
 }
 
-/* Status and hand tags: signage, never red on black (--mark is white in
- * dark mode). */
+/* Status and hand tags: signage in --mark (white in dark mode). */
 .room-head__status,
 .hand {
 	padding: 0 var(--s-1);
 	border: 1px solid var(--ink);
 	font-size: 0.8em;
-	font-weight: 700;
+	font-weight: 500;
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
 }
@@ -818,41 +853,13 @@ input {
 	letter-spacing: 0.04em;
 }
 
-.verified {
-	position: relative;
-}
-
 .verified__mark {
 	padding: 0 var(--s-1);
 	border: 0;
 	background: none;
-	color: var(--gray);
+	color: var(--muted);
 	font: inherit;
 	cursor: help;
-}
-
-/* Hover AND keyboard focus (not hover-only). */
-.verified__tip {
-	position: absolute;
-	left: 0;
-	bottom: 100%;
-	z-index: 1;
-	display: none;
-	width: max-content;
-	max-width: 16rem;
-	padding: var(--s-1) var(--s-2);
-	border: 1px solid var(--ink);
-	background: var(--paper);
-	color: var(--ink);
-}
-
-.verified:hover .verified__tip,
-.verified__mark:focus-visible + .verified__tip {
-	display: block;
-}
-
-.verified[data-dismissed] .verified__tip {
-	display: none;
 }
 
 .message__raw pre {
@@ -895,7 +902,7 @@ input {
 
 .message__failed {
 	grid-area: 3 / 2;
-	color: var(--mark);
+	color: var(--danger-text);
 }
 
 .messages > .caption {
@@ -947,18 +954,13 @@ input {
 	min-height: var(--control-h);
 	padding: 0.4em 0;
 	border: 0;
-	border-bottom: 1px solid var(--gray);
+	border-bottom: 1px solid var(--muted);
 	background: transparent;
 }
 
 @media (max-width: 40em) {
-	.cover,
 	.room {
 		grid-template-columns: 1fr;
-	}
-
-	.cover__mark {
-		display: none;
 	}
 
 	.message:not(.message--nostr) {
@@ -966,9 +968,214 @@ input {
 	}
 }
 
-/* A tile group as a fieldset (Create room's mode): no box, no inset. */
+/* Inline stroke icons (icons.tsx): text-sized, inherit the colour. */
+.icon {
+	flex: none;
+	width: 1.2em;
+	height: 1.2em;
+}
+
+.icon--spin {
+	animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.icon--spin {
+		animation: none;
+	}
+}
+
+/* A toggle's on/off word: state never by colour alone. */
+.sign__state {
+	font-weight: 400;
+}
+
+/* Square icon-only button (copy, info) at the touch size. */
+.icon-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	min-width: var(--control-h);
+	min-height: var(--control-h);
+	border: 0;
+	background: none;
+	color: var(--muted);
+	cursor: pointer;
+}
+
+.icon-button:hover {
+	color: var(--ink);
+}
+
+/* Tooltip (tooltip.tsx): hover, keyboard focus or a pinned tap shows it,
+ * Esc (data-dismissed) hides it; body-size text. It touches its trigger
+ * (no gap) so the pointer can move onto it (WCAG 1.4.13). */
+.tip {
+	position: relative;
+	display: inline-flex;
+}
+
+.tip__text {
+	position: absolute;
+	left: 0;
+	bottom: 100%;
+	z-index: 2;
+	display: none;
+	width: max-content;
+	max-width: min(20rem, 80vw);
+	padding: var(--s-2) var(--s-3);
+	border: 1px solid var(--line);
+	background: var(--ink);
+	color: var(--paper);
+	font-size: var(--s-3);
+	font-weight: 400;
+	line-height: 1.4;
+	white-space: normal;
+}
+
+/* Placement (:where keeps these at .tip__text's specificity). The
+ * masthead sits at the top of the page: its tips open downward. */
+:where(.masthead) .tip__text {
+	top: 100%;
+	bottom: auto;
+}
+
+/* Triggers at the right of their row (copy, attach, the last slots) open
+ * leftward so a tip stays inside a 390px viewport. */
+:where(.field__row, .compose, .tiles .tip:nth-child(n + 3)) .tip__text {
+	left: auto;
+	right: 0;
+}
+
+@media (hover: hover) {
+	.tip:hover > .tip__text {
+		display: block;
+	}
+}
+
+.tip:has(> :focus-visible) > .tip__text,
+.tip[data-open] > .tip__text {
+	display: block;
+}
+
+.tip[data-dismissed] > .tip__text {
+	display: none;
+}
+
+/* Join card pieces. */
+.account__state {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--s-1);
+	margin-right: var(--s-2);
+	color: var(--success-text);
+}
+
+.segmented {
+	display: inline-flex;
+	margin: var(--s-1) 0 var(--s-3);
+	padding: 0;
+	border: 1px solid var(--line);
+	min-width: 0;
+}
+
+.segmented button {
+	min-height: var(--control-h);
+	padding: var(--s-2) var(--s-3);
+	border: 0;
+	background: none;
+	color: var(--ink);
+	cursor: pointer;
+}
+
+.segmented button[aria-pressed="true"] {
+	background: var(--primary);
+	color: var(--on-primary);
+}
+
+.advanced {
+	border-bottom: 1px solid var(--line);
+}
+
+.advanced summary {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0 var(--s-2);
+	min-height: var(--control-h);
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.advanced__summary {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--muted);
+	font-weight: 400;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.advanced .field:last-child {
+	border-bottom: 0;
+}
+
+.confirm {
+	max-width: min(28rem, 90vw);
+	margin: auto;
+	padding: var(--s-4);
+	border: 1px solid var(--line);
+	background: var(--paper);
+	color: var(--ink);
+}
+
+.confirm::backdrop {
+	background: rgb(0 0 0 / 0.6);
+}
+
+.confirm h2 {
+	margin-bottom: var(--s-2);
+	font-size: var(--s-3);
+	font-weight: 500;
+}
+
+.confirm__actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--s-2);
+	margin-top: var(--s-4);
+}
+
+/* Visible only to assistive tech (the copy result announcement). */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+/* Why Join / Create is disabled, always visible under the button. */
+.field__reason {
+	display: block;
+	margin-top: var(--s-1);
+	color: var(--muted);
+}
+
+.advanced__errors {
+	color: var(--danger-text);
+}
+
+/* The slot group is a fieldset (role group): no box, no inset. */
 fieldset.tiles {
-	margin: 0;
 	padding: 0;
 	border: 0;
 	min-width: 0;
