@@ -50,3 +50,20 @@ jobs:
           fi
           ss -uln | grep -q ':4433 ' || { echo "::error::${{ matrix.example }}/wired_server did not bind :4433"; exit 1; }
           kill "$pid"
+
+  nip05d:
+    # moqt_chat's NIP-05 resolver helper (examples/moqt_chat/nip05d): Go
+    # from the devShell (flake pins it), stdlib only, offline tests.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: fmt, vet, race tests, static build
+        run: |
+          nix develop -c sh -c 'cd examples/moqt_chat/nip05d &&
+            test -z "$(gofmt -l .)" &&
+            go vet ./... &&
+            go test -race -count=1 ./... &&
+            CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o nip05d .'
