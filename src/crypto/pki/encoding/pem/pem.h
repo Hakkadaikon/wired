@@ -34,4 +34,14 @@
 int wired_pem_next(
     wired_span text, usz* at, wired_span* label, wired_obuf* der);
 
+/** Decode an RFC 4648 4 base64 body (padded quads, CR/LF skipped) into der.
+ *
+ * Also the decoder of the NIP-98 "Nostr <base64>" token.
+ *
+ * @param body base64 text (borrowed)
+ * @param der  receives the decoded bytes; the callee advances der->len
+ * @return 1 on success, 0 on an invalid character, a partial quad or der
+ *   overflow. */
+int pem_b64_decode(wired_span body, wired_obuf* der);
+
 #endif

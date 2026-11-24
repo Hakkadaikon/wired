@@ -7,7 +7,6 @@ static int pem_flush(const u8 q[4], wired_obuf* der);
 static int pem_take(u8 code, u8* q, usz* qn, wired_obuf* der);
 static int pem_step(u8 c, u8* q, usz* qn, wired_obuf* der);
 static int pem_done(int ok, usz qn);
-static int pem_decode(wired_span body, wired_obuf* der);
 
 /* Whether n bytes fit both der's capacity and the shift_by lookup below. */
 static int pem_emit_fits(const wired_obuf* der, usz n) {
@@ -27,8 +26,11 @@ static int pem_emit(wired_obuf* der, u32 acc, usz n) {
   return 1;
 }
 
-/* A pad may only sit in the last two positions of a quad. */
-static int pem_quad_ok(const u8 q[4]) { return q[0] < 64 && q[1] < 64; }
+/* A pad may only sit in the last two positions of a quad, and a pad in the
+ * third position must be followed by a pad ("AA=A" is not base64). */
+static int pem_quad_ok(const u8 q[4]) {
+  return (q[0] < 64) & (q[1] < 64) & ((q[2] < 64) | (q[3] > 63));
+}
 
 /* Decode one full quad q (codes 0-63 or 64 = pad) into der. */
 static int pem_flush(const u8 q[4], wired_obuf* der) {
@@ -70,7 +72,7 @@ static int pem_step(u8 c, u8* q, usz* qn, wired_obuf* der) {
 static int pem_done(int ok, usz qn) { return ok == 1 && qn == 0; }
 
 /* RFC 4648 4: decode the base64 body (padded quads, CR/LF ignored). */
-static int pem_decode(wired_span body, wired_obuf* der) {
+int pem_b64_decode(wired_span body, wired_obuf* der) {
   u8  q[4];
   usz qn = 0, i = 0;
   int ok = 1;
@@ -90,5 +92,5 @@ int wired_pem_next(
     return 0;
   }
   *at = pem_line_end(text, e);
-  return pem_decode(wired_span_of(text.p + body, e - body), der);
+  return pem_b64_decode(wired_span_of(text.p + body, e - body), der);
 }

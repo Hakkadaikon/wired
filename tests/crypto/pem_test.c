@@ -239,7 +239,19 @@ static void test_pem_reject_open_label_and_early_pad(void) {
   CHECK(pem_one(pad, sizeof(pad) - 1, &der) == 0);
 }
 
+/* RFC 4648 4: a pad in the third position must be followed by a pad;
+ * "AA=A" is rejected, "AA==" decodes one byte. */
+static void test_pem_reject_pad_then_data(void) {
+  u8         buf[4];
+  wired_obuf der = obuf_of(buf, sizeof(buf));
+  CHECK(pem_b64_decode(wired_span_of((const u8*)"AA=A", 4), &der) == 0);
+  der = obuf_of(buf, sizeof(buf));
+  CHECK(pem_b64_decode(wired_span_of((const u8*)"AA==", 4), &der) == 1);
+  CHECK(der.len == 1);
+}
+
 void test_pem(void) {
+  test_pem_reject_pad_then_data();
   test_pem_reject_open_label_and_early_pad();
   test_pem_leaf_golden();
   test_pem_fullchain();
