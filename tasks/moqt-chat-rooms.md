@@ -264,10 +264,10 @@ name before any check (low value: room ids are random).
 - [ ] Logging without tokens; unit tests per rule
 
 ### P7 frontend — est. 1 day
-- [ ] Create room UI (NIP-07 + nip05 + mode), share link
-- [ ] NIP-98 signing for create and auth joins; re-sign on reconnect
-- [ ] Close-info handling in both paths; final screens per reason token
-- [ ] Countdown from 30313 `ends`
+- [~] Create room UI (NIP-07 + nip05 + mode), share link (2afd44193; client side + unit tests done, server side and e2e pending P6/P8)
+- [~] NIP-98 signing for create and auth joins; re-sign on reconnect (2afd44193; client side + unit tests done, server side and e2e pending P6/P8)
+- [~] Close-info handling in both paths; final screens per reason token (2afd44193; client side + unit tests done, server side and e2e pending P6/P8)
+- [~] Countdown from 30313 `ends` (2afd44193; client side + unit tests done, server side and e2e pending P6/P8)
 
 ### P8 e2e and docs — est. 1 day
 - [ ] e2e NIP-07 stub + local nostr.json fixture (resolver allowed to reach
