@@ -8,7 +8,8 @@
  * significant). Operations are generic over a 256-bit odd modulus so the same
  * core serves both the field p and the group order n (RFC 6090). Every
  * operation is constant-time (no branch or memory index on an operand)
- * except the generic long-division ones marked variable time below. */
+ * except the generic long-division ones marked variable time below.
+ * secp256k1 (crypto/asymmetric/ecc/secp256k1) reuses this generic core. */
 
 typedef u64 p256_fe[4];
 

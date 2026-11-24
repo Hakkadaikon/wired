@@ -56,6 +56,7 @@ OVERRIDES = {
     "v2ku_appendix": "tls/keys/keyupdate",
     "bssl_ed25519": "crypto/asymmetric/ecc/ed25519",
     "bssl_x25519": "tls/handshake/core/tls",
+    "nostrev": "app/nostr/event",
 }
 
 # Tests that share static helpers (or a production-static counter) across

@@ -198,6 +198,20 @@
 #include "crypto/asymmetric/ecc/ed25519/ed25519_field_ge.c"
 #include "crypto/asymmetric/ecc/ed25519/ed25519_sign.c"
 #include "crypto/asymmetric/ecc/ed25519/ed25519_sign_sc.c"
+#include "crypto/asymmetric/ecc/secp256k1/secp256k1_field.c"
+#include "crypto/asymmetric/ecc/secp256k1/secp256k1_point.c"
+#include "crypto/asymmetric/ecc/secp256k1/secp256k1_mul.c"
+#include "crypto/asymmetric/ecc/bip340/bip340.c"
+#include "app/nostr/event/nostrev_lex.c"
+#include "app/nostr/event/nostrev_utf8.c"
+#include "app/nostr/event/nostrev_esc.c"
+#include "app/nostr/event/nostrev_list.c"
+#include "app/nostr/event/nostrev_obj.c"
+#include "app/nostr/event/nostrev_tags.c"
+#include "app/nostr/event/nostrev_ser.c"
+#include "app/nostr/nip98/nip98_replay.c"
+#include "app/nostr/nip98/nip98.c"
+#include "app/nostr/nip98/nip98_tag.c"
 #include "common/diag/error/error.c"
 #include "transport/stream/flow/flow/finalsize.c"
 #include "transport/stream/flow/flow/reassemble.c"
@@ -1409,6 +1423,10 @@
 #include "app/moqver_test.c"
 #include "app/moqt_multidraft_golden_test.c"
 #include "app/moqctl_limits_test.c"
+#include "crypto/secp256k1_test.c"
+#include "crypto/bip340_test.c"
+#include "app/nostrev_test.c"
+#include "app/nip98_test.c"
 // clang-format on
 
 int main(void) {
@@ -1946,5 +1964,9 @@ int main(void) {
   test_ed25519_field();
   test_v2ku_appendix();
   test_h3prio();
+  test_secp256k1();
+  test_bip340();
+  test_nostrev();
+  test_nip98();
   return TEST_REPORT();
 }
