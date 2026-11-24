@@ -28,7 +28,7 @@ same line). Related: #340 (per-room containers, deferred).
 
 ## Open decision (needs the user)
 
-- [ ] OD1 Who fetches `/.well-known/nostr.json` for NIP-05 (D4)? The
+- [x] OD1 (decided 2026-11-24: A now — a Go helper process; B long term, tracked in #341) Who fetches `/.well-known/nostr.json` for NIP-05 (D4)? The
   libc-free SDK has no outbound HTTPS client (no DNS stub, no TCP TLS record
   layer, no HTTP/1.1). Verifying in the browser is not trustworthy (the
   client controls what it reports).
@@ -201,7 +201,7 @@ name before any check (low value: room ids are random).
 ## Checklist (order: P1 and P2 in parallel, then P5, P3, P4, P6, P7, P8)
 
 ### P0 decisions
-- [ ] OD1 NIP-05 resolver option chosen (A / B / C / D, or D then A)
+- [x] OD1 NIP-05 resolver option chosen: A (Go helper) now, B (native SDK HTTPS client) later in #341
 
 ### P1 frontend room links (no rebuild per host) — est. 0.5 day
 - [ ] Room id + host from `?room=&host=`; namespace includes the room;
@@ -236,7 +236,7 @@ name before any check (low value: room ids are random).
 - [ ] view-check entries for new stored views (room table, token copy, tap)
 - [ ] Tests per hook; measure BSS / RSS of a 3-room x 4-person hub
 
-### P4 NIP-05 resolver (per OD1) — est. 1-1.5 days for A
+### P4 NIP-05 resolver (Go helper, option A) — est. 1-1.5 days
 - [ ] https on 443 only; no IP literals / ports; domain <= 253, punycode
 - [ ] Connect only to the checked address (dial-time check; stops DNS
       rebinding); refuse loopback, private, link-local, CGNAT, ULA,
