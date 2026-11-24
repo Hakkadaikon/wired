@@ -225,7 +225,7 @@ describe("MoqtChatClient transport close detection", () => {
 		const fake = new FakeWebTransport();
 		stubWebTransport(() => fake);
 		const statuses: string[] = [];
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: (s) => statuses.push(s),
 			onMessage: () => {},
 		});
@@ -287,7 +287,7 @@ describe("MoqtChatClient transport close detection", () => {
 		const fake = new FakeWebTransport();
 		stubWebTransport(() => fake);
 		const statuses: string[] = [];
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: (s) => statuses.push(s),
 			onMessage: () => {},
 		});
@@ -317,7 +317,7 @@ describe("MoqtChatClient transport close detection", () => {
 		).incomingUnidirectionalStreams = failing;
 		(fake.datagrams as unknown as { readable: unknown }).readable = failing;
 		stubWebTransport(() => fake);
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: () => {},
 			onMessage: () => {},
 		});
@@ -364,7 +364,7 @@ describe("MoqtChatClient request streams", () => {
 		const fake = new FakeWebTransport();
 		stubWebTransport(() => fake);
 		const messages: string[] = [];
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: () => {},
 			onMessage: (p, text) => messages.push(`${p}:${text}`),
 			...callbacks,
@@ -476,7 +476,7 @@ describe("MoqtChatClient namespace discovery", () => {
 		const fake = new FakeWebTransport();
 		stubWebTransport(() => fake);
 		const seen: string[] = [];
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: () => {},
 			onMessage: () => {},
 			onNamespace: (suffix, active) =>
@@ -491,16 +491,16 @@ describe("MoqtChatClient namespace discovery", () => {
 		return { fake, client, seen, watch };
 	}
 
-	it("announce publishes wired/moqt_chat/<id> and watches the wired/moqt_chat prefix", async () => {
+	it("announce publishes wired/moqt_chat/<room>/<id> and watches the room prefix", async () => {
 		const { fake, watch } = await announced();
 
 		const [pub] = fake.requestsOf(MSG_PUBLISH_NAMESPACE);
 		expect(
 			decodeNamespace(pub.request.body, 1).fields.map(bytesToUtf8),
-		).toEqual(["wired", "moqt_chat", "user1"]);
+		).toEqual(["wired", "moqt_chat", "room1", "user1"]);
 		expect(
 			decodeNamespace(watch.request.body, 1).fields.map(bytesToUtf8),
-		).toEqual(["wired", "moqt_chat"]);
+		).toEqual(["wired", "moqt_chat", "room1"]);
 	});
 
 	it("a NAMESPACE for a peer reports it and subscribes its chat track with history", async () => {
@@ -511,9 +511,14 @@ describe("MoqtChatClient namespace discovery", () => {
 
 		expect(seen).toEqual(["+user2"]);
 		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
-		expect(bytesToUtf8(decodeSubscribe(s.request.body).trackName)).toBe(
-			"user2",
-		);
+		const sub = decodeSubscribe(s.request.body);
+		expect(bytesToUtf8(sub.trackName)).toBe("user2");
+		// The peer's track sits under the room's namespace, not another room's.
+		expect(sub.trackNamespace.map(bytesToUtf8)).toEqual([
+			"wired",
+			"moqt_chat",
+			"room1",
+		]);
 	});
 
 	it("a NAMESPACE carrying Parameters is still discovered (9.15)", async () => {
@@ -603,7 +608,7 @@ describe("MoqtChatClient namespace discovery", () => {
 		const pubs = fake.requestsOf(MSG_PUBLISH_NAMESPACE);
 		expect(
 			decodeNamespace(pubs[1].request.body, 1).fields.map(bytesToUtf8),
-		).toEqual(["wired", "moqt_chat", "user1", "screen"]);
+		).toEqual(["wired", "moqt_chat", "room1", "user1", "screen"]);
 		expect(pubs[1].cancelled).toBe(true);
 	});
 });
@@ -619,7 +624,7 @@ describe("MoqtChatClient incoming datagrams", () => {
 		const fake = new FakeWebTransport();
 		stubWebTransport(() => fake);
 		const aliases: bigint[] = [];
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: () => {},
 			onMessage: () => {},
 			onUnknownDatagram: (datagram) => aliases.push(datagram.trackAlias),
@@ -683,7 +688,7 @@ describe("MoqtChatClient.sendMessage", () => {
 				}),
 			};
 		}) as typeof fake.createUnidirectionalStream;
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: () => {},
 			onMessage: () => {},
 		});
@@ -846,7 +851,7 @@ describe("MoqtChatClient message aggregation", () => {
 			attachments: { bytes: Uint8Array; mimeType: string }[];
 		}[] = [];
 		const nostr: string[] = [];
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: () => {},
 			onNostrEvent: (json, live, from) => nostr.push(`${live}:${from}:${json}`),
 			onMessage: (participantId, text, attachments, key) => {
@@ -958,7 +963,7 @@ describe("MoqtChatClient message aggregation", () => {
 	});
 
 	it("sendNostrEvent rejects when not connected", async () => {
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: () => {},
 			onMessage: () => {},
 		});
@@ -1237,7 +1242,7 @@ describe("MoqtChatClient going away", () => {
 		const fake = new FakeWebTransport();
 		stubWebTransport(() => fake);
 		const goaways: string[] = [];
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: () => {},
 			onMessage: () => {},
 			onGoaway: (uri) => goaways.push(uri),
@@ -1317,7 +1322,7 @@ describe("MoqtChatClient draft-23 session (moqt-23 negotiated)", () => {
 		});
 		const goaways: string[] = [];
 		const statuses: string[] = [];
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: (s) => statuses.push(s),
 			onMessage: () => {},
 			onGoaway: (uri) => goaways.push(uri),
@@ -1386,7 +1391,7 @@ describe("MoqtChatClient draft-23 session (moqt-23 negotiated)", () => {
 			const fake = new FakeWebTransport();
 			stubWebTransport(() => fake);
 			const statuses: string[] = [];
-			const client = new MoqtChatClient("user1", {
+			const client = new MoqtChatClient("user1", "room1", {
 				onStatusChange: (s) => statuses.push(s),
 				onMessage: () => {},
 			});

@@ -6,7 +6,7 @@
 // pubkey of its verified event. user3 has no extension: it still sends in
 // the old format (shown under its participant id) and still sees the Nostr
 // messages. `?relays=` keeps every page off the public profile relays, so
-// names stay npubs. A received message carries the verified check, and its
+// names stay npubs; the room is a fresh link hosted by user1's key. A received message carries the verified check, and its
 // "⋯" toggle shows the verified event JSON.
 //
 //   just e2e-stability s24-nostr-chat
@@ -15,6 +15,7 @@ import { getPublicKey } from "nostr-tools/pure";
 import {
 	keyOf,
 	nostrLogin,
+	roomUrl,
 	sendChat,
 	shortNpub,
 	WAIT_MS,
@@ -112,10 +113,9 @@ async function checkFoot(client, sender, text, report) {
 }
 
 export async function run({ pageUrl, serverUrl, server, log }) {
-	const url = new URL(pageUrl);
-	url.searchParams.set("relays", "");
+	const url = roomUrl(pageUrl, 1);
 	const opts = (tag, beforeConnect) => ({
-		pageUrl: url.href,
+		pageUrl: url,
 		serverUrl,
 		certHash: server.certHash,
 		participantId: tag,

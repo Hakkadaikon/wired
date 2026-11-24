@@ -40,13 +40,7 @@ import {
 	type NoiseSuppressorHandle,
 	startNoiseSuppressor,
 } from "@/lib/noiseSuppressor";
-import {
-	checkOwnChatEvent,
-	LIVE_CHAT_KIND,
-	NOSTR_HOST,
-	NOSTR_SPACE_A,
-	signChatEvent,
-} from "@/lib/nostr";
+import { checkOwnChatEvent, LIVE_CHAT_KIND, signChatEvent } from "@/lib/nostr";
 import {
 	acceptPresence,
 	MEETING_KIND,
@@ -57,6 +51,7 @@ import {
 import { effectiveGain } from "@/lib/outputMixer";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
 import { createPlaybackSink, type PlaybackSink } from "@/lib/playbackSink";
+import { activeRoom } from "@/lib/roomLink";
 import {
 	createScreenReceivePipeline,
 	type ScreenReceivePipeline,
@@ -245,14 +240,14 @@ function namesParticipant(
 	participant: string,
 ): boolean {
 	if (!signedFor(ev, participant)) return false;
-	if (ev.kind === PRESENCE_KIND) return acceptPresence(ev, NOSTR_SPACE_A);
+	if (ev.kind === PRESENCE_KIND) return acceptPresence(ev, activeRoom.space);
 	return live;
 }
 
-// The space and its meetings count only from the configured host.
+// The space and its meetings count only from the room link's host.
 const fromHostIfRoom = (ev: NostrEvent) =>
 	(ev.kind !== SPACE_KIND && ev.kind !== MEETING_KIND) ||
-	ev.pubkey === NOSTR_HOST;
+	ev.pubkey === activeRoom.host;
 
 /** This session's MoqNostr (moqNostr.ts) over client's chat and Nostr
  * tracks, subscribed to the room's live chat, plus its meeting space
@@ -273,7 +268,7 @@ export function openMoqNostr(
 		fromHostIfRoom,
 	);
 	nostr.subscribe(
-		{ kinds: [LIVE_CHAT_KIND], a: NOSTR_SPACE_A },
+		{ kinds: [LIVE_CHAT_KIND], a: activeRoom.space },
 		{ onEvent: (ev, raw) => addNostrMessage(store, ev, raw) },
 	);
 	chatNostr.current = nostr;
@@ -295,6 +290,11 @@ export function openMoqNostr(
 		}
 	};
 }
+
+// The session's client, under the page's room (roomLink.ts); outside
+// useMoqtChat, which is at its Halstead cap.
+const roomClient = (localId: string, callbacks: MoqtChatCallbacks) =>
+	new MoqtChatClient(localId, activeRoom.id, callbacks);
 
 // client: when given, Nostr payloads go to a fresh openMoqNostr session.
 export function moqtChatCallbacks(
@@ -1183,7 +1183,7 @@ export function useMoqtChat() {
 					},
 				);
 			};
-			const client: MoqtChatClient = new MoqtChatClient(localId, {
+			const client: MoqtChatClient = roomClient(localId, {
 				...moqtChatCallbacks(store, () => client),
 				onStatusChange: reportStatus,
 				onUnknownUniStream: (header, firstChunkTail, reader) =>

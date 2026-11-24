@@ -11,7 +11,7 @@
 // evaluateOnNewDocument) rather than instrumenting the app's own source --
 // same black-box principle as loadTest.mjs's DOM polling for chat.
 
-import { setServerUrl } from "./args.mjs";
+import { setServerUrl, withDefaultRoom } from "./args.mjs";
 import { summarizeDelivery } from "./metrics.mjs";
 import { summarizeVoiceTrace } from "./voiceMetrics.mjs";
 
@@ -68,7 +68,7 @@ async function joinVoiceClient(browser, pageUrl, certHash, participantId) {
 	// headless Chrome) on a shared box is a test-environment CPU artifact,
 	// and the transport gates (loss/jitter/plc) must measure the network
 	// path, not worklet CPU (see noiseSuppressionDefault in joinPrefs.ts).
-	const nsOffUrl = new URL(pageUrl);
+	const nsOffUrl = new URL(withDefaultRoom(pageUrl));
 	nsOffUrl.searchParams.set("ns", "0");
 	await page.goto(nsOffUrl.href);
 	await setServerUrl(page);

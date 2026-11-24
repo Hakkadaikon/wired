@@ -14,8 +14,8 @@
 //    on that stream, so it is matched by stream, never by arrival order.
 //    Resetting the stream cancels the request (6.4.2.3).
 //  - Room membership is namespace discovery (4.1-4.2): each participant
-//    announces wired/moqt_chat/<id> once its tracks are PUBLISHed and
-//    watches the wired/moqt_chat prefix. A NAMESPACE subscribes that peer's
+//    announces wired/moqt_chat/<room>/<id> once its tracks are PUBLISHed
+//    and watches the wired/moqt_chat/<room> prefix. A NAMESPACE subscribes that peer's
 //    chat track with its history -- SUBSCRIBE's FILL_PARAMETERS (3.4) --
 //    and a NAMESPACE_DONE cancels every subscription to it. Nothing is
 //    polled.
@@ -375,7 +375,10 @@ export function classifyChatPayload(
 
 // --- MOQT session over one WebTransport connection -------------------------
 
-const ROOM_NAMESPACE = [utf8ToBytes("wired"), utf8ToBytes("moqt_chat")];
+/** The room's Track Namespace, wired/moqt_chat/<room id> (roomLink.ts):
+ * every track and announcement of the room sits under it. */
+const roomNamespace = (room: string) =>
+	["wired", "moqt_chat", room].map(utf8ToBytes);
 
 export interface ChatAttachment {
 	bytes: Uint8Array;
@@ -434,7 +437,7 @@ export interface MoqtChatCallbacks {
 	// dropped before this fires.
 	onUnknownDatagram?(datagram: ObjectDatagram): void;
 	// A NAMESPACE (active) or NAMESPACE_DONE (!active) from the room watch
-	// (announce()): the suffix after wired/moqt_chat, e.g. ["user2"] for a
+	// (announce()): the suffix after wired/moqt_chat/<room>, e.g. ["user2"] for a
 	// peer joining/leaving or ["user2", "screen"] for its screen share. Own
 	// and out-of-pool ids never fire. A peer's chat subscription is already
 	// handled here; the caller adds its own tracks (audio, screen).
@@ -722,9 +725,11 @@ export class MoqtChatClient {
 	// it carries no such option (the extension is off on that hub).
 	#hubSsts: bigint[] | undefined;
 	#callbacks: MoqtChatCallbacks;
+	#roomNs: Uint8Array[];
 
-	constructor(localId: string, callbacks: MoqtChatCallbacks) {
+	constructor(localId: string, room: string, callbacks: MoqtChatCallbacks) {
 		this.#localId = localId;
+		this.#roomNs = roomNamespace(room);
 		this.#localTrackAlias = ownTrackAlias(localId);
 		this.#callbacks = callbacks;
 	}
@@ -1165,7 +1170,7 @@ export class MoqtChatClient {
 		const req = await this.#request(MSG_TYPE_PUBLISH, (requestId) =>
 			encodePublish({
 				requestId,
-				trackNamespace: ROOM_NAMESPACE,
+				trackNamespace: this.#roomNs,
 				trackName,
 				trackAlias,
 				parameters: [],
@@ -1213,7 +1218,7 @@ export class MoqtChatClient {
 				}
 				return encodeSubscribe({
 					requestId,
-					trackNamespace: ROOM_NAMESPACE,
+					trackNamespace: this.#roomNs,
 					trackName,
 					parameters: byType([...parameters, ...extra]),
 				});
@@ -1311,7 +1316,7 @@ export class MoqtChatClient {
 		});
 	}
 
-	/** PUBLISH_NAMESPACEs wired/moqt_chat/<suffix...>; the returned handle's
+	/** PUBLISH_NAMESPACEs wired/moqt_chat/<room>/<suffix...>; the returned handle's
 	 * cancel() withdraws it (6.4.2.3: a reset, not a FIN). */
 	async publishNamespace(
 		suffix: string[],
@@ -1319,14 +1324,14 @@ export class MoqtChatClient {
 		return this.#request(MSG_TYPE_PUBLISH_NAMESPACE, (requestId) =>
 			encodeNamespaceRequest({
 				requestId,
-				namespace: [...ROOM_NAMESPACE, ...suffix.map(utf8ToBytes)],
+				namespace: [...this.#roomNs, ...suffix.map(utf8ToBytes)],
 				parameters: [],
 			}),
 		);
 	}
 
-	/** Joins the room's discovery: announces wired/moqt_chat/<own id> and
-	 * watches the wired/moqt_chat prefix (4.1-4.2). Call once every
+	/** Joins the room's discovery: announces wired/moqt_chat/<room>/<own id>
+	 * and watches the wired/moqt_chat/<room> prefix (4.1-4.2). Call once every
 	 * track a peer should find is PUBLISHed. */
 	async announce(): Promise<void> {
 		await this.publishNamespace([this.#localId]);
@@ -1335,7 +1340,7 @@ export class MoqtChatClient {
 			(requestId) =>
 				encodeNamespaceRequest({
 					requestId,
-					namespace: ROOM_NAMESPACE,
+					namespace: this.#roomNs,
 					parameters: [],
 				}),
 			(r) => this.#onNamespacePush(r),

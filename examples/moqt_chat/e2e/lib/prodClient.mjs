@@ -21,6 +21,7 @@
 //    (useful for a controlled two-headless-Chrome repro without a real
 //    monitor).
 import puppeteer from "puppeteer-core";
+import { withDefaultRoom } from "./args.mjs";
 import { resolveChromeLaunch } from "./chromeLaunch.mjs";
 import { fakeDisplayMediaScript } from "./screenShareFake.mjs";
 import { WT_INSTRUMENTATION_SCRIPT } from "./stabilityClient.mjs";
@@ -74,7 +75,7 @@ export async function joinProd(
 	await page.evaluateOnNewDocument(WT_INSTRUMENTATION_SCRIPT);
 	if (fakeScreen)
 		await page.evaluateOnNewDocument(fakeDisplayMediaScript(fakeScreen));
-	await page.goto(pageUrl, {
+	await page.goto(withDefaultRoom(pageUrl), {
 		waitUntil: "networkidle2",
 		timeout: JOIN_TIMEOUT_MS,
 	});

@@ -61,7 +61,7 @@ async function session(opts: { hubAlgs?: bigint[] } = {}) {
 	stubWebTransport(() => fake);
 	const got: Got[] = [];
 	const routed: { screen?: MoqtScreenClient } = {};
-	const chat = new MoqtChatClient("user1", {
+	const chat = new MoqtChatClient("user1", "room1", {
 		onStatusChange: () => {},
 		onMessage: () => {},
 		onUnknownUniStream: (header, tail, reader) =>
@@ -277,7 +277,7 @@ describe("MoqtScreenClient variants: publishing", () => {
 			fake
 				.requestsOf(MSG_PUBLISH_NAMESPACE)
 				.map((s) => decodeNamespace(s.request.body, 1).fields.map(bytesToUtf8)),
-		).toEqual([["wired", "moqt_chat", "user1", "screen"]]);
+		).toEqual([["wired", "moqt_chat", "room1", "user1", "screen"]]);
 	});
 
 	it("without the hub's option: only <id>/screen, as before", async () => {

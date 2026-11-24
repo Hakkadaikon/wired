@@ -30,7 +30,7 @@ async function connected(callbacks: Partial<MoqtChatCallbacks> = {}) {
 	vi.useFakeTimers();
 	const fake = new FakeWebTransport();
 	stubWebTransport(() => fake);
-	const client = new MoqtChatClient("user1", {
+	const client = new MoqtChatClient("user1", "room1", {
 		onStatusChange: () => {},
 		onMessage: () => {},
 		...callbacks,

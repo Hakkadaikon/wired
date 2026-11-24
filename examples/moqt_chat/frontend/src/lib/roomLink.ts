@@ -1,0 +1,68 @@
+// A room is a link: `?room=<id>&host=<pubkey>`. The id names the MoQ
+// namespace `wired/moqt_chat/<id>/...` and, with the host, the NIP-53 space
+// `30312:<host>:<id>`. P1: the hub does not check either yet; rooms are
+// kept apart only because every client stays under its own prefix.
+
+import { hostPubkey, spaceA } from "./nostrRoom";
+
+export type RoomLink = { id: string; host: string };
+
+const ROOM_ID_BYTES = 16;
+// 16 bytes -> 22 unpadded base64url chars; the last carries 2 data bits, so
+// only A/Q/g/w are canonical.
+const ROOM_ID = /^[A-Za-z0-9_-]{21}[AQgw]$/;
+
+export const isRoomId = (id: string) => ROOM_ID.test(id);
+
+/** A fresh room id: 16 random bytes, unpadded base64url. */
+export function newRoomId(): string {
+	const b = crypto.getRandomValues(new Uint8Array(ROOM_ID_BYTES));
+	return btoa(String.fromCharCode(...b))
+		.replace(/\+/g, "-")
+		.replace(/\//g, "_")
+		.replace(/=+$/, "");
+}
+
+/** The page query's room: `{}` without one (create mode), a link (host
+ * normalised to hex), or an error to show instead of connecting. */
+export function parseRoomLink(search: string): {
+	link?: RoomLink;
+	error?: string;
+} {
+	const q = new URLSearchParams(search);
+	const id = q.get("room");
+	const host = q.get("host");
+	if (id === null && host === null) return {};
+	if (id === null || !isRoomId(id))
+		return { error: "Invalid room link: bad or missing room id." };
+	// Read case-insensitively: hex has no case, and bech32 (npub) may be
+	// all-uppercase (BIP-173).
+	const hex = hostPubkey((host ?? "").toLowerCase());
+	if (!hex)
+		return { error: "Invalid room link: host must be 64-char hex or npub." };
+	return { link: { id, host: hex } };
+}
+
+/** url with `room` and `host` set (other parameters kept): the share link
+ * from origin + path, the address bar from location.href. */
+export function withRoom(url: string, link: RoomLink): string {
+	const u = new URL(url);
+	u.searchParams.set("room", link.id);
+	u.searchParams.set("host", link.host);
+	return u.href;
+}
+
+/** The fallback display name until the host's space `room` tag is in. */
+export const roomName = (id: string) => `Room ${id.slice(0, 6)}`;
+
+/** The page's one room, set by enterRoom before joining (module scope like
+ * nostrRoom.current: one page, one room). */
+export const activeRoom = {
+	id: "",
+	host: "0".repeat(64),
+	space: spaceA("0".repeat(64), ""),
+};
+
+export function enterRoom(link: RoomLink): void {
+	Object.assign(activeRoom, link, { space: spaceA(link.host, link.id) });
+}

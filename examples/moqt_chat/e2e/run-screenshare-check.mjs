@@ -36,7 +36,7 @@
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import puppeteer from "puppeteer-core";
-import { arg, E2E_PORT, setServerUrl } from "./lib/args.mjs";
+import { arg, E2E_PORT, setServerUrl, withDefaultRoom } from "./lib/args.mjs";
 import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
 import { screenGapStats } from "./lib/screenMetrics.mjs";
 import { fakeDisplayMediaScript } from "./lib/screenShareFake.mjs";
@@ -68,7 +68,7 @@ async function join(id) {
 	});
 	page.on("pageerror", (e) => c.consoleErrors.push(String(e)));
 	await page.evaluateOnNewDocument(fakeScript);
-	await page.goto(`http://localhost:${frontendPort}/`);
+	await page.goto(withDefaultRoom(`http://localhost:${frontendPort}/`));
 	await setServerUrl(page);
 	await page.type('input[data-testid="certHash"]', server.certHash);
 	await page.click(`[data-testid="participant-${id}"]`);

@@ -4,7 +4,6 @@ import {
 	checkOwnChatEvent,
 	DEFAULT_NOSTR_RELAYS,
 	LOGIN_ERROR,
-	NOSTR_SPACE_A,
 	nostrLogin,
 	nostrRelays,
 	ProfileResolver,
@@ -17,6 +16,7 @@ import {
 	signChatEvent,
 	signOwnEvent,
 } from "@/lib/nostr";
+import { activeRoom } from "../roomLink";
 
 // Fixed test-only secret key (never used outside this file).
 const SK = new Uint8Array(32).fill(7);
@@ -29,7 +29,7 @@ function signed(
 		{
 			kind: 1311,
 			created_at: 1_700_000_000,
-			tags: [["a", NOSTR_SPACE_A]],
+			tags: [["a", activeRoom.space]],
 			content: "hello",
 			...over,
 		},
@@ -114,7 +114,7 @@ describe("NIP-07", () => {
 		expect(nostr.signEvent.mock.calls[0][0]).toMatchObject({
 			kind: 1311,
 			tags: [
-				["a", NOSTR_SPACE_A, "", "root"],
+				["a", activeRoom.space, "", "root"],
 				["a", "30313:ab:m1"],
 				["wired-participant", "user1"],
 			],
@@ -312,7 +312,7 @@ describe("checkOwnChatEvent (before publishing the extension's event)", () => {
 			{
 				kind: 1311,
 				created_at: 1,
-				tags: [["a", NOSTR_SPACE_A]],
+				tags: [["a", activeRoom.space]],
 				content: "hi",
 			},
 			SK,
@@ -337,7 +337,7 @@ describe("checkOwnChatEvent (before publishing the extension's event)", () => {
 			{
 				kind: 1311,
 				created_at: 1,
-				tags: [["a", NOSTR_SPACE_A]],
+				tags: [["a", activeRoom.space]],
 				content: "hi",
 			},
 			new Uint8Array(32).fill(9),
@@ -355,7 +355,7 @@ describe("checkOwnChatEvent (before publishing the extension's event)", () => {
 			{
 				kind: 1311,
 				created_at: 1,
-				tags: [["a", NOSTR_SPACE_A]],
+				tags: [["a", activeRoom.space]],
 				content: "hi",
 				...over,
 			},

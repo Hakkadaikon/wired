@@ -1,6 +1,6 @@
 // S25 nostr-room: the NIP-53 meeting space over the MoQ hub. user1 is the
-// host -- its fixed test key (0x01..) must be the build's
-// NEXT_PUBLIC_NOSTR_HOST -- and user2 a guest; both log in with a mocked
+// host -- the room link's `host` is its fixed test key (0x01..) -- and
+// user2 a guest; both log in with a mocked
 // NIP-07 extension. The guest must see the host's space and live meeting
 // (kinds 30312/30313, latest-only tracks) and the host's name in the Room
 // list before anyone posts (kind 10312 presence). Then: the guest's raised
@@ -10,19 +10,19 @@
 // --shots=<dir> saves room2-desktop-light.png (guest) and
 // room2-phone-dark.png (host) before the host leaves.
 //
-//   ./e2e/run-nostr-room.sh [--shots=<dir>]   (sets NEXT_PUBLIC_NOSTR_HOST)
+//   just e2e-stability s25-nostr-room [--shots=<dir>]
 
 import {
 	keyOf,
 	nostrLogin,
 	pubkeyOf,
+	roomUrl,
 	sendChat,
 	shortNpub,
 	WAIT_MS,
 } from "../lib/nostrE2e.mjs";
 import { closeClient, joinStabilityClient } from "../lib/stabilityClient.mjs";
 
-const ROOM_NAME = "Wired MoQT chat"; // NEXT_PUBLIC_NOSTR_ROOM_NAME's default
 const MEETING_TITLE = "Open session"; // nostr.ts NOSTR_MEETING_TITLE
 
 /** Waits until fn(arg) in the page returns truthy; its value, or null. */
@@ -59,21 +59,20 @@ function clickIn(client, text, testId) {
 	);
 }
 
-async function checkMeeting(guest, hostPk, report, failures) {
-	// space-name shows the configured d until the host's 30312 is in.
+async function checkMeeting(guest, hostPk, roomName, report, failures) {
+	// The host names its space roomName(id) (roomLink.ts), the same text
+	// the guest shows before the 30312 is in -- so wait for the meeting.
 	report.space = await waitFor(
 		guest,
 		(want) =>
 			document.querySelector('[data-testid="space-name"]')?.textContent ===
 				want && want,
-		ROOM_NAME,
+		roomName,
 	);
 	report.title = await textOf(guest, "meeting-title");
 	report.status = await textOf(guest, "meeting-status");
-	if (report.space !== ROOM_NAME || report.title !== MEETING_TITLE)
-		failures.push(
-			`space/meeting: ${report.space} / ${report.title} (is NEXT_PUBLIC_NOSTR_HOST ${hostPk}?)`,
-		);
+	if (report.space !== roomName || report.title !== MEETING_TITLE)
+		failures.push(`space/meeting: ${report.space} / ${report.title}`);
 	if (report.status !== "live") failures.push(`status: ${report.status}`);
 	report.hostInRoomList = await waitFor(
 		guest,
@@ -175,10 +174,10 @@ async function checkEnded(host, guest, report, failures) {
 }
 
 export async function run({ pageUrl, serverUrl, server, arg, log }) {
-	const url = new URL(pageUrl);
-	url.searchParams.set("relays", "");
+	const url = roomUrl(pageUrl, 1);
+	const roomName = `Room ${new URL(url).searchParams.get("room").slice(0, 6)}`;
 	const opts = (tag, n) => ({
-		pageUrl: url.href,
+		pageUrl: url,
 		serverUrl,
 		certHash: server.certHash,
 		participantId: tag,
@@ -197,7 +196,7 @@ export async function run({ pageUrl, serverUrl, server, arg, log }) {
 		const guest = await joinStabilityClient(opts("user2", 2));
 		clients.push(guest);
 
-		await checkMeeting(guest, hostPk, report, failures);
+		await checkMeeting(guest, hostPk, roomName, report, failures);
 		await checkHand(host, guest, report, failures);
 
 		const kept = `room-kept-${stamp}`;

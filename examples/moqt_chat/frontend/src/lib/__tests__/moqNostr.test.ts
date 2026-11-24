@@ -1,12 +1,12 @@
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 import { describe, expect, it, vi } from "vitest";
 import { MoqNostr, type NostrFilter } from "../moqNostr";
-import { NOSTR_SPACE_A } from "../nostr";
+import { activeRoom } from "../roomLink";
 
 // Fixed test-only secret keys.
 const SK = new Uint8Array(32).fill(7);
 const SK2 = new Uint8Array(32).fill(8);
-const ROOM: NostrFilter = { kinds: [1311], a: NOSTR_SPACE_A };
+const ROOM: NostrFilter = { kinds: [1311], a: activeRoom.space };
 const NOW = Math.floor(Date.now() / 1000); // live events must be recent
 
 function chat(
@@ -18,7 +18,7 @@ function chat(
 		{
 			kind: 1311,
 			created_at: NOW,
-			tags: [["a", NOSTR_SPACE_A]],
+			tags: [["a", activeRoom.space]],
 			content,
 			...over,
 		},
@@ -184,7 +184,7 @@ describe("MoqNostr.subscribe", () => {
 });
 
 describe("MoqNostr replaceable kinds keep the newest per key", () => {
-	const PRES: NostrFilter = { kinds: [10312], a: NOSTR_SPACE_A };
+	const PRES: NostrFilter = { kinds: [10312], a: activeRoom.space };
 	const pres = (content: string, created_at: number, sk = SK) =>
 		chat(content, { kind: 10312, created_at }, sk);
 	const P = "nostr-presence" as const;
@@ -229,13 +229,13 @@ describe("MoqNostr replaceable kinds keep the newest per key", () => {
 				kind: 30313,
 				created_at,
 				tags: [
-					["a", NOSTR_SPACE_A],
+					["a", activeRoom.space],
 					["d", d],
 				],
 			});
 		n.receive(wire(m("m1", NOW - 5)), true, "nostr-30313");
 		n.receive(wire(m("m2", NOW)), true, "nostr-30313");
-		const MEET = { kinds: [30313], a: NOSTR_SPACE_A };
+		const MEET = { kinds: [30313], a: activeRoom.space };
 		expect(collect(n, MEET).seen).toEqual(["m1", "m2", "END"]);
 	});
 

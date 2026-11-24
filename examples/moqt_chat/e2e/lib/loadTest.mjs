@@ -18,7 +18,7 @@ import { summarizeDelivery } from "./metrics.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
 
-import { setServerUrl } from "./args.mjs";
+import { setServerUrl, withDefaultRoom } from "./args.mjs";
 
 export const CANDIDATE_PARTICIPANT_IDS = ["user1", "user2", "user3", "user4"];
 export const MAX_CLIENTS = CANDIDATE_PARTICIPANT_IDS.length;
@@ -36,7 +36,7 @@ async function joinClient(browser, pageUrl, certHash, participantId) {
 	// worklets on a shared box is a test-environment CPU artifact, and this
 	// test's own delivery/latency numbers must measure the transport, not
 	// worklet CPU.
-	const nsOffUrl = new URL(pageUrl);
+	const nsOffUrl = new URL(withDefaultRoom(pageUrl));
 	nsOffUrl.searchParams.set("ns", "0");
 	await page.goto(nsOffUrl.href);
 	await setServerUrl(page);

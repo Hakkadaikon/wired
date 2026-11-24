@@ -11,7 +11,7 @@
 // measured here, not from the UI badge).
 
 import puppeteer from "puppeteer-core";
-import { E2E_SERVER_URL } from "./args.mjs";
+import { E2E_SERVER_URL, withDefaultRoom } from "./args.mjs";
 import { resolveChromeLaunch } from "./chromeLaunch.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
@@ -247,7 +247,7 @@ export async function connectClient(
 	// and the transport gates (loss/jitter/plc) must measure the network
 	// path, not worklet CPU (see noiseSuppressionDefault in joinPrefs.ts).
 	// E2E_RNNOISE=1 keeps the production default (RNNoise on) instead.
-	const nsOffUrl = new URL(pageUrl);
+	const nsOffUrl = new URL(withDefaultRoom(pageUrl));
 	if (process.env.E2E_RNNOISE !== "1") nsOffUrl.searchParams.set("ns", "0");
 	await page.goto(nsOffUrl.href);
 	await page.waitForFunction(

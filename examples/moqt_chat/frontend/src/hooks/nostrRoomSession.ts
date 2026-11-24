@@ -5,13 +5,7 @@
 
 import type { Event, EventTemplate } from "nostr-tools/pure";
 import type { MoqNostr } from "@/lib/moqNostr";
-import {
-	NOSTR_HOST,
-	NOSTR_MEETING_TITLE,
-	NOSTR_ROOM_NAME,
-	NOSTR_SPACE_D,
-	signOwnEvent,
-} from "@/lib/nostr";
+import { NOSTR_MEETING_TITLE, signOwnEvent } from "@/lib/nostr";
 import {
 	acceptMeeting,
 	acceptPresence,
@@ -33,6 +27,7 @@ import {
 	type Target,
 	tag,
 } from "@/lib/nostrRoom";
+import { activeRoom, roomName } from "@/lib/roomLink";
 import {
 	type MoqtChatState,
 	type NostrRoom,
@@ -149,9 +144,9 @@ export class NostrRoomSession {
 			state: useMoqtChatStore.getState,
 			sign: signOwnEvent,
 			service: "",
-			host: NOSTR_HOST,
-			d: NOSTR_SPACE_D,
-			room: NOSTR_ROOM_NAME,
+			host: activeRoom.host,
+			d: activeRoom.id,
+			room: roomName(activeRoom.id),
 			title: NOSTR_MEETING_TITLE,
 			participant: () => "",
 			now: nowSeconds,

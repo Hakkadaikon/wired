@@ -381,7 +381,7 @@ export class MoqtScreenClient {
 
 	/** PUBLISHes this client's "<id>/screen" track -- plus "<id>/screen-lo"
 	 * when variantsEnabled -- (once per session: a later share reuses them)
-	 * and announces wired/moqt_chat/<id>/screen so the room's watchers
+	 * and announces wired/moqt_chat/<room>/<id>/screen so the room's watchers
 	 * subscribe. No stream is opened here -- sendVideoChunk opens one per
 	 * Group. */
 	async publishScreenTrack(): Promise<void> {

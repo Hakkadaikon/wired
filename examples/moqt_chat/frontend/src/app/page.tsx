@@ -16,8 +16,6 @@ import {
 import type { ScreenQuality } from "@/lib/moqtScreenClient";
 import {
 	DEFAULT_NOSTR_RELAYS,
-	NOSTR_SPACE_A,
-	NOSTR_SPACE_D,
 	nostrLogin,
 	nostrRelays,
 	parseRelayList,
@@ -34,6 +32,13 @@ import {
 } from "@/lib/nostrRoom";
 import { canPickOutput } from "@/lib/outputMixer";
 import {
+	activeRoom,
+	enterRoom,
+	parseRoomLink,
+	type RoomLink,
+	roomName,
+} from "@/lib/roomLink";
+import {
 	SCREEN_TILE_MAX_PX,
 	SCREEN_TILE_MIN_PX,
 	SCREEN_TILE_STEP_PX,
@@ -45,6 +50,7 @@ import {
 	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
 import { NostrAuthor, NostrName, RawNostrEvent } from "./rawNostrEvent";
+import { RoomPicker } from "./roomPicker";
 import { VideoSection } from "./videoSection";
 import { Wordmark } from "./wordmark";
 
@@ -121,7 +127,7 @@ function HandToggle() {
 	);
 }
 
-/** NIP-53: the host's space name (else the configured space id), then the
+/** NIP-53: the host's space name (else roomName of the link's id), then the
  * live meeting's title and status. */
 function RoomHead() {
 	const space = useMoqtChatStore((s) => s.nostrRoom.space);
@@ -131,7 +137,7 @@ function RoomHead() {
 	return (
 		<header className="room-head" data-testid="room-head">
 			<h2 data-testid="space-name">
-				{(space && tag(space, "room")) || NOSTR_SPACE_D}
+				{(space && tag(space, "room")) || roomName(activeRoom.id)}
 			</h2>
 			{meeting ? (
 				<p className="room-head__meeting">
@@ -171,7 +177,7 @@ function Hand({ pubkey, testId }: { pubkey?: string | null; testId: string }) {
 		const t = setInterval(() => recheck((n) => n + 1), HAND_RECHECK_MS);
 		return () => clearInterval(t);
 	}, [raised]);
-	const fresh = presence && acceptPresence(presence, NOSTR_SPACE_A);
+	const fresh = presence && acceptPresence(presence, activeRoom.space);
 	if (!fresh || !handRaised(presence)) return null;
 	return (
 		<span
@@ -1096,6 +1102,9 @@ function JoinScreen({
 	onClearSaved,
 	relaysText,
 	setRelaysText,
+	room,
+	roomError,
+	setRoom,
 }: {
 	url: string;
 	setUrl: (v: string) => void;
@@ -1110,6 +1119,9 @@ function JoinScreen({
 	onClearSaved: () => void;
 	relaysText: string;
 	setRelaysText: (v: string) => void;
+	room: RoomLink | null;
+	roomError: string | null;
+	setRoom: (v: RoomLink) => void;
 }) {
 	return (
 		<div className="cover">
@@ -1120,11 +1132,12 @@ function JoinScreen({
 					participant id and connect to the hub.
 				</p>
 			</div>
+			<RoomPicker room={room} error={roomError} onRoom={setRoom} />
 			<form
 				className="form"
 				onSubmit={(e) => {
 					e.preventDefault();
-					if (!connecting) onJoin();
+					if (!connecting && room) onJoin();
 				}}
 			>
 				<label className="field">
@@ -1179,7 +1192,7 @@ function JoinScreen({
 				<button
 					type="submit"
 					className="sign sign--red"
-					disabled={connecting}
+					disabled={connecting || !room}
 					data-testid="connect"
 				>
 					{connecting ? "Connecting…" : "→ Join"}
@@ -1202,6 +1215,8 @@ export default function Home() {
 	const [participantId, setParticipantId] = useState(DEFAULT_PARTICIPANT_ID);
 	const [joined, setJoined] = useState(false);
 	const [relaysText, setRelaysText] = useState(DEFAULT_RELAYS_TEXT);
+	const [room, setRoom] = useState<RoomLink | null>(null);
+	const [roomError, setRoomError] = useState<string | null>(null);
 	const {
 		connect,
 		sendMessage,
@@ -1246,6 +1261,18 @@ export default function Home() {
 			if (saved.name) setParticipantId(saved.name);
 			if (saved.nickname) setNickname(saved.nickname);
 			if (saved.relays) setRelaysText(saved.relays.join("\n"));
+		}, 0);
+		return () => window.clearTimeout(t);
+	}, []);
+
+	// The room comes from the page URL (?room=&host=), read once after
+	// hydration like the saved prefs above; without one, Create room.
+	useEffect(() => {
+		const t = window.setTimeout(() => {
+			const { link, error } = parseRoomLink(window.location.search);
+			if (link) enterRoom(link);
+			setRoom(link ?? null);
+			setRoomError(error ?? null);
 		}, 0);
 		return () => window.clearTimeout(t);
 	}, []);
@@ -1407,6 +1434,9 @@ export default function Home() {
 					onClearSaved={clearSaved}
 					relaysText={relaysText}
 					setRelaysText={setRelaysText}
+					room={room}
+					roomError={roomError}
+					setRoom={setRoom}
 				/>
 			)}
 			<footer className="folio">MOQT Chat · wired</footer>

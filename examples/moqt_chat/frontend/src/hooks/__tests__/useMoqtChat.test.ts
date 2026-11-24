@@ -10,7 +10,7 @@ import {
 	stubWebTransport,
 } from "@/lib/__tests__/fakeWebTransport";
 import { MoqtChatClient } from "@/lib/moqtClient";
-import { NOSTR_SPACE_A } from "@/lib/nostr";
+import { activeRoom } from "@/lib/roomLink";
 import { createQualityWindow, qualityLevel } from "@/lib/voiceQuality";
 import {
 	applyVoiceTapEvent,
@@ -515,7 +515,7 @@ describe("sendChatMessage", () => {
 					{
 						kind: 1311,
 						created_at: 1,
-						tags: [["a", NOSTR_SPACE_A]],
+						tags: [["a", activeRoom.space]],
 						content,
 					},
 					sk,
@@ -595,7 +595,7 @@ describe("openMoqNostr", () => {
 			{
 				kind: 1311,
 				created_at: 1_700_000_000,
-				tags: [["a", NOSTR_SPACE_A]],
+				tags: [["a", activeRoom.space]],
 				content: "yo",
 			},
 			sk,
@@ -634,7 +634,7 @@ describe("openMoqNostr", () => {
 				kind,
 				created_at,
 				tags: [
-					["a", NOSTR_SPACE_A, "", "root"],
+					["a", activeRoom.space, "", "root"],
 					...(who ? [["wired-participant", who]] : []),
 				],
 				content: "x",
@@ -1068,7 +1068,7 @@ describe("session drop and automatic rejoin", () => {
 			statuses.push(status);
 			handleSessionStatus(refs, status, true, () => void attemptSession());
 		};
-		const client = new MoqtChatClient("user1", {
+		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: report,
 			onMessage: () => {},
 		});

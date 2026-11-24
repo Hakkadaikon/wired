@@ -8,7 +8,8 @@ import { AbstractSimplePool } from "nostr-tools/abstract-pool";
 import type { Filter } from "nostr-tools/filter";
 import { npubEncode } from "nostr-tools/nip19";
 import { type Event, type EventTemplate, verifyEvent } from "nostr-tools/pure";
-import { chatTags, hostPubkey, spaceA } from "./nostrRoom";
+import { chatTags } from "./nostrRoom";
+import { activeRoom } from "./roomLink";
 
 // The NIP-07 surface we use. Typed as returning a plain Event: what an
 // extension returns is untrusted until checkOwnChatEvent verifies it.
@@ -19,18 +20,9 @@ type Nip07 = {
 
 export const LIVE_CHAT_KIND = 1311; // NIP-53 live chat message
 
-// The room is a NIP-53 meeting space hosted by NEXT_PUBLIC_NOSTR_HOST (hex
-// or npub; without one, a placeholder nobody can sign for) under
-// NEXT_PUBLIC_NOSTR_SPACE_D. Build-time: the page is a static export.
-export const NOSTR_HOST =
-	hostPubkey(process.env.NEXT_PUBLIC_NOSTR_HOST ?? "") ?? "0".repeat(64);
-export const NOSTR_SPACE_D =
-	process.env.NEXT_PUBLIC_NOSTR_SPACE_D || "wired-moqt-chat";
-/** The space's coordinate, "30312:<host>:<d>": every room event's `a`. */
-export const NOSTR_SPACE_A = spaceA(NOSTR_HOST, NOSTR_SPACE_D);
-/** The space's `room` name (host only). */
-export const NOSTR_ROOM_NAME =
-	process.env.NEXT_PUBLIC_NOSTR_ROOM_NAME || "Wired MoQT chat";
+// The room is the NIP-53 meeting space of the page's room link
+// (roomLink.ts activeRoom.space, "30312:<host>:<room id>"): every room
+// event's `a`.
 /** Each meeting's `title`: one meeting per host session. */
 export const NOSTR_MEETING_TITLE = "Open session";
 
@@ -82,7 +74,7 @@ export async function signChatEvent(
 	return (await waitForNip07(0)).signEvent({
 		kind: LIVE_CHAT_KIND,
 		created_at: Math.floor(Date.now() / 1000),
-		tags: chatTags(NOSTR_SPACE_A, meeting, participant),
+		tags: chatTags(activeRoom.space, meeting, participant),
 		content: text,
 	});
 }
@@ -90,7 +82,7 @@ export async function signChatEvent(
 function hasRoomTag(ev: Event): boolean {
 	return (
 		Array.isArray(ev.tags) &&
-		ev.tags.some((t) => t[0] === "a" && t[1] === NOSTR_SPACE_A)
+		ev.tags.some((t) => t[0] === "a" && t[1] === activeRoom.space)
 	);
 }
 
