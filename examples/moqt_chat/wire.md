@@ -40,6 +40,45 @@ sequenceDiagram
     H->>C: fill fetch stream (FETCH_HEADER)
 ```
 
+### 2.1 SETUP の AUTHORIZATION TOKEN
+
+Nostr でログインしたクライアントは、接続のたびに NIP-98 のイベント(kind 27235)を署名し、SETUP の AUTHORIZATION TOKEN(Option Type 0x03、9.1.4)で送る(`moqtAuthWire.ts`、`roomAuth.ts`)。ログインしていなければ、この Option を送らない。Option Type 0x03 と Token の形(8.9)は draft-18、19、22 でも同じである。クライアントが話すのは draft-23 だけである。
+
+| 項目 | 値 |
+|---|---|
+| Option | Type 0x03(奇数なので Length + bytes)。Type の小さい順に並べるので、SSTS_ALGORITHMS(0x3F01、差分 0x3EFE)より前に置く |
+| Token | Alias Type USE_VALUE(0x3)、Token Type 0(帯域外で決めた型)、Token Value はイベントの JSON(UTF-8)を Option の終わりまで |
+| 例 | Value が `ab` なら `03 04 03 00 61 62`。600 バイトのイベントなら Length は 602 = `82 5a` |
+| `u` タグ | WebTransport に渡した URL そのもの。"Server URL" に `?room=<id>&host=<hex>` を足したもので、CONNECT の `:path` にルームとホストが入る。ハブは `--public-url` に `:path` をつないだ文字列と 1 バイトずつ比べる(P6)。`--public-url` はブラウザーの URL の形に合わせる。末尾の `/` を付けず(`:path` が `/` で始まる)、既定のポート(`:443`)を書かず、ホスト名は小文字にする。例は `https://chat.example:4433` |
+| `method` タグ | `CONNECT` |
+| 作成のタグ | ルームを作ったページだけが、ログインした鍵がルームの `host` と同じときに `["nip05", "<name@domain>"]` と `["wired-room", <id>, "open" か "auth"]` を足す |
+| JSON | `id`、`pubkey`、`created_at`、`kind`、`tags`、`content`、`sig` の 7 つだけを、この順で |
+| 大きさ | 1 KiB(1024 バイト)まで。超えるならクライアントは署名を頼まずに接続をやめる。固定の部分(作成のタグを含む)が 435 バイト、`?room=&host=` が 98 バイトなので、"Server URL" と `nip05` で 491 バイトまで使える。`nip05` は 100 文字までしか受け付けないので、"Server URL" が 391 バイトまでなら必ず収まる |
+| content | 空 |
+
+トークンは 1 回しか使えないので、クライアントは作成、参加、自動の再参加のどれでも署名し直す。
+
+イベントの `nip05` を NIP-05 として確かめるのはハブの側(nip05d)である。`/.well-known/nostr.json` を取りに行く先の制限(SSRF の対策: 443 番の https だけ、私的なアドレスを拒むなど)は nip05d が受け持つ(tasks/moqt-chat-rooms.md の P4)。
+
+**NIP-98 との違い:** NIP-98 は HTTP の要求の認証である。ブラウザーは WebTransport の CONNECT に `Authorization` ヘッダーを付けられないので、同じイベントを SETUP で送り、`u` を WebTransport の URL、`method` を `CONNECT` とする。
+
+### 2.2 閉じるときの理由
+
+ハブは参加を断るときとルームを終えるときに、WebTransport のセッションを閉じ、理由(reason)に次のトークンを入れる(tasks/moqt-chat-rooms.md)。クライアントは `WebTransport.closed` が解決したときの理由を、参加の前と後のどちらでも読む(`MoqtChatClient` の `onCloseReason`)。
+
+| 場合 | コード | 理由 | クライアント |
+|---|---|---|---|
+| トークンを読めない | MALFORMED_AUTH_TOKEN 0x16 | `malformed-auth` | 終わりの画面 |
+| `created_at` が許す幅の外 | EXPIRED_AUTH_TOKEN 0x18 | `expired-auth` | 終わりの画面 |
+| 署名、`u`、`method`、再利用、ホストの不一致、トークンのない参加(Login required のルーム) | UNAUTHORIZED 0x2 | `unauthorized` | 終わりの画面 |
+| NIP-05 を確かめられない | UNAUTHORIZED 0x2 | `nip05-unverified` | 終わりの画面 |
+| 満員 / 参加者 ID が使用中 | UNAUTHORIZED 0x2 | `room-full` / `id-taken` | 終わりの画面 |
+| ルームの空きがない | UNAUTHORIZED 0x2 | `no-room-slots` | 終わりの画面 |
+| ルームがない | UNAUTHORIZED 0x2 | `no-such-room` | 終わりの画面 |
+| ルームが終わった | NO_ERROR 0x0 | `room-ended` | 終わりの画面 |
+
+クライアントはコードを見ず、理由のトークンだけで分ける。表にない理由と、`closed` が拒否で終わったとき(ネットワーク)は、これまでどおり自動で再参加する。
+
 ## 3. 名前空間の発見(4.1〜4.2)
 
 ルームの ID はページの URL の `?room=` で決まる(`roomLink.ts`)。ルームの Track と告知は、すべて `wired/moqt_chat/<room>` の下に置く(`MoqtChatClient` の `roomNamespace`)。
@@ -140,8 +179,8 @@ Track Alias はカメラの範囲(18〜21)の上に、Track ごとに参加者 4
 
 | kind | 送る人 | タグ | 受け取る側の確認(`nostrRoom.ts`) |
 |---|---|---|---|
-| 30312 space | ホスト。参加したとき | `d`、`room`、`status` open、`service`(ページの URL)、`["p", ホスト, "", "Host"]` | pubkey と `d` が座標と一致し、`room`、`service`、Host の `p` があり、`status` が open、private、closed のどれか |
-| 30313 meeting | ホスト。参加したとき(セッションごとに新しい `d`、status live)、参加者が変わったとき(2 秒まとめて `current_participants` を更新)、退出したとき(status ended、`ends`) | `d`、`a`(space の座標)、`title`、`starts`、`status`、`current_participants` | ホストの pubkey、`a` が自分の space、`d`、`title`、数字の `starts`、`status` が planned、live、ended のどれか |
+| 30312 space | ホスト。参加したとき | `d`、`room`、`status`(open。Login required のルームを作ったページなら private)、`service`(ページの URL)、`["p", ホスト, "", "Host"]` | pubkey と `d` が座標と一致し、`room`、`service`、Host の `p` があり、`status` が open、private、closed のどれか |
+| 30313 meeting | ホスト。参加したとき(セッションごとに新しい `d`、status live)、参加者が変わったとき(2 秒まとめて `current_participants` を更新)、退出したとき(status ended、`ends` は退出した時刻) | `d`、`a`(space の座標)、`title`、`starts`、`status`、`current_participants`、`ends`(live ではルームが終わる時刻 = 作った時刻 + 5 時間) | ホストの pubkey、`a` が自分の space、`d`、`title`、数字の `starts`、`status` が planned、live、ended のどれか |
 | 10312 presence | ログインした全員。参加したとき、60 秒ごと、挙手を切り替えたとき | `["a", space, "", "root"]`、挙手中は `["hand", "1"]`、`["wired-participant", <参加者 ID>]` | `a` が自分の space で、3 分以内のもの |
 | 7 リアクション(NIP-25) | ログインした人。同じ投稿に同じ内容は 1 回だけ送る | `e`(対象の id)、`p`(対象の作者)、`k` 1311。content は `+`、`-`、絵文字 | 最後の `e` と最後の `p` が対象の投稿と作者に一致する。content は 1〜32 文字。(pubkey、content)ごとに 1 回だけ数え、1 人あたり 4 種類まで、1 つの数は 999 まで |
 | 5 削除(NIP-09) | 投稿の作者 | `e`(対象の id)、`k` 1311 | 削除の pubkey が対象の作者と同じときだけ従う。対象の投稿は「Deleted by the author」の行になる |
@@ -158,7 +197,7 @@ presence と kind 1311 には、署名した人の参加者 ID を `["wired-part
 
 ハブが Nostr の Track の PUBLISH を 1 つでも拒んだときは、presence も space も meeting も送らない(拒まれた Track では送らない)。ルームの見出しに "Room events unavailable" と出る。ピアの Nostr の Track の SUBSCRIBE が拒まれたときは、3 秒後に 1 回だけ送り直す。それも拒まれると、そのピアの Nostr のイベントは次の参加まで届かない。30312 はホストの参加ごとに 1 回しか送らないので、この場合は space の名前が出ない。
 
-**NIP-53 との違い:** NIP-53 は meeting space のチャットを定めていない。ここでは kind 1311 に `["a", "30312:<ホスト>:<d>", "", "root"]`(space)を付け、meeting が live のときは `["a", "30313:<ホスト>:<meeting の d>"]` も付ける。受け取る側は、`a` が自分の space に一致する 1311 を受け入れる。
+**NIP-53 との違い:** NIP-53 の `private` は招待した人だけが入れる space を指すが、ここでは Nostr でのログインが要るルーム(だれでも鍵を作れるので、身元の表示であって招待の一覧ではない)を指す。NIP-53 は meeting space のチャットも定めていない。ここでは kind 1311 に `["a", "30312:<ホスト>:<d>", "", "root"]`(space)を付け、meeting が live のときは `["a", "30313:<ホスト>:<meeting の d>"]` も付ける。受け取る側は、`a` が自分の space に一致する 1311 を受け入れる。
 
 ## 6. Track 切り替え(実験的)
 

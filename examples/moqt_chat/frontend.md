@@ -35,13 +35,35 @@
 
 | URL | 参加の画面 |
 |---|---|
-| `room` も `host` もない | "Create room" を出す。押せるのは Nostr でログインしたときだけで、ログインした公開鍵がホストになる。押すと、16 バイトの乱数(`crypto.getRandomValues`)を base64url にした 22 文字のルーム ID を作り、`history.replaceState` で URL に `room` と `host` を足す。そのあとは下の行と同じ |
+| `room` も `host` もない | "Create room" と、参加の条件("Open" か "Login required"。既定は "Open")を出す。押せるのは Nostr でログインし、kind 0 のプロフィールに `nip05`(`name@domain` の形)があるときだけで、ログインした公開鍵がホストになる。`nip05` がなければ "A NIP-05 address is required to create a room" を出す。押すと、16 バイトの乱数(`crypto.getRandomValues`)を base64url にした 22 文字のルーム ID を作り、`history.replaceState` で URL に `room` と `host` を足す。そのあとは下の行と同じ |
 | `room` と `host` が正しい | "Joining room <ルーム ID>" と、共有のリンク `<ページの URL>?room=<id>&host=<hex>`("Copy share link" で写す)を出し、ふだんどおり参加できる |
 | どちらかが不正 | "Invalid room link: ..." を出す。"Join" は押せず、接続しない。"Create room" は出る |
 
 ルーム ID は base64url の 22 文字で、16 バイトを表す形(最後の文字が `A`、`Q`、`g`、`w` のどれか)だけを受け付ける。`host` は 64 桁の小文字の hex か npub で、npub は hex に直す。共有のリンクにはページの URL のほかの引数(`?relays=` など)を入れない。
 
 ルームは名前空間 `wired/moqt_chat/<room>` と NIP-53 の space の座標 `30312:<host>:<room>` を決める([MoQT の使い方](wire.md) 3 節、5.3 節)。いまのハブはルームを確かめない。別のルームのメッセージや参加者が見えないのは、クライアントが自分のルームの名前空間だけを使うからである。
+
+ページはどの接続でも、"Server URL" に `?room=<id>&host=<hex>` を足した URL に WebTransport でつなぐ(`roomAuth.ts` の `roomSession`)。ハブの CONNECT の `:path` に、ルームとホストが入る。Nostr でログインしていれば、接続のたびに NIP-98 のイベントを拡張機能に署名させ、SETUP の AUTHORIZATION TOKEN で送る([MoQT の使い方](wire.md) 2.1 節)。トークンは 1 回しか使えないので、作成、参加、自動の再参加のどれでも署名し直す。署名を拒まれたとき(拡張機能がない場合を含む)は接続が失敗し、"Could not connect" に理由を出す。自動では試し直さず、"Join" か "Rejoin" を押すと署名からやり直す。ログインしていなければトークンを送らない。"Open" のルームにはそのまま入れ、"Login required" のルームはハブが `unauthorized` で断る。ルームを作ったページは、ログインした鍵がルームの `host` と同じときだけ、接続のたびにイベントへ `nip05` と `["wired-room", <id>, "open" か "auth"]` を入れる。"Leave" か最終画面でこの作成の情報を捨てる。トークンは 1 KiB までで、超える長さの "Server URL" では署名を頼まずに接続をやめる([MoQT の使い方](wire.md) 2.1 節)。
+
+`nip05` は kind 0 から読むだけで、ページは `/.well-known/nostr.json` を取りに行かない。NIP-05 を確かめるのはハブの側(nip05d)で、問い合わせ先の制限(SSRF の対策)もそちらが受け持つ(tasks/moqt-chat-rooms.md の P4)。
+
+ハブがセッションを閉じたときの理由が下の表のトークンなら、ページは自動で再参加せず、"Room closed" の画面に表のメッセージを出す。参加の前(SETUP を断られたとき)も参加の後も同じである。この画面が出た時点で "Leave" と同じ後片付けをする。セッションを閉じ、マイク、カメラ、画面共有を止め、上の操作の列を消す。見出しにフォーカスを移すので、スクリーンリーダーは画面が変わったことを読み上げる。"← Back" で参加の画面に戻る。理由のない終わり方(ネットワークが切れた、ハブが落ちた)は、これまでどおり自動で再参加する。
+
+| 理由 | 画面のメッセージ |
+|---|---|
+| `malformed-auth` | The hub could not read this client's sign-in token. |
+| `expired-auth` | The sign-in token was too old when the hub checked it. Check this computer's clock. |
+| `unauthorized` | The hub refused the sign-in. This room may need a Nostr login. |
+| `nip05-unverified` | Your NIP-05 address could not be verified, so the room was not created. |
+| `room-full` | The room is full: it holds 4 participants. |
+| `id-taken` | Someone in this room already uses your participant ID. Pick another one and join again. |
+| `no-room-slots` | The hub has no free room. Try again later. |
+| `no-such-room` | This room does not exist. It may have ended, or the hub restarted. |
+| `room-ended` | The room has ended. |
+
+ルームは作ってから 5 時間で終わる(`ROOM_LIFETIME_S`。終わらせるのはハブ)。ホストは live の meeting(kind 30313)に `ends`(作った時刻 + 5 時間)を入れ、ルームの見出しは状態の横に残り時間("4:59:12 left")を 1 秒ごとに出す。`ends` が過ぎたとき、または今から 5 時間 5 分(時計のずれの分)より先のときは出さない。ルームを作ったページでないホスト(作ったあとに再読み込みした場合など)は、その meeting の開始から数える。"Login required" のルームの space(kind 30312)は `status` を `private` にする。作ったページでないホストはモードを知らないので `open` を送る(ハブがモードを知らせるのは P6 以降)。
+
+いまのハブは、トークンも理由のトークンもまだ扱わない(tasks/moqt-chat-rooms.md の P6)。
 
 ハブの上限は、まだルームの数に合わせて増えない(tasks/moqt-chat-rooms.md の P3 で増やす)。それまで 1 つのハブが受け入れるのは、全ルーム合わせて 4 人分(満員のルーム 1 つ分)である。2 つ目のルームが埋まると、接続(既定の接続表は 4)やリクエストストリーム(ハブ全体で 192)がハブの上限で失敗する([サーバー](server.md) 3 節)。
 
@@ -60,8 +82,8 @@
 | 古いクライアント | この機能より前のビルドは、Nostr のメッセージをその参加者からの生の JSON の 1 行として表示する |
 | 元のイベント | Nostr のメッセージの右下の "⋯" で、Object で運ばれたイベントの JSON(検証済みと id)を投稿の下に開く。"Copy raw" は受け取った文字列をそのまま写す |
 | ルームの座標 | NIP-53 の meeting space `30312:<host>:<room>`。ルームのリンクの `host` と `room` で決まる(2.1 節)。space の名前(`room` タグ)は `Room <ルーム ID の先頭 6 文字>`、meeting の題は `Open session` |
-| ホスト | ルームのリンクの `host` の公開鍵でログインした人。参加すると space(kind 30312)と live の meeting(kind 30313)を送り、参加者が変わると meeting を更新し、"Leave" で ended を送る |
-| ルームの見出し | メッセージの上に space の名前(届く前は `Room <ルーム ID の先頭 6 文字>`)、meeting の題、状態(LIVE、ENDED など)を出す。meeting が届いていなければ "No meeting announced" を、ハブが Nostr の Track を拒んだときは "Room events unavailable: the hub refused the Nostr tracks" を出す |
+| ホスト | ルームのリンクの `host` の公開鍵でログインした人。参加すると space(kind 30312)と live の meeting(kind 30313。`ends` 付き、2.1 節)を送り、参加者が変わると meeting を更新し、"Leave" で ended を送る |
+| ルームの見出し | メッセージの上に space の名前(届く前は `Room <ルーム ID の先頭 6 文字>`)、meeting の題、状態(LIVE、ENDED など)、live の meeting に `ends` があれば残り時間を出す。meeting が届いていなければ "No meeting announced" を、ハブが Nostr の Track を拒んだときは "Room events unavailable: the hub refused the Nostr tracks" を出す |
 | 挙手 | ログイン中は上の操作の列に "Raise hand"(`aria-pressed`)が出る。押すと `hand` 付きの presence を送り、一覧の自分と、ほかの人の画面のその人に "HAND" の札が出る。送れなければ押す前に戻す。presence は 60 秒ごとに送り直し、3 分より古いものは使わない。札は 30 秒ごとに古さを確かめ直す |
 | リアクション | Nostr の投稿の ✓ の右に、内容ごとの数(`+ 1` など)を出す。ログイン中は "React" で `+`、❤️、😂、🎉 を開き、選ぶと kind 7 を送る。数の札を押すと同じ内容を送る。自分が送った内容のボタンは押せなくなる。同じ人の同じ内容は 1 回だけ、1 人 4 種類まで数え、数は 999 で止める。従来の形式の投稿には付かない |
 | 削除 | 自分の Nostr の投稿の "⋯" の左に "Delete" が出る。押すと kind 5 を送り、投稿は全員の画面で「Deleted by the author」の行になる。削除の作者と投稿の作者が違えば従わない。ハブの履歴には元のイベントが残る |
