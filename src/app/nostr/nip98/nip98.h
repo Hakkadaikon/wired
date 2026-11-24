@@ -46,4 +46,10 @@ typedef struct {
 nip98_verdict nip98_check(
     const nip98_req* rq, wired_span token, nostrev* ev, u8* buf, usz cap);
 
+/* nip98_check without the last step (id and BIP-340 signature): the cheap
+ * checks only, so a caller can budget the signature work. NIP98_OK here
+ * authenticates nothing until nostrev_verify(ev) == NOSTREV_OK. */
+nip98_verdict nip98_precheck(
+    const nip98_req* rq, wired_span token, nostrev* ev, u8* buf, usz cap);
+
 #endif

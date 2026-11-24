@@ -15,6 +15,7 @@
  * lone surrogate is rejected); raw bytes must be valid UTF-8 (RFC 3629) and
  * not a control character < 0x20. */
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 #define NOSTREV_MAX_JSON 65536   /* whole event, bytes */
@@ -50,6 +51,10 @@ typedef struct {
  * text is never longer than the JSON, so cap >= len always suffices).
  * 1 on success; 0 on any deviation from the subset or a cap. */
 int nostrev_parse(nostrev* ev, const u8* json, usz len, u8* buf, usz cap);
+
+/* String k of ev's first tag named name (k = 0 is the name itself), a view
+ * into ev->buf; empty with p 0 when no such tag has k + 1 strings. */
+wired_span nostrev_tag_value(const nostrev* ev, const char* name, u32 k);
 
 /* Byte sink for the canonical serialisation. */
 typedef struct {

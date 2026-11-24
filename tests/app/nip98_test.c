@@ -47,6 +47,27 @@ static void test_nip98_ok_forms(void) {
   CHECK(n98_run(&rq, nostrev_fx_t3) == NIP98_OK);
 }
 
+/* nip98_precheck stops before the signature: a token with a bad
+ * signature passes it and fails nip98_check; a cheap failure is the same
+ * in both. */
+static void test_nip98_precheck_skips_sig(void) {
+  nip98_req   rq = n98_t2_req();
+  static char bad[sizeof(nostrev_fx_e3)];
+  usz         i = sizeof(bad) - 5; /* a hex digit of "sig" */
+  rq.url        = n98_s("https://hub.example/upload");
+  rq.method     = n98_s("POST");
+  bytes_memcpy(bad, nostrev_fx_e3, sizeof(bad));
+  bad[i] = bad[i] == '0' ? '1' : '0';
+  CHECK(
+      nip98_precheck(&rq, n98_s(bad), &n98_ev, n98_buf, sizeof(n98_buf)) ==
+      NIP98_OK);
+  CHECK(n98_run(&rq, bad) == NIP98_BAD_SIG);
+  rq.method = n98_s("GET");
+  CHECK(
+      nip98_precheck(&rq, n98_s(bad), &n98_ev, n98_buf, sizeof(n98_buf)) ==
+      NIP98_BAD_METHOD);
+}
+
 /* A pad followed by data ("AA=A") after a valid token is not base64:
  * it must not decode to nothing and let the token through. */
 static void test_nip98_pad_then_data(void) {
@@ -257,6 +278,7 @@ static void test_nip98_spec_example(void) {
 }
 
 void test_nip98(void) {
+  test_nip98_precheck_skips_sig();
   nip98_replay_init(&n98_rc, 0);
   test_nip98_ok_forms();
   test_nip98_pad_then_data();

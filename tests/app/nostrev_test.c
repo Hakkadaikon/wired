@@ -166,6 +166,18 @@ static void test_nostrev_bad_strings(void) {
                          "\xed\x9f\xbf\x7f\""}));
 }
 
+/* nostrev_tag_value: string k of the first tag of that name; empty when
+ * the tag is absent or too short. */
+static void test_nostrev_tag_value(void) {
+  nostrev* ev = &nv_ev;
+  CHECK(nv_parse_raw(ev, nostrev_fx_e1, sizeof(nostrev_fx_e1) - 1));
+  CHECK(wired_span_eq_cstr(nostrev_tag_value(ev, "e", 2), "wss://r.example/"));
+  CHECK(wired_span_eq_cstr(nostrev_tag_value(ev, "p", 1), "x"));
+  CHECK(wired_span_eq_cstr(nostrev_tag_value(ev, "p", 0), "p"));
+  CHECK(nostrev_tag_value(ev, "p", 2).p == 0);
+  CHECK(nostrev_tag_value(ev, "q", 1).p == 0);
+}
+
 /* Tags: shape and caps (64 tags, 16 strings per tag, 4096 bytes). */
 static void test_nostrev_tags(void) {
   nostrev*    ev = &nv_ev;
@@ -325,6 +337,7 @@ void test_nostrev(void) {
   test_nostrev_escapes();
   test_nostrev_bad_strings();
   test_nostrev_tags();
+  test_nostrev_tag_value();
   test_nostrev_max_elems();
   test_nostrev_framing();
   test_nostrev_serialize();

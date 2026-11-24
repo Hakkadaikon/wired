@@ -95,8 +95,8 @@ static nip98_verdict nip98_sig(const nip98_ctx* c) {
 }
 
 static nip98_verdict nip98_steps(const nip98_ctx* c) {
-  static const nip98_step steps[] = {nip98_kind,   nip98_time,    nip98_u,
-                                     nip98_method, nip98_payload, nip98_sig};
+  static const nip98_step steps[] = {
+      nip98_kind, nip98_time, nip98_u, nip98_method, nip98_payload};
   for (usz k = 0; k < sizeof(steps) / sizeof(steps[0]); k++) {
     nip98_verdict v = steps[k](c);
     if (v != NIP98_OK) {
@@ -106,7 +106,7 @@ static nip98_verdict nip98_steps(const nip98_ctx* c) {
   return NIP98_OK;
 }
 
-nip98_verdict nip98_check(
+nip98_verdict nip98_precheck(
     const nip98_req* rq, wired_span token, nostrev* ev, u8* buf, usz cap) {
   wired_obuf o = {.p = buf, .cap = cap, .len = 0};
   wired_span json;
@@ -117,4 +117,10 @@ nip98_verdict nip98_check(
     return NIP98_MALFORMED;
   }
   return nip98_steps(&(nip98_ctx){rq, ev});
+}
+
+nip98_verdict nip98_check(
+    const nip98_req* rq, wired_span token, nostrev* ev, u8* buf, usz cap) {
+  nip98_verdict v = nip98_precheck(rq, token, ev, buf, cap);
+  return v != NIP98_OK ? v : nip98_sig(&(nip98_ctx){rq, ev});
 }
