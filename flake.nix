@@ -32,6 +32,8 @@
             # memcheck and its client-request header (`just ct-check`,
             # `just valgrind`)
             pkgs.valgrind
+            # moqt_chat's NIP-05 resolver helper (examples/moqt_chat/nip05d)
+            pkgs.go
           ];
         };
         # Verification-time tools kept out of the build shell: CBMC for the
