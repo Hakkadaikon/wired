@@ -51,6 +51,7 @@ import {
 import { effectiveGain } from "@/lib/outputMixer";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
 import { createPlaybackSink, type PlaybackSink } from "@/lib/playbackSink";
+import { closeMessage, roomSession } from "@/lib/roomAuth";
 import { activeRoom } from "@/lib/roomLink";
 import {
 	createScreenReceivePipeline,
@@ -291,10 +292,37 @@ export function openMoqNostr(
 	};
 }
 
-// The session's client, under the page's room (roomLink.ts); outside
-// useMoqtChat, which is at its Halstead cap.
+// The session's client, under the page's room (roomLink.ts), signing a
+// fresh NIP-98 token per connect when logged in; a close reason token ends
+// the room for us (no rejoin: handleSessionStatus). Outside useMoqtChat,
+// which is at its Halstead cap.
 const roomClient = (localId: string, callbacks: MoqtChatCallbacks) =>
-	new MoqtChatClient(localId, activeRoom.id, callbacks);
+	new MoqtChatClient(
+		localId,
+		activeRoom.id,
+		{ ...callbacks, onCloseReason: noteCloseReason },
+		(url) =>
+			authSession(() =>
+				roomSession(url, activeRoom, useMoqtChatStore.getState().nostrPubkey),
+			),
+	);
+
+/** run (a connect's signing), remembering whether it failed: a declined
+ * NIP-07 prompt is not retried automatically (handleSessionStatus). */
+export async function authSession<T>(run: () => Promise<T>): Promise<T> {
+	const s = useMoqtChatStore.getState();
+	s.setAuthFailed(false);
+	try {
+		return await run();
+	} catch (err) {
+		s.setAuthFailed(true);
+		throw err;
+	}
+}
+
+export function noteCloseReason(reason: string): void {
+	if (closeMessage(reason)) useMoqtChatStore.getState().setRoomClosed(reason);
+}
 
 // client: when given, Nostr payloads go to a fresh openMoqNostr session.
 export function moqtChatCallbacks(
@@ -725,7 +753,10 @@ export type ReconnectRefs = {
 // Drives the auto-rejoin back-off from session status changes: reaching
 // "connected" resets the counter; a "disconnected" while the user still
 // wants the session schedules the next attempt (or gives up once the
-// schedule is exhausted). Plain ref-shaped params, same testability pattern
+// schedule is exhausted). A room closed with a reason token is not
+// rejoined: the token may land after the "disconnected" of a failed
+// connect, so the timer checks it when it fires. Nor is a connect whose
+// signing failed (authSession): the user rejoins by button. Plain ref-shaped params, same testability pattern
 // as teardownSession above.
 export function handleSessionStatus(
 	refs: ReconnectRefs,
@@ -743,7 +774,8 @@ export function handleSessionStatus(
 	refs.attempt.current += 1;
 	refs.timer.current = setTimeout(() => {
 		refs.timer.current = null;
-		reconnect();
+		const s = useMoqtChatStore.getState();
+		if (!s.roomClosed && !s.authFailed) reconnect();
 	}, delay);
 }
 

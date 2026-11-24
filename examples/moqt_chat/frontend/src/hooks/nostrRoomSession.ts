@@ -27,6 +27,7 @@ import {
 	type Target,
 	tag,
 } from "@/lib/nostrRoom";
+import { ROOM_LIFETIME_S } from "@/lib/roomAuth";
 import { activeRoom, roomName } from "@/lib/roomLink";
 import {
 	type MoqtChatState,
@@ -133,7 +134,7 @@ export class NostrRoomSession {
 	readonly space: string;
 	#d: Required<Omit<RoomDeps, "watchPeers">> & Pick<RoomDeps, "watchPeers">;
 	#lastAt = 0;
-	#meeting?: { d: string; starts: number };
+	#meeting?: { d: string; starts: number; ends: number };
 	#timer?: ReturnType<typeof setInterval>;
 	#debounce?: ReturnType<typeof setTimeout>;
 	#off: (() => void)[] = [];
@@ -212,6 +213,7 @@ export class NostrRoomSession {
 				title: this.#d.title,
 				status,
 				starts: m.starts,
+				ends: m.ends,
 				participants: this.#d.state().peers.length + 1,
 				now: this.#d.now(),
 			}),
@@ -239,11 +241,23 @@ export class NostrRoomSession {
 	async #startMeeting(): Promise<void> {
 		const { host, d, room, service } = this.#d;
 		const space = await this.#publish(
-			spaceTemplate({ host, d, room, service, now: this.#d.now() }),
+			spaceTemplate({
+				host,
+				d,
+				room,
+				service,
+				// shortcut: only the creating page knows the mode; a host that
+				// reloaded announces `open` until the hub reports the mode (P6).
+				status: activeRoom.create?.mode === "auth" ? "private" : "open",
+				now: this.#d.now(),
+			}),
 		);
 		if (this.#stopped) return;
 		const starts = space.created_at;
-		this.#meeting = { d: `meeting-${starts.toString(36)}`, starts };
+		// shortcut: a host page that did not create the room (a reload) counts
+		// from this meeting's start; the hub's own clock is what ends it.
+		const ends = (activeRoom.create?.created ?? starts) + ROOM_LIFETIME_S;
+		this.#meeting = { d: `meeting-${starts.toString(36)}`, starts, ends };
 		await this.#publishMeeting("live");
 		if (this.#stopped) return;
 		const off = this.#d.watchPeers?.(() => this.#peersChanged());

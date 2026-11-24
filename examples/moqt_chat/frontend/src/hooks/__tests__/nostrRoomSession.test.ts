@@ -22,6 +22,8 @@ import {
 	spaceA,
 	tag,
 } from "@/lib/nostrRoom";
+import { ROOM_LIFETIME_S } from "@/lib/roomAuth";
+import { enterRoom } from "@/lib/roomLink";
 import { EMPTY_NOSTR_ROOM, useMoqtChatStore } from "@/stores/moqtChatStore";
 
 // Fixed test-only keys.
@@ -90,6 +92,32 @@ describe("NostrRoomSession host lifecycle", () => {
 		expect(state().meeting?.id).toBe(meeting.id);
 		expect(room.liveMeeting()).toBe(`30313:${HOST}:${tag(meeting, "d")}`);
 		room.stop();
+	});
+
+	it("the live meeting ends ROOM_LIFETIME_S after the room was created", async () => {
+		enterRoom(
+			{ id: D, host: HOST },
+			{ mode: "open", nip05: "h@x.y", created: NOW - 60 },
+		);
+		const { room, sent } = session(HOST);
+		await room.start();
+		expect(tag(sent[2].ev, "ends")).toBe(String(NOW - 60 + ROOM_LIFETIME_S));
+		expect(tag(sent[1].ev, "status")).toBe("open");
+		room.stop();
+		enterRoom(
+			{ id: D, host: HOST },
+			{ mode: "auth", nip05: "h@x.y", created: NOW },
+		);
+		const auth = session(HOST);
+		await auth.room.start();
+		expect(tag(auth.sent[1].ev, "status")).toBe("private");
+		auth.room.stop();
+		enterRoom({ id: D, host: HOST }); // not the creator: from the meeting start
+		const again = session(HOST);
+		await again.room.start();
+		const [, space, m] = again.sent.map((x) => x.ev);
+		expect(tag(m, "ends")).toBe(String(space.created_at + ROOM_LIFETIME_S));
+		again.room.stop();
 	});
 
 	it("participant changes make one debounced meeting update", async () => {

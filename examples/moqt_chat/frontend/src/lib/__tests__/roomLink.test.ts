@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	activeRoom,
 	enterRoom,
+	exitRoom,
 	isRoomId,
 	newRoomId,
 	parseRoomLink,
@@ -82,6 +83,18 @@ describe("withRoom", () => {
 		expect(withRoom(`http://l:1/?relays=&room=old&host=x`, link)).toBe(
 			`http://l:1/?relays=&room=${ID}&host=${HOST}`,
 		);
+	});
+});
+
+describe("exitRoom", () => {
+	it("forgets that this page created the room (its tags, its created time)", () => {
+		enterRoom(
+			{ id: ID, host: HOST },
+			{ mode: "auth", nip05: "a@b.c", created: 1 },
+		);
+		exitRoom();
+		expect(activeRoom.create).toBeUndefined();
+		expect(activeRoom.id).toBe(ID);
 	});
 });
 

@@ -4,6 +4,7 @@
 // kept apart only because every client stays under its own prefix.
 
 import { hostPubkey, spaceA } from "./nostrRoom";
+import type { RoomCreate } from "./roomAuth";
 
 export type RoomLink = { id: string; host: string };
 
@@ -57,12 +58,23 @@ export const roomName = (id: string) => `Room ${id.slice(0, 6)}`;
 
 /** The page's one room, set by enterRoom before joining (module scope like
  * nostrRoom.current: one page, one room). */
-export const activeRoom = {
+export const activeRoom: RoomLink & { space: string; create?: RoomCreate } = {
 	id: "",
 	host: "0".repeat(64),
 	space: spaceA("0".repeat(64), ""),
 };
 
-export function enterRoom(link: RoomLink): void {
-	Object.assign(activeRoom, link, { space: spaceA(link.host, link.id) });
+/** create: this page made the room (Create room), so its connects carry the
+ * room's mode and the creator's NIP-05 (roomAuth.ts). */
+export function enterRoom(link: RoomLink, create?: RoomCreate): void {
+	Object.assign(activeRoom, link, {
+		space: spaceA(link.host, link.id),
+		create,
+	});
+}
+
+/** Leaving (or a final close): the next connect is no longer this page's
+ * create, and a later Create room starts a fresh `created`. */
+export function exitRoom(): void {
+	activeRoom.create = undefined;
 }

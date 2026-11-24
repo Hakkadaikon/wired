@@ -812,6 +812,12 @@ input {
 	margin-left: auto;
 }
 
+/* Time left until the room ends: figures that do not jitter as they tick. */
+.room-head__countdown {
+	font-variant-numeric: tabular-nums;
+	letter-spacing: 0.04em;
+}
+
 .verified {
 	position: relative;
 }
@@ -958,4 +964,12 @@ input {
 	.message:not(.message--nostr) {
 		grid-template-columns: 5em 1fr auto;
 	}
+}
+
+/* A tile group as a fieldset (Create room's mode): no box, no inset. */
+fieldset.tiles {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-width: 0;
 }

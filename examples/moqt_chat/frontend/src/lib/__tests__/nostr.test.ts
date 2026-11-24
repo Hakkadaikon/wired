@@ -210,6 +210,25 @@ describe("kind 0 profile name", () => {
 		).toEqual({ name: "n", picture: undefined });
 	});
 
+	it("keeps a NIP-05 address (lowercased, name@domain shape only)", () => {
+		const nip05 = (v: unknown) =>
+			profileOf(PK, [profile({ nip05: v }, 1)])?.nip05;
+		expect(nip05("Bob@Example.com")).toBe("bob@example.com");
+		expect(nip05("_@example.com")).toBe("_@example.com");
+		const at100 = `${"a".repeat(64)}@${"b".repeat(32)}.io`;
+		expect(nip05(at100)).toBe(at100); // NIP05_MAX: the token stays <= 1 KiB
+		expect(nip05(`${"a".repeat(64)}@${"b".repeat(33)}.io`)).toBeUndefined();
+		for (const bad of [
+			"example.com",
+			"bob@",
+			"@example.com",
+			"a b@x.y",
+			"bob@localhost",
+			5,
+		])
+			expect(nip05(bad)).toBeUndefined();
+	});
+
 	it("keeps display_name and name apart; displayName is the NIP-24 fallback", () => {
 		expect(
 			profileOf(PK, [profile({ display_name: " D ", name: "n" }, 1)]),

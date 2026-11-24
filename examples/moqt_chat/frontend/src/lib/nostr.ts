@@ -231,6 +231,7 @@ export type NostrProfile = {
 	displayName?: string;
 	name?: string;
 	picture?: string;
+	nip05?: string; // NIP-05 `name@domain`, unverified (the hub verifies a creator's)
 };
 
 const PICTURE_URL_MAX = 2048;
@@ -255,6 +256,17 @@ function text(v: unknown): string | undefined {
 	return t || undefined;
 }
 
+// NIP-05: local part a-z0-9-_. (case-insensitive), a dotted domain. At
+// most NIP05_MAX chars, so the room's sign-in token stays within 1 KiB
+// (roomAuth.ts TOKEN_MAX_BYTES).
+const NIP05 = /^[a-z0-9._-]{1,64}@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+const NIP05_MAX = 100;
+
+function nip05(v: unknown): string | undefined {
+	const t = typeof v === "string" ? v.trim().toLowerCase() : "";
+	return t.length <= NIP05_MAX && NIP05.test(t) ? t : undefined;
+}
+
 function profileFrom(content: string): NostrProfile | undefined {
 	try {
 		const m = JSON.parse(content);
@@ -263,8 +275,9 @@ function profileFrom(content: string): NostrProfile | undefined {
 			displayName: text(m.display_name) ?? text(m.displayName),
 			name: text(m.name),
 			picture: safePictureUrl(m.picture),
+			nip05: nip05(m.nip05),
 		};
-		return p.displayName || p.name || p.picture ? p : undefined;
+		return p.displayName || p.name || p.picture || p.nip05 ? p : undefined;
 	} catch {
 		return undefined;
 	}

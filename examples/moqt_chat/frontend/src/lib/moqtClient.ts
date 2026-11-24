@@ -40,6 +40,7 @@ import {
 	isTextPartPayload,
 	splitAttachmentIntoChunks,
 } from "./moqtAttachmentWire";
+import { authTokenOption } from "./moqtAuthWire";
 import {
 	bytesToUtf8,
 	closingCodeOf,
@@ -450,7 +451,16 @@ export interface MoqtChatCallbacks {
 	// The hub's SETUP arrived: the SSTS_ALGORITHMS it advertised ([] without
 	// the option -- an extension-less hub).
 	onHubSetup?(sstsAlgorithms: bigint[]): void;
+	// The session closed cleanly with a non-empty reason (the hub's reason
+	// token, roomAuth.ts), connected or not; fires before "disconnected".
+	onCloseReason?(reason: string): void;
 }
+
+/** Per connect: the WebTransport URL to use for the server URL given and
+ * the AUTHORIZATION TOKEN value for its SETUP (none when undefined). */
+export type RoomSessionOf = (
+	url: string,
+) => Promise<{ url: string; token?: string }>;
 
 /** subscribeTrack's extra options. `params`: experimental extension
  * parameters (SWITCH_FROM, SWITCHING_SET_ASSIGNMENT) -- sent only when the
@@ -726,16 +736,36 @@ export class MoqtChatClient {
 	#hubSsts: bigint[] | undefined;
 	#callbacks: MoqtChatCallbacks;
 	#roomNs: Uint8Array[];
+	#session?: RoomSessionOf;
+	// Advanced by every connect and close(): a connect whose generation moved
+	// on (the user left while the extension was signing, or while `ready`
+	// was pending) stops at its next step instead of opening a ghost session.
+	#gen = 0;
 
-	constructor(localId: string, room: string, callbacks: MoqtChatCallbacks) {
+	#alive(gen: number): void {
+		if (gen !== this.#gen) throw new Error("closed");
+	}
+
+	constructor(
+		localId: string,
+		room: string,
+		callbacks: MoqtChatCallbacks,
+		session?: RoomSessionOf,
+	) {
 		this.#localId = localId;
 		this.#roomNs = roomNamespace(room);
 		this.#localTrackAlias = ownTrackAlias(localId);
 		this.#callbacks = callbacks;
+		this.#session = session;
 	}
 
-	async connect(url: string, certHashesHex: string[]): Promise<void> {
+	async connect(server: string, certHashesHex: string[]): Promise<void> {
 		this.#callbacks.onStatusChange("connecting");
+		const gen = ++this.#gen;
+		const { url, token } = this.#session
+			? await this.#session(server)
+			: { url: server, token: undefined };
+		this.#alive(gen);
 		// `protocols` (WebTransportOptions, not yet in lib.dom): a browser that
 		// ignores it negotiates nothing, and connect refuses the session.
 		const opts = {
@@ -744,13 +774,21 @@ export class MoqtChatClient {
 		};
 		const wt = new WebTransport(url, opts as WebTransportOptions);
 		this.#wt = wt;
-		// On a failed attempt `closed` rejects alongside `ready`, and nothing
-		// below ever subscribes to it (#onClosed is attached only once the
-		// session is up) -- without this no-op handler every failed attempt
-		// logs an uncaught WebTransportError in the browser.
-		wt.closed.catch(() => {});
+		// Attached first, in both paths: a refused SETUP closes the session
+		// while connect is still running, and its reason is all the client
+		// learns. A rejection (a failed attempt, a network loss) is handled
+		// here too, or every failed attempt logs an uncaught WebTransportError.
+		wt.closed.then(
+			(info) => {
+				// Not for a session close()d since: that client is torn down.
+				if (info?.reason && gen === this.#gen)
+					this.#callbacks.onCloseReason?.(info.reason);
+			},
+			() => {},
+		);
 		try {
 			await wt.ready;
+			this.#alive(gen);
 
 			// Transport-level death detection (hub crash/restart, network loss):
 			// both settle paths of `closed` funnel into #onClosed, which reports
@@ -785,11 +823,13 @@ export class MoqtChatClient {
 			void refuseHubRequests(wt.incomingBidirectionalStreams.getReader(), (e) =>
 				this.#violation(wt, e),
 			).catch(() => {});
-			await this.#openControlStream(wt);
+			await this.#openControlStream(wt, token);
+			this.#alive(gen);
 			await this.publishTrack(
 				utf8ToBytes(this.#localId),
 				this.#localTrackAlias,
 			);
+			this.#alive(gen);
 
 			this.#callbacks.onStatusChange("connected");
 		} catch (err) {
@@ -1006,6 +1046,7 @@ export class MoqtChatClient {
 	}
 
 	close(): void {
+		this.#gen++;
 		const wt = this.#wt;
 		if (!wt) return; // already down -- its "disconnected" was reported once
 		this.#wt = undefined; // stale first: our own closed settling reports nothing
@@ -1023,20 +1064,27 @@ export class MoqtChatClient {
 	}
 
 	// 6.3: our own control stream -- a uni stream whose first bytes are
-	// SETUP (9.1) -- kept open for the session's lifetime. Its one Setup
-	// Option is SSTS_ALGORITHMS (an odd Type: a hub without the extension
-	// ignores it like any unknown option, 9.1).
+	// SETUP (9.1) -- kept open for the session's lifetime. Its Setup Options:
+	// the room's AUTHORIZATION TOKEN (9.1.4) when there is one, then
+	// SSTS_ALGORITHMS (an odd Type: a hub without the extension ignores it
+	// like any unknown option, 9.1). Ascending Types: 0x03 first.
 	// The hub holds our requests until both SETUPs are exchanged, so connect
 	// goes on without waiting for the hub's (#readServerControl reads it).
-	async #openControlStream(wt: WebTransport): Promise<void> {
+	async #openControlStream(wt: WebTransport, token?: string): Promise<void> {
 		const stream = await wt.createUnidirectionalStream();
 		const writer = stream.getWriter();
 		const ssts = {
 			type: SETUP_OPTION_SSTS_ALGORITHMS,
 			raw: encodeSstsAlgorithms(CLIENT_SSTS_ALGORITHMS),
 		};
+		// Token Type 0: negotiated out of band (8.9) -- a NIP-98 event's JSON.
+		const auth =
+			token === undefined ? [] : [authTokenOption(0n, utf8ToBytes(token))];
 		await writer.write(
-			encodeControlFrame(MSG_TYPE_SETUP, encodeSetup({ setupOptions: [ssts] })),
+			encodeControlFrame(
+				MSG_TYPE_SETUP,
+				encodeSetup({ setupOptions: [...auth, ssts] }),
+			),
 		);
 	}
 

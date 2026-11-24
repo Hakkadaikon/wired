@@ -91,6 +91,8 @@ export type MoqtChatState = {
 	nostrRelays: string[]; // read-only profile relays in effect; [] until the page sets them
 	nostrProfiles: Record<string, NostrProfile>; // pubkey -> kind 0 name/picture; absent = short npub + placeholder
 	nostrRoom: NostrRoom; // the meeting space, presence, reactions and deletions
+	roomClosed: string | null; // the hub's close reason token (roomAuth.ts): final screen, no rejoin
+	authFailed: boolean; // the last connect could not sign its token: no auto-rejoin until one signs
 	setConnectionState: (state: ConnectionState) => void;
 	setMuted: (muted: boolean) => void;
 	addMessage: (message: Omit<ChatMessage, "id">) => number;
@@ -127,6 +129,8 @@ export type MoqtChatState = {
 	setNostrRelays: (relays: string[]) => void;
 	setNostrProfile: (pubkey: string, profile: NostrProfile) => void;
 	setNostrRoom: (patch: Partial<NostrRoom>) => void;
+	setRoomClosed: (token: string | null) => void;
+	setAuthFailed: (failed: boolean) => void;
 };
 
 let nextMessageId = 1;
@@ -166,6 +170,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 	nostrRelays: [],
 	nostrProfiles: {},
 	nostrRoom: EMPTY_NOSTR_ROOM,
+	roomClosed: null,
+	authFailed: false,
 	setConnectionState: (connectionState) => set({ connectionState }),
 	setMuted: (muted) => set({ muted }),
 	addMessage: (message) => {
@@ -282,6 +288,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 		}),
 	setNostrRoom: (patch) =>
 		set((s) => ({ nostrRoom: { ...s.nostrRoom, ...patch } })),
+	setRoomClosed: (roomClosed) => set({ roomClosed }),
+	setAuthFailed: (authFailed) => set({ authFailed }),
 }));
 
 const profiles = new ProfileResolver((pubkey, profile) =>

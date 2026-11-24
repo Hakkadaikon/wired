@@ -80,6 +80,19 @@ describe("kind 30312 space", () => {
 		now: NOW,
 	});
 
+	it("an auth room's space is status private (NIP-53 deviation: identity, not invite)", () => {
+		const p = spaceTemplate({
+			host: HOST,
+			d: D,
+			room: "Wired room",
+			service: "https://chat.example/",
+			status: "private",
+			now: NOW,
+		});
+		expect(p.tags).toContainEqual(["status", "private"]);
+		expect(acceptSpace(sign(p), SPACE)).toBe(true);
+	});
+
 	it("carries d, room, status open, service and the host as p Host", () => {
 		expect(t.kind).toBe(30312);
 		expect(t.tags).toEqual([
@@ -129,6 +142,19 @@ describe("kind 30313 meeting", () => {
 			["status", "live"],
 			["current_participants", "2"],
 		]);
+	});
+
+	it("a live meeting carries the room's ends when given", () => {
+		const live = meetingTemplate({
+			space: SPACE,
+			d: "m1",
+			title: "Standup",
+			status: "live",
+			starts: NOW,
+			ends: NOW + 18000,
+			now: NOW,
+		});
+		expect(live.tags).toContainEqual(["ends", String(NOW + 18000)]);
 	});
 
 	it("adds ends once ended", () => {

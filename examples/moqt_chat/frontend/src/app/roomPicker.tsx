@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { RoomMode } from "@/lib/roomAuth";
 import { enterRoom, newRoomId, type RoomLink, withRoom } from "@/lib/roomLink";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
 
@@ -47,8 +48,21 @@ function ShareLink({ room }: { room: RoomLink }) {
 	);
 }
 
+const MODES: { mode: RoomMode; label: string }[] = [
+	{ mode: "open", label: "Open" },
+	{ mode: "auth", label: "Login required" },
+];
+
+function createHint(pubkey: string | null, nip05: string | undefined) {
+	if (!pubkey)
+		return "Log in with Nostr to create a room: you become its host.";
+	if (!nip05) return "A NIP-05 address is required to create a room";
+	return "You host the new room. Share its link to invite others.";
+}
+
 /** The join screen's room: the link's room and its share link, or (no
- * room in the URL) Create room -- the logged-in Nostr key becomes the host. */
+ * room in the URL) Create room -- the logged-in Nostr key with a kind 0
+ * nip05 becomes the host; the hub verifies the address. */
 export function RoomPicker({
 	room,
 	error,
@@ -59,11 +73,15 @@ export function RoomPicker({
 	onRoom: (link: RoomLink) => void;
 }) {
 	const pubkey = useMoqtChatStore((s) => s.nostrPubkey);
+	const nip05 = useMoqtChatStore((s) =>
+		pubkey ? s.nostrProfiles[pubkey]?.nip05 : undefined,
+	);
+	const [mode, setMode] = useState<RoomMode>("open");
 	if (room) return <ShareLink room={room} />;
 	const create = () => {
-		if (!pubkey) return;
+		if (!pubkey || !nip05) return;
 		const link = { id: newRoomId(), host: pubkey };
-		enterRoom(link);
+		enterRoom(link, { mode, nip05, created: Math.floor(Date.now() / 1000) });
 		history.replaceState(null, "", withRoom(location.href, link));
 		onRoom(link);
 	};
@@ -79,19 +97,38 @@ export function RoomPicker({
 					{error}
 				</span>
 			)}
+			<fieldset className="tiles" aria-label="Who may join">
+				{MODES.map((m) => (
+					<button
+						key={m.mode}
+						type="button"
+						className="tile"
+						aria-pressed={m.mode === mode}
+						data-testid={`room-mode-${m.mode}`}
+						onClick={() => setMode(m.mode)}
+					>
+						{m.label}
+					</button>
+				))}
+			</fieldset>
+			<span className="field__hint caption">
+				Open: anyone with the link joins. Login required: joining needs a Nostr
+				login (an identity, not an invite list).
+			</span>
 			<button
 				type="button"
 				className="sign"
-				disabled={!pubkey}
+				disabled={!pubkey || !nip05}
 				data-testid="create-room"
 				onClick={create}
 			>
 				→ Create room
 			</button>
-			<span className="field__hint caption">
-				{pubkey
-					? "You host the new room. Share its link to invite others."
-					: "Log in with Nostr to create a room: you become its host."}
+			<span
+				className="field__hint caption"
+				data-testid={pubkey && !nip05 ? "nip05-required" : undefined}
+			>
+				{createHint(pubkey, nip05)}
 			</span>
 		</div>
 	);

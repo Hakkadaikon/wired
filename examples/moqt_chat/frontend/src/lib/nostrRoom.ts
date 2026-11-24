@@ -68,6 +68,9 @@ export function spaceTemplate(o: {
 	d: string;
 	room: string;
 	service: string;
+	/** `private` for a room that needs a Nostr login (an identity, not an
+	 * invite list as NIP-53 reads it: wire.md 5.3). */
+	status?: "open" | "private";
 	now?: number;
 }): EventTemplate {
 	return {
@@ -76,7 +79,7 @@ export function spaceTemplate(o: {
 		tags: [
 			["d", o.d],
 			["room", o.room],
-			["status", "open"],
+			["status", o.status ?? "open"],
 			["service", o.service],
 			["p", o.host, "", "Host"],
 		],
@@ -113,6 +116,9 @@ export function meetingTemplate(o: {
 	title: string;
 	status: MeetingStatus;
 	starts: number;
+	/** When the room ends (created + ROOM_LIFETIME_S, roomAuth.ts); an
+	 * ended meeting's `ends` is when it ended. */
+	ends?: number;
 	participants?: number;
 	now?: number;
 }): EventTemplate {
@@ -126,7 +132,8 @@ export function meetingTemplate(o: {
 	];
 	if (o.participants !== undefined)
 		tags.push(["current_participants", String(o.participants)]);
-	if (o.status === "ended") tags.push(["ends", String(now)]);
+	const ends = o.status === "ended" ? now : o.ends;
+	if (ends !== undefined) tags.push(["ends", String(ends)]);
 	return { kind: MEETING_KIND, created_at: now, tags, content: "" };
 }
 

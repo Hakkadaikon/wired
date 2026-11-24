@@ -12,8 +12,10 @@ import {
 import { MoqtChatClient } from "@/lib/moqtClient";
 import { activeRoom } from "@/lib/roomLink";
 import { createQualityWindow, qualityLevel } from "@/lib/voiceQuality";
+import { useMoqtChatStore } from "@/stores/moqtChatStore";
 import {
 	applyVoiceTapEvent,
+	authSession,
 	cancelReconnect,
 	captureThenPublishScreen,
 	chainVoiceTap,
@@ -26,6 +28,7 @@ import {
 	micPipelineIsConfigSupported,
 	micTracksFrom,
 	moqtChatCallbacks,
+	noteCloseReason,
 	noteScreenTileVariant,
 	OWN_SCREEN_KEY,
 	openMoqNostr,
@@ -927,6 +930,7 @@ describe("reconnectDelayMs", () => {
 
 describe("auto-rejoin back-off", () => {
 	afterEach(() => {
+		useMoqtChatStore.setState({ roomClosed: null, authFailed: false });
 		vi.unstubAllGlobals();
 		vi.useRealTimers();
 	});
@@ -952,6 +956,34 @@ describe("auto-rejoin back-off", () => {
 		expect(reconnect).toHaveBeenCalledTimes(1);
 		vi.advanceTimersByTime(1);
 		expect(reconnect).toHaveBeenCalledTimes(2);
+	});
+
+	it.each([
+		["room-full", 0],
+		["stream reset", 1],
+		["", 1],
+	])("a close reason %j before the timer fires -> %i rejoin", (reason, n) => {
+		vi.useFakeTimers();
+		const reconnect = vi.fn();
+		handleSessionStatus(freshRefs(), "disconnected", true, reconnect);
+		noteCloseReason(reason); // the failed connect's close lands later
+		vi.advanceTimersByTime(1000);
+		expect(reconnect).toHaveBeenCalledTimes(n);
+	});
+
+	it("a failed signing stops the auto-rejoin until the next session signs", async () => {
+		vi.useFakeTimers();
+		const reconnect = vi.fn();
+		await expect(
+			authSession(() => Promise.reject(new Error("declined"))),
+		).rejects.toThrow("declined");
+		handleSessionStatus(freshRefs(), "disconnected", true, reconnect);
+		vi.advanceTimersByTime(1000);
+		expect(reconnect).not.toHaveBeenCalled();
+		await expect(authSession(async () => 7)).resolves.toBe(7);
+		handleSessionStatus(freshRefs(), "disconnected", true, reconnect);
+		vi.advanceTimersByTime(1000);
+		expect(reconnect).toHaveBeenCalledOnce();
 	});
 
 	it("reaching connected resets the back-off to 1000 ms", () => {

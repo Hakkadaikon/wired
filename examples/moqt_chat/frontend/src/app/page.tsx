@@ -34,6 +34,7 @@ import { canPickOutput } from "@/lib/outputMixer";
 import {
 	activeRoom,
 	enterRoom,
+	exitRoom,
 	parseRoomLink,
 	type RoomLink,
 	roomName,
@@ -51,6 +52,7 @@ import {
 } from "@/stores/moqtChatStore";
 import { NostrAuthor, NostrName, RawNostrEvent } from "./rawNostrEvent";
 import { RoomPicker } from "./roomPicker";
+import { Countdown, RoomClosed, useEndOnRoomClosed } from "./roomStatus";
 import { VideoSection } from "./videoSection";
 import { Wordmark } from "./wordmark";
 
@@ -133,6 +135,7 @@ function RoomHead() {
 	const space = useMoqtChatStore((s) => s.nostrRoom.space);
 	const meeting = useMoqtChatStore((s) => s.nostrRoom.meeting);
 	const status = meeting && tag(meeting, "status");
+	const ends = meeting && tag(meeting, "ends");
 	const unavailable = useMoqtChatStore((s) => s.nostrRoom.unavailable);
 	return (
 		<header className="room-head" data-testid="room-head">
@@ -149,6 +152,9 @@ function RoomHead() {
 					>
 						{status}
 					</span>
+					{status === "live" && /^\d+$/.test(ends ?? "") && (
+						<Countdown ends={Number(ends)} />
+					)}
 				</p>
 			) : (
 				<p className="caption">
@@ -1208,6 +1214,10 @@ function JoinScreen({
 	);
 }
 
+// A final screen (roomClosed) replaces the connect error notice.
+const whileOpen = <T,>(roomClosed: string | null, v: T) =>
+	roomClosed ? null : v;
+
 export default function Home() {
 	const [url, setUrl] = useState(DEFAULT_URL);
 	const [certHash, setCertHash] = useState("");
@@ -1238,6 +1248,7 @@ export default function Home() {
 	const screenSharing = useMoqtChatStore((s) => s.screenSharing);
 	const screenShareError = useMoqtChatStore((s) => s.screenShareError);
 	const messageSendError = useMoqtChatStore((s) => s.messageSendError);
+	const roomClosed = useMoqtChatStore((s) => s.roomClosed);
 
 	// Switch to the chat screen once the connection is established.
 	useEffect(
@@ -1297,6 +1308,14 @@ export default function Home() {
 
 	const connecting = connectionState === "connecting";
 	const lost = joined && connectionState === "disconnected";
+	// Leave, or a final close reason (at once, not on Back): the session,
+	// mic, camera and screen capture stop and the room tools go.
+	const exit = () => {
+		leave();
+		setJoined(false);
+		exitRoom();
+	};
+	useEndOnRoomClosed(exit);
 
 	return (
 		<main className={joined ? "page page--room" : "page"}>
@@ -1315,14 +1334,7 @@ export default function Home() {
 							onStart={() => void startScreenShare()}
 							onStop={stopScreenShare}
 						/>
-						<button
-							type="button"
-							className="sign sign--outline"
-							onClick={() => {
-								leave();
-								setJoined(false);
-							}}
-						>
+						<button type="button" className="sign sign--outline" onClick={exit}>
 							← Leave
 						</button>
 						<NostrIdentity />
@@ -1359,7 +1371,10 @@ export default function Home() {
 					→ Rejoin
 				</button>
 			</Notice>
-			<Notice title="Could not connect" message={connectError} />
+			<Notice
+				title="Could not connect"
+				message={whileOpen(roomClosed, connectError)}
+			/>
 			<Notice message={micError} />
 			{/* Also shown inside ScreenTiles while a tile is on screen; repeated
           here so the message survives an auto-stop that removed the last
@@ -1368,7 +1383,12 @@ export default function Home() {
 			<Notice message={screenShareError} />
 			<Notice message={messageSendError} />
 
-			{joined ? (
+			{roomClosed ? (
+				<RoomClosed
+					token={roomClosed}
+					onBack={() => useMoqtChatStore.getState().setRoomClosed(null)}
+				/>
+			) : joined ? (
 				<div className="room">
 					<aside className="rail">
 						<Peers />
