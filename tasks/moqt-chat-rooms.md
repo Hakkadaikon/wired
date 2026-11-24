@@ -210,15 +210,15 @@ name before any check (low value: room ids are random).
 - [x] e2e: two rooms on one hub do not see each other (client-side only) (9916a40b3; s26-rooms, roomLink tests)
 
 ### P2 Nostr verification in the SDK — est. 3-4 days
-- [ ] secp256k1 field / scalar / group (variable time, public inputs); lift_x
-- [ ] BIP-340 verify; all test-vectors.csv rows pass (valid and invalid)
-- [ ] NIP-01 strict parser (caps, integers, lowercase hex, \u + surrogates)
-- [ ] NIP-01 canonical serialisation; reject other C0 / lone surrogates
-- [ ] NIP-98 checker (kind, window, u, method, id, sig, replay cache rules)
-- [ ] Wiring in tests/run.c (+ fuzz harnesses that include the base .c);
+- [~] secp256k1 field / scalar / group (variable time, public inputs); lift_x (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
+- [~] BIP-340 verify; all test-vectors.csv rows pass (valid and invalid) (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
+- [~] NIP-01 strict parser (caps, integers, lowercase hex, \u + surrogates) (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
+- [~] NIP-01 canonical serialisation; reject other C0 / lone surrogates (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
+- [~] NIP-98 checker (kind, window, u, method, id, sig, replay cache rules) (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
+- [~] Wiring in tests/run.c (+ fuzz harnesses that include the base .c); (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
       name-collision grep
-- [ ] Fuzz harnesses: event parser, NIP-98 checker
-- [ ] docs/features rows (BIP-340, NIP-01, NIP-98 deviation); vuln-ledger,
+- [~] Fuzz harnesses: event parser, NIP-98 checker (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
+- [~] docs/features rows (BIP-340, NIP-01, NIP-98 deviation); vuln-ledger, (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
       feature-gaps
 
 ### P5 TLA+ room lifecycle — est. 1 day
