@@ -63,9 +63,10 @@ same line). Related: #340 (per-room containers, deferred).
 - Server checks: kind 27235; `created_at` within ±60 s; `u` equals
   `--public-url` + the CONNECT `:path` byte for byte (the hub never sees the
   scheme/authority, hence the flag); `method` = `CONNECT`; NIP-01 id and
-  BIP-340 signature valid; id not in the replay cache.
+  BIP-340 signature valid; id not in the replay cache. A token refused for
+  any reason is not recorded (P5 S-048).
 - Replay cache: fixed size >= (admission rate limit x 120 s); insert an id
-  only after its signature verified; when full, refuse new tokens (never
+  only after the session is admitted (signature verified AND authorised); when full, refuse new tokens (never
   evict live entries).
 - Room id: 16 random bytes, base64url (22 chars), chosen by the creator's
   browser. Share link `?room=<id>&host=<hex>`; the server refuses a join
@@ -144,7 +145,9 @@ name before any check (low value: room ids are random).
   attacker with several domains can still hold the 3 slots for 5 h, and that
   a create naming someone else's domain blocks that domain for up to the 3 s
   lookup.
-- Lifecycle tick: lifetime >= 5 h from create (clock never rewinds);
+- Lifecycle tick: each tick first ends every room whose timer is due, then
+  advances time [P5: TimeWaitsForDueEnds]; lifetime >= 5 h from create
+  (clock never rewinds);
   alone >= 30 min, started when the member count becomes 1 and stopped at
   any other count; empty >= 60 s, likewise for 0 members [P5: G20]; host end = a kind 30313 with `status=ended`, `a` = this
   room's space, `pubkey` = host, newest by `created_at` and created after
@@ -258,15 +261,16 @@ name before any check (low value: room ids are random).
 - [~] Spec + TLC + mutation oracle; Gherkin from counterexamples (10 cfgs No error, guard mutants 34/34; remaining: readback, reviewer, one true survivor -> P6 test)
 
 ### P3 hub / SDK hooks — est. 2-3 days
-- [ ] `moqctl_setup` keeps the auth token value (view)
-- [ ] Session argument on the three authorize hooks; all callers updated
-      (examples, guide snippets + goldens, fuzz, tests, docs)
-- [ ] Sync admission hook (session + token); hub close with reason
-- [ ] Read-only object tap on a namespace prefix (size cap)
-- [ ] Room-scaled capacities as formulas + `_Static_assert`s; per-session
-      caps fixed
-- [ ] view-check entries for new stored views (room table, token copy, tap)
-- [ ] Tests per hook; measure BSS / RSS of a 3-room x 4-person hub
+- [~] `moqctl_setup` keeps the auth token value (view) -- done, uncommitted (test_mthk_setup_keeps_first_token, test_mthk_setup_token_alias_types); left: commit
+- [~] Session argument on the three authorize hooks; all callers updated
+      (examples, guide snippets + goldens, fuzz, tests, docs) -- done, uncommitted (test_moqtrun_subscribe_requires_authorization et al.); left: commit
+- [~] Sync admission hook (session + token); hub close with reason -- done, uncommitted: hub.admit, wired_moqt_close (callable inside admit / authorize / tap), a closing session is no longer read (requests, Objects, datagrams), legacy sessions closed UNAUTHORIZED while admit is set, full peer table closes INTERNAL_ERROR (test_mthk_admit_*, test_mthk_close_*). On-close / async verdict / timers reuse srvrun's wt_on_session_close and on_step (the app wraps them, as chat_on_session_close / chat_on_step do): no new SDK hook. Left: commit
+- [~] Read-only object tap on a namespace prefix (size cap) -- done, uncommitted (hub.tap/tap_prefix/tap_max; test_mthk_tap_prefix_and_cap, test_mthk_close_inside_tap); Subgroup streams only, not datagrams. Left: commit
+- [~] Room-scaled capacities as formulas + `_Static_assert`s; per-session
+      caps fixed -- done, uncommitted (moqt_room.h: REQS 576, per session 67 = 40 + 27 joining FETCHes, FETCHES 41, RDV 81, RDV per session 27, GONE 82; test_moqtrun_repath_table_full is skipped in the room profile, unreachable there). Left: commit
+- [~] view-check entries for new stored views (room table, token copy, tap) -- tap_prefix=caller done, uncommitted; left: room table and token copy (P6)
+- [~] Tests per hook; measure BSS / RSS of a 3-room x 4-person hub -- tests done, BSS of wired_moqt_hub 12.43 MB at the room profile (was ~10.47 MB), uncommitted; left: RSS of a running hub, commit
+- [~] Docs: guide moqt/authorize (admit, close, tap) and concepts/responsibilities (en/ja), docs/features/draft-moq-transport.md, docs/security/protocols.md -- done, uncommitted; left: commit
 
 ### P4 NIP-05 resolver (Go helper, option A) — est. 1-1.5 days
 - [x] https on 443 only; no IP literals / ports; domain <= 253, punycode (3f036b8c9; nip05d main_test.go)
