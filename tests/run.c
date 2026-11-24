@@ -1429,6 +1429,7 @@
 #include "crypto/bip340_test.c"
 #include "app/nostrev_test.c"
 #include "app/nip98_test.c"
+#include "app/chatroom_test.c"
 // clang-format on
 
 int main(void) {
@@ -1971,5 +1972,6 @@ int main(void) {
   test_bip340();
   test_nostrev();
   test_nip98();
+  test_chatroom();
   return TEST_REPORT();
 }

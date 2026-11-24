@@ -1,7 +1,8 @@
 /* moqt_chat's TU-shared declarations: wired_server.c (CLI, hub setup and
  * the entry point), live.c (the live-fragment staging ring behind
- * send_uni2), relay.c (session counting, GOAWAY and relay stats) and
- * access.c (namespace and Origin checks). */
+ * send_uni2), relay.c (session counting, GOAWAY and relay stats),
+ * access.c (namespace and Origin checks) and room_server.c (rooms,
+ * room.h). */
 #ifndef MOQT_CHAT_H
 #define MOQT_CHAT_H
 
@@ -34,6 +35,18 @@ int chat_authorize_room_ns(
     u64                 msg_type,
     const moqctl_ns*    ns,
     const moqctl_token* token);
+
+/* Rooms (room_server.c), on with --public-url: hub hooks and flags. */
+void chat_rooms_setup(wired_moqt_hub* hub, int argc, char** argv);
+/* A new session with its CONNECT :path; the session is gone. */
+void chat_rooms_opened(wired_wt_session* s, wired_span path);
+void chat_rooms_closed(wired_wt_session* s);
+/* Room timers and the nip05d client, once per step. */
+void chat_rooms_step(u64 now_ms);
+/* GOAWAY to each room member with uri plus its ?room=&host=. */
+void chat_rooms_goaway(const char* uri, u64 timeout_ms);
+/* One line of the admission counters (with the relay-stats line). */
+void chat_rooms_log(void);
 
 /* WIRED_ALLOWED_ORIGINS set: CONNECTs whose Origin is not listed get 403. */
 void chat_origin_setup(wired_srvrun_opt* run, int argc, char** argv);

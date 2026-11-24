@@ -234,6 +234,7 @@ __attribute__((used)) int wired_main(int argc, char** argv) {
   cert_setup(&id, &obs, argc, argv);
   chat_goaway_setup(argc, argv);
   hub_setup();
+  chat_rooms_setup(&g_hub, argc, argv);
   run_setup(&opt, argc, argv);
 
   if (!wired_srvdriver_run(&id, h, obs, &opt)) {

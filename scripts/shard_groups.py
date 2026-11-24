@@ -57,6 +57,7 @@ OVERRIDES = {
     "bssl_ed25519": "crypto/asymmetric/ecc/ed25519",
     "bssl_x25519": "tls/handshake/core/tls",
     "nostrev": "app/nostr/event",
+    "chatroom": "app/nostr/nip98",
 }
 
 # Tests that share static helpers (or a production-static counter) across

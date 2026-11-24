@@ -2,6 +2,7 @@
  * relay-stats log line. */
 
 #include "moqt_chat.h"
+#include "room.h"
 
 /* Live/closed session counts for the relay-stats line: incremented and
  * decremented by the wrappers below, read by chat_log_relay_stats. */
@@ -14,6 +15,7 @@ void chat_on_session(
     void* ctx, wired_wt_session* s, wired_span path, wired_span protocol) {
   g_sessions_live++;
   wired_moqt_on_session(ctx, s, path, protocol);
+  chat_rooms_opened(s, path);
 }
 
 /* wired_wt_on_session_close-shaped: frees the session's staging ring (its
@@ -24,6 +26,7 @@ void chat_on_session_close(void* ctx, wired_wt_session* s) {
   }
   g_sessions_closed++;
   chat_live_release(s);
+  chat_rooms_closed(s);
   wired_moqt_on_session_close(ctx, s);
 }
 
@@ -99,8 +102,11 @@ void chat_goaway_setup(int argc, char** argv) {
   if (!g_goaway_uri) {
     g_goaway_uri = "";
   }
-  if (wired_cstr_len(g_goaway_uri) > WIRED_MOQTRUN_GOAWAY_URI_MAX) {
-    wired_die("WIRED_GOAWAY_URI: longer than 8192 bytes\n");
+  /* room members get ?room=&host= appended (chatroom_goaway_uri) */
+  if (wired_cstr_len(g_goaway_uri) >
+      WIRED_MOQTRUN_GOAWAY_URI_MAX - CHATROOM_GOAWAY_EXTRA) {
+    wired_die(
+        "WIRED_GOAWAY_URI: longer than 8094 bytes (8192 less ?room=&host=)\n");
   }
 }
 
@@ -113,6 +119,7 @@ static void goaway_on_shutdown(wired_moqt_hub* hub) {
     return;
   }
   sent = 1;
+  chat_rooms_goaway(g_goaway_uri, GOAWAY_TIMEOUT_MS);
   wired_moqt_goaway(hub, wired_span_cstr(g_goaway_uri), GOAWAY_TIMEOUT_MS);
   wired_log_str("moqt: shutdown requested, GOAWAY sent\n");
 }
@@ -125,6 +132,7 @@ static void goaway_on_shutdown(wired_moqt_hub* hub) {
 void chat_on_step(void* ctx, u64 now_ms) {
   static u64 next_ms;
   wired_moqt_tick((wired_moqt_hub*)ctx, now_ms);
+  chat_rooms_step(now_ms);
   goaway_on_shutdown((wired_moqt_hub*)ctx);
   if (now_ms < next_ms) {
     return;
@@ -132,5 +140,6 @@ void chat_on_step(void* ctx, u64 now_ms) {
   next_ms = now_ms + 10000;
   if (relay_stats_moved()) {
     chat_log_relay_stats((wired_moqt_hub*)ctx, "moqt relay(10s): ");
+    chat_rooms_log();
   }
 }
