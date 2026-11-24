@@ -1,7 +1,9 @@
 "use client";
 
+import { useRef } from "react";
 import type { BackgroundMode } from "@/lib/videoSourceMachine";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
+import { Icon } from "./icons";
 
 const BACKGROUNDS: { value: BackgroundMode; label: string }[] = [
 	{ value: "none", label: "None" },
@@ -23,6 +25,7 @@ export function VideoSection({
 	onPickFile: (file: File) => void;
 }) {
 	const video = useMoqtChatStore((s) => s.video);
+	const fileRef = useRef<HTMLInputElement>(null);
 	const toggle = (source: "camera" | "file", label: string) => (
 		<button
 			type="button"
@@ -56,11 +59,24 @@ export function VideoSection({
 				</select>
 			</label>
 			{toggle("file", "Video file")}
-			<label className="volume">
+			{/* The native input stays hidden: its button and "no file" text
+			    follow the browser's locale, not the page's English. */}
+			<div className="volume">
 				<span className="volume__label">Other mp4</span>
+				<button
+					type="button"
+					className="sign sign--outline"
+					disabled={!connected}
+					onClick={() => fileRef.current?.click()}
+				>
+					<Icon name="file" />
+					Choose video file
+				</button>
 				<input
 					type="file"
 					accept="video/mp4"
+					hidden
+					ref={fileRef}
 					data-testid="video-file-input"
 					disabled={!connected}
 					onChange={(e) => {
@@ -69,7 +85,7 @@ export function VideoSection({
 						if (file) onPickFile(file);
 					}}
 				/>
-			</label>
+			</div>
 			{video.error && (
 				<p className="caption" role="alert" data-testid="video-error">
 					{video.error}

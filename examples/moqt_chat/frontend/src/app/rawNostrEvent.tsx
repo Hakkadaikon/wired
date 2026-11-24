@@ -1,9 +1,10 @@
 "use client";
 
 import { npubEncode } from "nostr-tools/nip19";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { type NostrProfile, shortNpub } from "@/lib/nostr";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
+import { Tooltip } from "./tooltip";
 
 /** A Nostr author: avatar, then the kind 0 display_name over "@name"
  * (NIP-24), falling back to name, then the short npub; the full npub is the
@@ -48,47 +49,17 @@ const VERIFIED = "Verified Nostr event: id and BIP-340 signature checked";
 
 /** The check under a Nostr post; its tooltip shows on hover and on focus. */
 function VerifiedMark() {
-	const tipId = useId();
-	const ref = useRef<HTMLSpanElement>(null);
-	const [dismissed, setDismissed] = useState(false);
-	// WCAG 1.4.13: Esc hides the shown tip without moving focus; the next
-	// hover or focus shows it again. The tip sits inside the hovered span.
-	useEffect(() => {
-		const el = ref.current;
-		if (!el) return;
-		const show = () => setDismissed(false);
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape" && el.matches(":hover, :focus-within"))
-				setDismissed(true);
-		};
-		window.addEventListener("keydown", onKey);
-		el.addEventListener("mouseenter", show);
-		el.addEventListener("focusin", show);
-		return () => {
-			window.removeEventListener("keydown", onKey);
-			el.removeEventListener("mouseenter", show);
-			el.removeEventListener("focusin", show);
-		};
-	}, []);
 	return (
-		<span
-			className="verified"
-			ref={ref}
-			data-dismissed={dismissed || undefined}
-		>
+		<Tooltip tip={VERIFIED}>
 			<button
 				type="button"
 				className="verified__mark"
 				aria-label="Verified Nostr event"
-				aria-describedby={tipId}
 				data-testid="nostr-verified"
 			>
 				✓
 			</button>
-			<span className="verified__tip caption" role="tooltip" id={tipId}>
-				{VERIFIED}
-			</span>
-		</span>
+		</Tooltip>
 	);
 }
 

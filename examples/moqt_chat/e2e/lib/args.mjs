@@ -20,11 +20,14 @@ export function withDefaultRoom(url) {
 }
 
 /** Points the join form's server URL at E2E_SERVER_URL (the page defaults
- * to 4433). */
+ * to 4433), opening the Advanced disclosure so the url and certHash inputs
+ * can be typed into. */
 export async function setServerUrl(page) {
 	await page.$eval(
 		'input[data-testid="url"]',
 		(el, v) => {
+			const details = el.closest("details");
+			if (details) details.open = true;
 			Object.getOwnPropertyDescriptor(
 				HTMLInputElement.prototype,
 				"value",

@@ -50,7 +50,12 @@ const q = (el: HTMLElement, id: string) =>
 describe("RoomPicker", () => {
 	it("without a room, Create room needs a Nostr login (the creator hosts)", () => {
 		const el = render({ room: null });
-		expect(q(el, "create-room")?.hasAttribute("disabled")).toBe(true);
+		expect(q(el, "create-room")?.getAttribute("aria-disabled")).toBe("true");
+		expect(q(el, "create-blocker")?.textContent).toBe(
+			"Log in with Nostr to create a room: you become its host.",
+		);
+		act(() => q(el, "create-room")?.click());
+		expect(location.search).toBe("");
 		expect(q(el, "share-link")).toBeNull();
 	});
 
@@ -63,8 +68,8 @@ describe("RoomPicker", () => {
 	it("a login without a kind 0 nip05 cannot create: it says why", () => {
 		login();
 		const el = render({ room: null });
-		expect(q(el, "create-room")?.hasAttribute("disabled")).toBe(true);
-		expect(q(el, "nip05-required")?.textContent).toBe(
+		expect(q(el, "create-room")?.getAttribute("aria-disabled")).toBe("true");
+		expect(q(el, "create-blocker")?.textContent).toBe(
 			"A NIP-05 address is required to create a room",
 		);
 	});
@@ -74,6 +79,8 @@ describe("RoomPicker", () => {
 		history.replaceState(null, "", "/?relays=");
 		const onRoom = vi.fn();
 		const el = render({ room: null, onRoom });
+		expect(q(el, "create-room")?.getAttribute("aria-disabled")).toBe("false");
+		expect(q(el, "create-blocker")).toBeNull();
 		act(() => q(el, "create-room")?.click());
 		const link: RoomLink = onRoom.mock.calls[0][0];
 		expect(isRoomId(link.id)).toBe(true);

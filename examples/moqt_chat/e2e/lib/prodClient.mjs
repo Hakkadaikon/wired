@@ -128,7 +128,7 @@ export async function joinProd(
 	return { id: participantId, page, errors, joinedAt: Date.now() };
 }
 
-/** Leaves the room (clicks "← Leave") without closing the tab -- lets a
+/** Leaves the room (clicks the "Leave" button) without closing the tab -- lets a
  * scenario simulate the same tab rejoining, matching a real user's
  * refresh/rejoin more closely than closing and reopening a page. No
  * data-testid exists on this button in production markup (it's plain

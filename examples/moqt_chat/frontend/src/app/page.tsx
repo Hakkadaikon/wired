@@ -14,13 +14,7 @@ import {
 	type ChatAttachment as WireChatAttachment,
 } from "@/lib/moqtClient";
 import type { ScreenQuality } from "@/lib/moqtScreenClient";
-import {
-	DEFAULT_NOSTR_RELAYS,
-	nostrLogin,
-	nostrRelays,
-	parseRelayList,
-	shortNpub,
-} from "@/lib/nostr";
+import { nostrRelays, parseRelayList } from "@/lib/nostr";
 import {
 	acceptPresence,
 	countReactions,
@@ -44,19 +38,25 @@ import {
 	SCREEN_TILE_MIN_PX,
 	SCREEN_TILE_STEP_PX,
 } from "@/lib/screenTileSize";
+import { isMuteShortcut } from "@/lib/shortcuts";
 import {
 	type ChatMessage,
-	lookupNostrName,
 	resolveDisplayName,
 	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
+import { Icon } from "./icons";
+import {
+	DEFAULT_RELAYS_TEXT,
+	DEFAULT_URL,
+	JoinScreen,
+	NostrAccount,
+} from "./joinScreen";
 import { NostrAuthor, NostrName, RawNostrEvent } from "./rawNostrEvent";
-import { RoomPicker } from "./roomPicker";
 import { Countdown, RoomClosed, useEndOnRoomClosed } from "./roomStatus";
+import { Tooltip } from "./tooltip";
 import { VideoSection } from "./videoSection";
 import { Wordmark } from "./wordmark";
 
-const DEFAULT_URL = "https://localhost:4433/";
 const DEFAULT_PARTICIPANT_ID = CANDIDATE_PARTICIPANT_IDS[0];
 
 const STATUS_LABEL: Record<string, string> = {
@@ -82,14 +82,21 @@ function Status() {
 function MicToggle({ onToggleMute }: { onToggleMute: () => void }) {
 	const muted = useMoqtChatStore((s) => s.muted);
 	return (
-		<button
-			type="button"
-			className={muted ? "sign sign--outline" : "sign"}
-			data-testid="mic-toggle"
-			onClick={onToggleMute}
-		>
-			{muted ? "Mic off" : "Mic on"}
-		</button>
+		<Tooltip tip="Mute or unmute (M)">
+			<button
+				type="button"
+				className={muted ? "sign sign--outline" : "sign"}
+				aria-pressed={!muted}
+				data-testid="mic-toggle"
+				onClick={onToggleMute}
+			>
+				<Icon name={muted ? "micOff" : "mic"} />
+				Mic{" "}
+				<span className="sign__state" aria-hidden="true">
+					{muted ? "off" : "on"}
+				</span>
+			</button>
+		</Tooltip>
 	);
 }
 
@@ -102,10 +109,15 @@ function NoiseSuppressionToggle() {
 		<button
 			type="button"
 			className={enabled ? "sign" : "sign sign--outline"}
+			aria-pressed={enabled}
 			data-testid="ns-toggle"
 			onClick={() => setNoiseSuppressionEnabled(!enabled)}
 		>
-			{enabled ? "NS on" : "NS off"}
+			<Icon name="wave" />
+			Noise suppression{" "}
+			<span className="sign__state" aria-hidden="true">
+				{enabled ? "on" : "off"}
+			</span>
 		</button>
 	);
 }
@@ -119,11 +131,12 @@ function HandToggle() {
 	return (
 		<button
 			type="button"
-			className={hand ? "sign sign--red" : "sign sign--outline"}
+			className={hand ? "sign sign--primary" : "sign sign--outline"}
 			aria-pressed={hand}
 			data-testid="hand-toggle"
 			onClick={toggleHand}
 		>
+			<Icon name={hand ? "check" : "hand"} />
 			Raise hand
 		</button>
 	);
@@ -213,6 +226,7 @@ function ScreenShareToggle({
 			data-testid="screen-toggle"
 			onClick={sharing ? onStop : onStart}
 		>
+			<Icon name="screen" />
 			{sharing ? "Stop sharing" : "Share screen"}
 		</button>
 	);
@@ -729,9 +743,11 @@ function NostrFoot({ m }: { m: ChatMessage }) {
 
 function Message({ m }: { m: ChatMessage }) {
 	const deleted = useNostrPost(m)?.deleted;
-	const time = new Date(m.at).toLocaleTimeString([], {
+	// A fixed English 24 h clock, not the browser's locale (D-29).
+	const time = new Date(m.at).toLocaleTimeString("en", {
 		hour: "2-digit",
 		minute: "2-digit",
+		hourCycle: "h23",
 	});
 	// The Blob URLs are created once (attachBlobUrls in useMoqtChat.ts) and
 	// belong to this message instance for its whole lifetime, so revoke them
@@ -976,16 +992,17 @@ function Compose({
 				ref={fileInputRef}
 				onChange={(e) => void pickFiles(e)}
 			/>
-			<button
-				type="button"
-				className="sign sign--outline sign--icon"
-				aria-label="Attach images or videos"
-				title="Attach images or videos"
-				disabled={disabled}
-				onClick={() => fileInputRef.current?.click()}
-			>
-				📎
-			</button>
+			<Tooltip tip="Attach images or videos">
+				<button
+					type="button"
+					className="sign sign--outline sign--icon"
+					aria-label="Attach images or videos"
+					disabled={disabled}
+					onClick={() => fileInputRef.current?.click()}
+				>
+					<Icon name="paperclip" />
+				</button>
+			</Tooltip>
 			<button
 				type="button"
 				className="sign sign--primary"
@@ -998,57 +1015,6 @@ function Compose({
 	);
 }
 
-const DEFAULT_RELAYS_TEXT = DEFAULT_NOSTR_RELAYS.join("\n");
-
-// NIP-07 login: the extension holds the key and signs; this page only learns
-// the pubkey. Logged in, text messages go out as signed kind 1311 events.
-// Lives in the join masthead's top right; errors are a caption under it.
-function NostrAccount({ setNickname }: { setNickname: (v: string) => void }) {
-	const pubkey = useMoqtChatStore((s) => s.nostrPubkey);
-	const [error, setError] = useState<string | null>(null);
-	const login = async () => {
-		try {
-			const pk = await nostrLogin();
-			useMoqtChatStore.getState().setNostrPubkey(pk);
-			setNickname(shortNpub(pk));
-			setError(null);
-			lookupNostrName(pk);
-		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
-		}
-	};
-	const logout = () => {
-		useMoqtChatStore.getState().setNostrPubkey(null);
-		setNickname("");
-	};
-	return (
-		<div className="account">
-			{pubkey ? (
-				<>
-					<span className="account__who" data-testid="nostr-user">
-						<NostrAuthor pubkey={pubkey} />
-					</span>
-					<button type="button" className="link" onClick={logout}>
-						Log out
-					</button>
-				</>
-			) : (
-				<button
-					type="button"
-					className="sign sign--nostr"
-					data-testid="nostr-login"
-					onClick={() => void login()}
-				>
-					Log in with Nostr
-				</button>
-			)}
-			<span className="account__error caption" aria-live="polite">
-				{error}
-			</span>
-		</div>
-	);
-}
-
 /** The logged-in identity at the end of the room masthead's tool row. */
 function NostrIdentity() {
 	const pubkey = useMoqtChatStore((s) => s.nostrPubkey);
@@ -1057,160 +1023,6 @@ function NostrIdentity() {
 		<span className="account__who" data-testid="nostr-identity">
 			<NostrAuthor pubkey={pubkey} />
 		</span>
-	);
-}
-
-function NostrRelays({
-	relaysText,
-	setRelaysText,
-}: {
-	relaysText: string;
-	setRelaysText: (v: string) => void;
-}) {
-	return (
-		<div className="field">
-			<label className="field__label" htmlFor="nostr-relays">
-				Profile relays (read-only, one wss:// URL per line)
-			</label>
-			<textarea
-				id="nostr-relays"
-				rows={5}
-				value={relaysText}
-				data-testid="nostr-relays"
-				onChange={(e) => setRelaysText(e.target.value)}
-				onBlur={() => setRelaysText(parseRelayList(relaysText).join("\n"))}
-			/>
-			<span className="field__hint caption">
-				Only names (kind 0) are read from these; chat stays on the hub.
-			</span>
-			<button
-				type="button"
-				className="link"
-				onClick={() => setRelaysText(DEFAULT_RELAYS_TEXT)}
-			>
-				Reset relays to defaults
-			</button>
-		</div>
-	);
-}
-
-function JoinScreen({
-	url,
-	setUrl,
-	certHash,
-	setCertHash,
-	nickname,
-	setNickname,
-	participantId,
-	setParticipantId,
-	connecting,
-	onJoin,
-	onClearSaved,
-	relaysText,
-	setRelaysText,
-	room,
-	roomError,
-	setRoom,
-}: {
-	url: string;
-	setUrl: (v: string) => void;
-	certHash: string;
-	setCertHash: (v: string) => void;
-	nickname: string;
-	setNickname: (v: string) => void;
-	participantId: string;
-	setParticipantId: (v: string) => void;
-	connecting: boolean;
-	onJoin: () => void;
-	onClearSaved: () => void;
-	relaysText: string;
-	setRelaysText: (v: string) => void;
-	room: RoomLink | null;
-	roomError: string | null;
-	setRoom: (v: RoomLink) => void;
-}) {
-	return (
-		<div className="cover">
-			<div>
-				<h1>Join the room</h1>
-				<p className="cover__lede">
-					Voice, screen sharing and text over one MOQT session. Pick a
-					participant id and connect to the hub.
-				</p>
-			</div>
-			<RoomPicker room={room} error={roomError} onRoom={setRoom} />
-			<form
-				className="form"
-				onSubmit={(e) => {
-					e.preventDefault();
-					if (!connecting && room) onJoin();
-				}}
-			>
-				<label className="field">
-					<span className="field__label">Server URL</span>
-					<input
-						placeholder={DEFAULT_URL}
-						value={url}
-						data-testid="url"
-						onChange={(e) => setUrl(e.target.value)}
-					/>
-				</label>
-				<label className="field">
-					<span className="field__label">Certificate hash (SHA-256)</span>
-					<input
-						placeholder="hex fingerprint"
-						value={certHash}
-						data-testid="certHash"
-						onChange={(e) => setCertHash(e.target.value)}
-					/>
-					<span className="field__hint caption">
-						Copy it from the server&apos;s startup log. Leave empty for a
-						CA-signed certificate.
-					</span>
-				</label>
-				<label className="field">
-					<span className="field__label">Nickname (optional)</span>
-					<input
-						placeholder="Shown instead of your participant id"
-						value={nickname}
-						data-testid="nickname"
-						onChange={(e) => setNickname(e.target.value)}
-					/>
-				</label>
-				<NostrRelays relaysText={relaysText} setRelaysText={setRelaysText} />
-				<div className="field">
-					<span className="field__label">Participant ID</span>
-					<div className="tiles" data-testid="author">
-						{CANDIDATE_PARTICIPANT_IDS.map((id) => (
-							<button
-								key={id}
-								type="button"
-								className="tile"
-								aria-pressed={id === participantId}
-								data-testid={`participant-${id}`}
-								onClick={() => setParticipantId(id)}
-							>
-								{id}
-							</button>
-						))}
-					</div>
-				</div>
-				<button
-					type="submit"
-					className="sign sign--red"
-					disabled={connecting || !room}
-					data-testid="connect"
-				>
-					{connecting ? "Connecting…" : "→ Join"}
-				</button>
-				<button type="button" className="link" onClick={onClearSaved}>
-					Clear saved info
-				</button>
-			</form>
-			<div className="cover__mark">
-				<Wordmark height="6em" />
-			</div>
-		</div>
 	);
 }
 
@@ -1307,6 +1119,7 @@ export default function Home() {
 	};
 
 	const connecting = connectionState === "connecting";
+	const pins = certHash.trim() ? [certHash.trim()] : [];
 	const lost = joined && connectionState === "disconnected";
 	// Leave, or a final close reason (at once, not on Back): the session,
 	// mic, camera and screen capture stop and the room tools go.
@@ -1317,11 +1130,20 @@ export default function Home() {
 	};
 	useEndOnRoomClosed(exit);
 
+	useEffect(() => {
+		if (!joined) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (isMuteShortcut(e)) toggleMute();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [joined, toggleMute]);
+
 	return (
 		<main className={joined ? "page page--room" : "page"}>
 			<header className="masthead">
 				<div className="masthead__brand">
-					<Wordmark height="1.6em" />
+					<Wordmark height="2em" />
 					<span className="masthead__stem">Chat</span>
 				</div>
 				{joined ? (
@@ -1335,7 +1157,8 @@ export default function Home() {
 							onStop={stopScreenShare}
 						/>
 						<button type="button" className="sign sign--outline" onClick={exit}>
-							← Leave
+							<Icon name="leave" />
+							Leave
 						</button>
 						<NostrIdentity />
 					</div>
@@ -1359,16 +1182,10 @@ export default function Home() {
 				<button
 					type="button"
 					className="sign sign--outline"
-					onClick={() =>
-						void connect(
-							url,
-							participantId,
-							certHash ? [certHash] : [],
-							nickname,
-						)
-					}
+					onClick={() => void connect(url, participantId, pins, nickname)}
 				>
-					→ Rejoin
+					<Icon name="rejoin" />
+					Rejoin
 				</button>
 			</Notice>
 			<Notice
@@ -1444,12 +1261,7 @@ export default function Home() {
 							nickname,
 							relays: parseRelayList(relaysText),
 						});
-						void connect(
-							url,
-							participantId,
-							certHash ? [certHash] : [],
-							nickname,
-						);
+						void connect(url, participantId, pins, nickname);
 					}}
 					onClearSaved={clearSaved}
 					relaysText={relaysText}

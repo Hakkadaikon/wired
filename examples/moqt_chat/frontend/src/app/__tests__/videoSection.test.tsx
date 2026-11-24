@@ -85,6 +85,18 @@ describe("VideoSection", () => {
 		expect(v.props.onPickFile).toHaveBeenCalledExactlyOnceWith(file);
 	});
 
+	it("an English button opens the hidden native picker (no locale text)", () => {
+		const v = render(true);
+		expect(v.input.hidden).toBe(true);
+		const click = vi.spyOn(v.input, "click").mockImplementation(() => {});
+		const pick = v.input.parentElement?.querySelector(
+			"button",
+		) as HTMLButtonElement;
+		expect(pick.textContent).toBe("Choose video file");
+		act(() => pick.click());
+		expect(click).toHaveBeenCalledOnce();
+	});
+
 	it("a cancelled file dialog (no file) picks nothing", () => {
 		const v = render(true);
 		Object.defineProperty(v.input, "files", { value: [] });
