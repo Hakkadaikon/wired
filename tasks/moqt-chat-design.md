@@ -98,7 +98,11 @@ Standing constraints (decided earlier, they override the review text):
       connection dot in the top bar (green / yellow / red)
 - [ ] D-34 Focus ring 2px purple on every interactive element; M toggles mute
       (not while typing)
-- [ ] D-35 Tooltips on every icon button and abbreviation
+- [ ] D-35 Tooltips on every icon button and abbreviation. The small
+      inline hint/annotation texts (too small to read, user 2026-11-24) move
+      into tooltips shown on hover AND keyboard focus (aria-describedby,
+      Esc closes, tap on touch); readable size on the φ scale; no hint
+      text left at the current small size
 - [ ] D-36 Deleted message: "<name> deleted this message" / "You deleted this
       message" (NIP-09: only the author can delete); keeps its height
 - [ ] D-37 Remaining time: yellow < 30 min, red < 5 min, toast at 5 min
