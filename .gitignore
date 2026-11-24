@@ -14,6 +14,8 @@
 /fuzz/fuzz_moqt
 /fuzz/fuzz_moqtrun
 /fuzz/fuzz_mp4frag
+/fuzz/fuzz_nostrev
+/fuzz/fuzz_nip98
 /fuzz/crash-*
 /fuzz/leak-*
 /fuzz/oom-*
