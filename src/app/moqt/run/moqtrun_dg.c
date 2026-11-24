@@ -212,7 +212,7 @@ static void moqtrun_sw_sweep(wired_moqt_hub* hub) {
 void wired_moqt_on_datagram(
     void* app_ctx, wired_wt_session* s, wired_span data) {
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
-  wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
+  wired_moqtrun_peer* p   = moqtrun_open_peer(hub, s); /* not closing */
   if (!moqtrun_dg_ready(hub, p)) {
     return;
   }

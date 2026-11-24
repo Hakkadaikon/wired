@@ -19,8 +19,13 @@ static int room_ns_match(const moqctl_ns* ns) {
 
 /* wired_moqt_authorize_ns_fn: grants a namespace under ROOM_NS only. */
 int chat_authorize_room_ns(
-    void* ctx, u64 msg_type, const moqctl_ns* ns, const moqctl_token* token) {
+    void*               ctx,
+    wired_wt_session*   s,
+    u64                 msg_type,
+    const moqctl_ns*    ns,
+    const moqctl_token* token) {
   (void)ctx;
+  (void)s;
   (void)msg_type;
   (void)token;
   return ns->n >= ROOM_NS_N && room_ns_match(ns);

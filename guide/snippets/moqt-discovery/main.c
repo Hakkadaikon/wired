@@ -6,8 +6,13 @@
  * policy refuses any namespace ending in "secret" (a real deployment
  * would verify the token too; this demo ignores it). */
 static int authorize_ns(
-    void* ctx, u64 msg_type, const moqctl_ns* ns, const moqctl_token* token) {
+    void*               ctx,
+    wired_wt_session*   s,
+    u64                 msg_type,
+    const moqctl_ns*    ns,
+    const moqctl_token* token) {
   (void)ctx;
+  (void)s;
   (void)msg_type;
   (void)token;
   return ns->n == 0 || !wired_span_eq_cstr(ns->fields[ns->n - 1], "secret");

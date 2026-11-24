@@ -156,6 +156,9 @@ void moqtrun_relay_continue(
   moqdata_objseq seq0;
   wired_span     whole =
       moqtrun_relay_normalize(hub, track, relay, wire, &born_ms, &seq0);
+  if (moqtrun_track_closing(hub, track)) {
+    return; /* a hook closed the publisher while this delivery decoded */
+  }
   moqtrun_relay_fin_note(track, relay, fin);
   /* Objects completed before the dropped tail are sound: deliver them,
    * then end the subscriber streams (moqtrun_relay_end_poisoned). */

@@ -805,6 +805,7 @@
 #include "app/moqt/run/moqtrun_hold_replay.c"
 #include "app/moqt/run/moqtrun_hub.c"
 #include "app/moqt/run/moqtrun_setup.c"
+#include "app/moqt/run/moqtrun_hooks.c"
 #include "app/moqt/run/moqtrun_relay_shed.c"
 #include "app/moqt/run/moqtrun_key.c"
 #include "app/moqt/run/moqtrun_late.c"
@@ -1392,6 +1393,7 @@
 #include "app/moqtrun_misc_test.c"
 #include "app/moqtrun_ctlfix_test.c"
 #include "app/moqtrun_sess_test.c"
+#include "app/moqtrun_hooks_test.c"
 #include "app/moqtrun_cc_test.c"
 #include "app/moqtrun_fillfix_test.c"
 #include "app/moqtrun_rdv_test.c"
@@ -1933,6 +1935,7 @@ int main(void) {
   test_moqtrun_rawpeer();
   test_moqtrun_ctlfix();
   test_moqtrun_sess();
+  test_moqtrun_hooks();
   test_moqtrun_cc();
   test_moqtrun_fillfix();
   test_moqtrun_rdv();

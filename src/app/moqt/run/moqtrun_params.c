@@ -12,13 +12,17 @@ static void moqtrun_rngf_scan_one(
     const moqctl_params* params, usz i, moqtrun_rngf_scan* s);
 static moqtrun_rngf_scan moqtrun_rngf_scan_msg(const moqctl_params* params);
 static u64               moqtrun_subscribe_refusal_tail(
-    const wired_moqt_hub* hub, const moqctl_subscribe* m);
+    const wired_moqt_hub* hub, wired_wt_session* s, const moqctl_subscribe* m);
 
 /* Reserved namespaces first (2.4.2/2.4.3: never published under), then
  * the Track Properties (moqtrun_tprops_refused: *code MOQTRUN_REQ_CLOSE
  * for a session close), then authorization. */
 int moqtrun_publish_refused(
-    const wired_moqt_hub* hub, const moqctl_publish* m, u64 caps, u64* code) {
+    const wired_moqt_hub* hub,
+    wired_wt_session*     s,
+    const moqctl_publish* m,
+    u64                   caps,
+    u64*                  code) {
   *code = MOQCTL_ERR_DOES_NOT_EXIST;
   if (moqtrun_ns_reserved(&m->name.ns)) {
     return 1;
@@ -26,7 +30,7 @@ int moqtrun_publish_refused(
   if (moqtrun_tprops_refused(m->track_properties, caps, code)) {
     return 1;
   }
-  return moqtrun_publish_auth_refused(hub, m, code);
+  return moqtrun_publish_auth_refused(hub, s, m, code);
 }
 
 /* draft-22 0x04 whose End Object precedes its Start Object in the same
@@ -138,20 +142,21 @@ u64 moqtrun_params_refusal(const moqctl_params* params) {
 }
 
 static u64 moqtrun_subscribe_refusal_tail(
-    const wired_moqt_hub* hub, const moqctl_subscribe* m) {
+    const wired_moqt_hub* hub, wired_wt_session* s, const moqctl_subscribe* m) {
   u64 code = moqtrun_params_refusal(&m->params);
   if (code != MOQTRUN_REQ_ACCEPT) {
     return code;
   }
-  return moqtrun_subscribe_refused(hub, m, &code) ? code : MOQTRUN_REQ_ACCEPT;
+  return moqtrun_subscribe_refused(hub, s, m, &code) ? code
+                                                     : MOQTRUN_REQ_ACCEPT;
 }
 
 /* Reserved namespaces first (2.4.2/2.4.3), then parameters and
  * authorization. */
 u64 moqtrun_subscribe_refusal(
-    const wired_moqt_hub* hub, const moqctl_subscribe* m) {
+    const wired_moqt_hub* hub, wired_wt_session* s, const moqctl_subscribe* m) {
   if (moqtrun_ns_reserved(&m->name.ns)) {
     return MOQCTL_ERR_DOES_NOT_EXIST;
   }
-  return moqtrun_subscribe_refusal_tail(hub, m);
+  return moqtrun_subscribe_refusal_tail(hub, s, m);
 }

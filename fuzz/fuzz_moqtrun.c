@@ -126,6 +126,7 @@
 #include "app/moqt/run/moqtrun_gone.c"
 #include "app/moqt/run/moqtrun_hold.c"
 #include "app/moqt/run/moqtrun_hold_replay.c"
+#include "app/moqt/run/moqtrun_hooks.c"
 #include "app/moqt/run/moqtrun_hub.c"
 #include "app/moqt/run/moqtrun_key.c"
 #include "app/moqt/run/moqtrun_late.c"
@@ -448,14 +449,22 @@ static wired_moqt_io fz_io(void) {
 
 /* ===================== hub configuration ===================== */
 
-static int fz_deny(void* ctx, const moqctl_ftn* name, const moqctl_token* tok) {
-  (void)ctx, (void)name, (void)tok;
+static int fz_deny(
+    void*               ctx,
+    wired_wt_session*   s,
+    const moqctl_ftn*   name,
+    const moqctl_token* tok) {
+  (void)ctx, (void)s, (void)name, (void)tok;
   return 0;
 }
 
 static int fz_deny_ns(
-    void* ctx, u64 msg_type, const moqctl_ns* ns, const moqctl_token* tok) {
-  (void)ctx, (void)msg_type, (void)ns, (void)tok;
+    void*               ctx,
+    wired_wt_session*   s,
+    u64                 msg_type,
+    const moqctl_ns*    ns,
+    const moqctl_token* tok) {
+  (void)ctx, (void)s, (void)msg_type, (void)ns, (void)tok;
   return 0;
 }
 

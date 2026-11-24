@@ -54,7 +54,7 @@ static void moqtrun_subscribe_checked(
       &m->params, moqtrun_ssts_hub_track(hub, m),
       moqtss_sub_refusal( /* SSTS (moqtssts_run.c) */
           &m->params, moqtrun_ssts_unsettable(hub, p, m),
-          moqtrun_subscribe_refusal(hub, m)));
+          moqtrun_subscribe_refusal(hub, p->wt, m)));
   if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
     return;

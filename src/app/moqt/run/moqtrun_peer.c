@@ -11,7 +11,11 @@ static void moqtrun_init_peer(
     int                 raw);
 static int  moqtrun_negotiated_ver(wired_span protocol);
 static int  moqtrun_legacy_token(wired_span protocol);
-static void moqtrun_refuse_session(wired_moqt_hub* hub, wired_wt_session* s);
+static void moqtrun_refuse_session(
+    wired_moqt_hub* hub, wired_wt_session* s, u32 code);
+static int moqtrun_legacy_shut(const wired_moqt_hub* hub, int legacy);
+static wired_moqtrun_peer* moqtrun_wt_slot(
+    wired_moqt_hub* hub, wired_wt_session* s, int legacy);
 
 static void moqtrun_peer_rx_reset(wired_moqtrun_peer* p) {
   p->peer_ctl_set       = 0;
@@ -81,6 +85,39 @@ static int moqtrun_legacy_token(wired_span protocol) {
   return protocol.n == 0 || moqver_find(protocol) < 0;
 }
 
+/* A session the hub cannot track is closed at once with code, not left
+ * for the idle sweep: INTERNAL_ERROR with no free peer slot (-22 6.6). */
+static void moqtrun_refuse_session(
+    wired_moqt_hub* hub, wired_wt_session* s, u32 code) {
+  if (!hub->io.close_session) {
+    return;
+  }
+  hub->io.close_session(s, code, wired_span_of(0, 0));
+}
+
+/* A legacy session never has to send a client SETUP (moqtrun_hold_gate),
+ * so with an admission hook set it could never be admitted. */
+static int moqtrun_legacy_shut(const wired_moqt_hub* hub, int legacy) {
+  return legacy && hub->admit;
+}
+
+/* A peer slot for a new WT session, or 0 with s closed: UNAUTHORIZED for
+ * a legacy one the admission hook cannot judge, INTERNAL_ERROR when the
+ * peer table is full. */
+static wired_moqtrun_peer* moqtrun_wt_slot(
+    wired_moqt_hub* hub, wired_wt_session* s, int legacy) {
+  wired_moqtrun_peer* p;
+  if (moqtrun_legacy_shut(hub, legacy)) {
+    moqtrun_refuse_session(hub, s, WIRED_MOQTRUN_CLOSE_UNAUTHORIZED);
+    return 0;
+  }
+  p = moqtrun_alloc(hub);
+  if (!p) {
+    moqtrun_refuse_session(hub, s, WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);
+  }
+  return p;
+}
+
 void wired_moqt_on_session(
     void* app_ctx, wired_wt_session* s, wired_span path, wired_span protocol) {
   (void)path;
@@ -97,21 +134,12 @@ void wired_moqt_on_session(
   if (moqtrun_find_by_wt(hub, s)) {
     return;
   }
-  wired_moqtrun_peer* p = moqtrun_alloc(hub);
+  wired_moqtrun_peer* p =
+      moqtrun_wt_slot(hub, s, moqtrun_legacy_token(protocol));
   if (!p) {
     return;
   }
   moqtrun_init_peer(hub, p, s, ver, moqtrun_legacy_token(protocol), 0);
-}
-
-/* A raw session the hub cannot track is closed
- * at once, INTERNAL_ERROR (-22 6.6), not left for the idle sweep. */
-static void moqtrun_refuse_session(wired_moqt_hub* hub, wired_wt_session* s) {
-  if (!hub->io.close_session) {
-    return;
-  }
-  hub->io.close_session(
-      s, WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR, wired_span_of(0, 0));
 }
 
 /* draft-ietf-moq-transport-22 6.2 (-18/-19 3.1): on native QUIC the ALPN
@@ -126,7 +154,7 @@ void wired_moqt_on_session_raw(
   }
   wired_moqtrun_peer* p = moqtrun_alloc(hub);
   if (!p) {
-    moqtrun_refuse_session(hub, s);
+    moqtrun_refuse_session(hub, s, WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);
     return;
   }
   moqtrun_init_peer(hub, p, s, moqtrun_negotiated_ver(alpn), 0, 1);

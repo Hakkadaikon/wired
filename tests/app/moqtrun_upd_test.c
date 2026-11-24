@@ -174,8 +174,13 @@ static void test_moqtrun_tstat_live(void) {
   CHECK(mtup_reply(MTRQ_S1, &body) == MOQCTL_T_REQUEST_OK);
 }
 
-static int mtup_deny(void* ctx, const moqctl_ftn* n, const moqctl_token* t) {
+static int mtup_deny(
+    void*               ctx,
+    wired_wt_session*   s,
+    const moqctl_ftn*   n,
+    const moqctl_token* t) {
   (void)ctx;
+  (void)s;
   (void)n;
   (void)t;
   return 0;
@@ -921,6 +926,7 @@ static void test_moqtrun_publish_requires_authorization(void) {
     moqctl_params p = mtpa_token(tok, sizeof tok);
     mtst_publish_p(SESS_A, ca, &f, 1, &p);
     CHECK(mtauth_seen_name_len == 5); /* "alice" */
+    CHECK(mtauth_seen_sess == SESS_A);
     CHECK(mtauth_seen_type == 1 && mtauth_seen_value_len == 2);
     mtst_subscribe(SESS_B, cb, &f);
     CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);

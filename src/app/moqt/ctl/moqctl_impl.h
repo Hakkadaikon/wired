@@ -127,6 +127,8 @@ int moqctl_pv_token(wired_span buf, usz* at, moqctl_param* p);
  * one is MOQCTL_PARAMS_KVFMT. */
 int moqctl_token_take(wired_span v, moqctl_token* t);
 int moqctl_token_names_alias(const moqctl_token* t);
+/* SETUP's AUTHORIZATION TOKEN option kv onto out (moqctl_token.c). */
+int moqctl_setup_apply_token(moqctl_setup* out, const moqkvp* kv);
 int moqctl_pv_locfilter(wired_span buf, usz* at, moqctl_param* p);
 int moqctl_ssa_weight_ok(u64 w);
 int moqctl_param_take_one(

@@ -2,6 +2,11 @@
 
 static void moqtrun_impl_copy(wired_moqtrun_peer* p, const moqctl_setup* m);
 static void moqtrun_setup_accept(wired_moqtrun_peer* p, const moqctl_setup* m);
+static int  moqtrun_setup_refused(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_span          body,
+    moqctl_setup*       m);
 static void moqtrun_dispatch_setup(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 static void moqtrun_dispatch_pub_notify(
@@ -45,21 +50,33 @@ u64 moqtrun_peer_max_rngf(const wired_moqtrun_peer* p) {
                                                           : 0;
 }
 
+/* 1 when the client's SETUP body closed the session: it does not decode
+ * (moqtrun_setup_take_code) or the app's admission refused it. */
+static int moqtrun_setup_refused(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_span          body,
+    moqctl_setup*       m) {
+  u32 code = moqtrun_setup_take_code(hub, p, body, m);
+  if (code) {
+    moqtrun_close_with(hub, p, code);
+    return 1;
+  }
+  return moqtrun_admit_refused(hub, p, m);
+}
+
 /* draft-19 3.3/10.4: the client's SETUP, on whichever stream 3.3's
  * leniency lets it arrive. Never reached via a request stream --
  * moqtrun_req_allowed rejects SETUP there first. */
 static void moqtrun_dispatch_setup(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqctl_setup m;
-  u32          code;
   (void)peer_idx;
   if (moqtrun_setup_second(p)) {
     moqtrun_second_ctl(hub, p);
     return;
   }
-  code = moqtrun_setup_take_code(hub, p, body, &m);
-  if (code) {
-    moqtrun_close_with(hub, p, code);
+  if (moqtrun_setup_refused(hub, p, body, &m)) {
     return;
   }
   moqtrun_setup_accept(p, &m);
@@ -148,16 +165,25 @@ static void moqtrun_peer_drop_queued(
   }
 }
 
-/* Closes p's session with code, after which nothing more is sent on it;
- * 0 when the io table has no close_session. */
-int moqtrun_peer_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
+/* Closes p's session with code and reason, after which nothing more is
+ * sent on it; 0 when the io table has no close_session. */
+int moqtrun_peer_close_r(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code, wired_span reason) {
+  if (p->closing) {
+    return 0; /* the first close's code and reason stand */
+  }
   if (!hub->io.close_session) {
     return 0;
   }
-  hub->io.close_session(p->wt, code, wired_span_of(0, 0));
+  hub->io.close_session(p->wt, code, reason);
   p->closing = 1;
   moqtrun_peer_drop_queued(hub, p);
   return 1;
+}
+
+/* moqtrun_peer_close_r with an empty reason. */
+int moqtrun_peer_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
+  return moqtrun_peer_close_r(hub, p, code, wired_span_of(0, 0));
 }
 
 /* Closes p's session with code. Every later byte of the stream being
@@ -165,11 +191,18 @@ int moqtrun_peer_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
  * close_session skips the message by its Length instead and keeps the
  * stream alive. */
 void moqtrun_close_with(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
+  moqtrun_close_with_r(hub, p, code, wired_span_of(0, 0));
+}
+
+/* moqtrun_close_with with a reason; 1 when the close went out. */
+int moqtrun_close_with_r(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code, wired_span reason) {
   wired_moqtrun_ctl_asm* a = moqtrun_cur_asm(p);
-  if (!moqtrun_peer_close(hub, p, code)) {
-    return;
+  if (!moqtrun_peer_close_r(hub, p, code, reason)) {
+    return 0;
   }
   moqtrun_asm_drop(a);
+  return 1;
 }
 
 /* draft SS10: an unknown message type MUST close the session; SS3.5

@@ -17,6 +17,14 @@ static void moqtrun_fresh_subgroup_relay(
     u64                 stream_id,
     wired_span          data,
     int                 fin);
+static void moqtrun_fresh_subgroup_go(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* track,
+    u64                  stream_id,
+    wired_span           data,
+    usz                  whole_end,
+    int                  fin);
 
 static int moqtrun_early_room(const wired_moqtrun_peer* p, usz n) {
   return p->early_n + n <= WIRED_MOQTRUN_EARLY_BUF;
@@ -96,6 +104,22 @@ static void moqtrun_fresh_subgroup_relay(
       moqtrun_resolve_fresh_stream_track(hub, p, data, &whole_end, fin);
   if (!track) {
     moqtrun_early_stash(hub, p, stream_id, data, fin);
+    return;
+  }
+  moqtrun_fresh_subgroup_go(hub, p, track, stream_id, data, whole_end, fin);
+}
+
+/* The relay of a fresh stream whose head resolved to track -- none when a
+ * hook closed p while its Objects decoded (wired_moqt_close). */
+static void moqtrun_fresh_subgroup_go(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* track,
+    u64                  stream_id,
+    wired_span           data,
+    usz                  whole_end,
+    int                  fin) {
+  if (p->closing) {
     return;
   }
   track->up_streams++; /* checked against PUBLISH_DONE's Stream Count */

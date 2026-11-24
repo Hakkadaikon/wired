@@ -29,7 +29,11 @@ void chat_log_relay_stats(const wired_moqt_hub* hub, const char* label);
 
 /* wired_moqt_authorize_ns_fn: grants a namespace under the room only. */
 int chat_authorize_room_ns(
-    void* ctx, u64 msg_type, const moqctl_ns* ns, const moqctl_token* token);
+    void*               ctx,
+    wired_wt_session*   s,
+    u64                 msg_type,
+    const moqctl_ns*    ns,
+    const moqctl_token* token);
 
 /* WIRED_ALLOWED_ORIGINS set: CONNECTs whose Origin is not listed get 403. */
 void chat_origin_setup(wired_srvrun_opt* run, int argc, char** argv);

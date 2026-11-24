@@ -946,21 +946,23 @@ static void test_moqtrun_req_per_session_cap(void) {
   CHECK(mtrq_used() == 1);
 }
 
+/* Filler sessions: handles from here up, clear of SESS_A..SESS_D and 5. */
+#define MTRQ_FILLER 64
+
 /* With the pool full a peer-opened bidi stream is reset with
  * EXCESSIVE_LOAD, never read as Object data (draft 3.3: Objects travel on
  * unidirectional streams only). */
 static void test_moqtrun_req_pool_full_resets(void) {
-  wired_wt_session* const sess[] = {SESS_A, SESS_B, SESS_C, SESS_D};
-  wired_wt_session* const late   = (wired_wt_session*)(usz)5;
-  const usz               per    = WIRED_MOQTRUN_MAX_REQS_PER_SESSION;
+  wired_wt_session* const late = (wired_wt_session*)(usz)5;
+  const usz               per  = WIRED_MOQTRUN_MAX_REQS_PER_SESSION;
   mtst_init();
-  for (usz s = 0; s < 4; s++) {
-    mtst_join(sess[s]);
-    for (usz i = 0; i < per; i++) {
-      mtrq_tstat_on(sess[s], MTRQ_ID(i));
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    wired_wt_session* s = (wired_wt_session*)(usz)(MTRQ_FILLER + i / per);
+    if (i % per == 0) {
+      mtst_join(s);
     }
+    mtrq_tstat_on(s, MTRQ_ID(i % per));
   }
-  CHECK(4 * per == WIRED_MOQTRUN_MAX_REQS);
   CHECK(mtrq_used() == WIRED_MOQTRUN_MAX_REQS);
   mtst_join(late);
   mt_feed(
@@ -973,9 +975,6 @@ static void test_moqtrun_req_pool_full_resets(void) {
   CHECK(mtrq_reset_code(MTRQ_S1) == 0x9);
   CHECK(mtrq_closes() == 0);
 }
-
-/* Filler sessions: handles from here up, clear of SESS_A..SESS_D and 5. */
-#define MTRQ_FILLER 64
 
 /* Open TRACK_STATUS requests on fresh filler sessions (at most
  * WIRED_MOQTRUN_MAX_REQS_PER_SESSION each) until leave of the hub's

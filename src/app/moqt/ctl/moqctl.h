@@ -205,6 +205,12 @@ typedef struct {
    * DELETE or USE_ALIAS), which a server receiving SETUP must close on
    * (draft-18 10.3.1.4, draft-22 9.1.4). */
   u8 token_alias_ref;
+  /** 1 when auth_token holds a token (decode only). */
+  u8 has_auth_token;
+  /** The first AUTHORIZATION TOKEN option carrying a value (USE_VALUE, or
+   * REGISTER used as one); its value is a view into the decoded SETUP,
+   * valid during the dispatch only (decode only: never encoded). */
+  moqctl_token auth_token;
   /** 1 when a draft-23 MAX_CONTROL_MESSAGE_SIZE option was present
    * (decode only: this SDK sends none, its limit being the default). */
   u8 has_max_ctl_size;

@@ -76,20 +76,12 @@ void moqtrun_route_subscribe(
     const moqctl_subscribe* m,
     wired_span              body);
 int moqtrun_ns_reserved(const moqctl_ns* ns);
-int moqtrun_subscribe_refused(
-    const wired_moqt_hub* hub, const moqctl_subscribe* m, u64* code);
-int moqtrun_publish_auth_refused(
-    const wired_moqt_hub* hub, const moqctl_publish* m, u64* code);
-int moqtrun_publish_refused(
-    const wired_moqt_hub* hub, const moqctl_publish* m, u64 caps, u64* code);
 usz moqtrun_rngf_count(const moqctl_params* params);
 u64 moqtrun_rngf_refusal(const moqctl_params* params);
 int moqtrun_rngf_rows_over(
     const wired_moqtrun_rngrow* rows, usz n, const moqctl_params* params);
-int moqtrun_rngf_over(const wired_moqtrun_sub* s, const moqctl_params* params);
-u64 moqtrun_params_refusal(const moqctl_params* params);
-u64 moqtrun_subscribe_refusal(
-    const wired_moqt_hub* hub, const moqctl_subscribe* m);
+int  moqtrun_rngf_over(const wired_moqtrun_sub* s, const moqctl_params* params);
+u64  moqtrun_params_refusal(const moqctl_params* params);
 void moqtrun_handle_subscribe(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 u8             moqtrun_sub_prio(const wired_moqtrun_sub* s);

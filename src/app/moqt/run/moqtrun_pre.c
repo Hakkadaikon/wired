@@ -75,10 +75,11 @@ void moqtrun_dispatch_held(
   }
 }
 
-/* s's peer in hub, 0 for an unknown session or a NULL hub. */
+/* s's peer in hub, 0 for an unknown or closing session (nothing it sends
+ * is read once the hub closed it) or a NULL hub. */
 static wired_moqtrun_peer* moqtrun_peer_of_ctx(
     wired_moqt_hub* hub, wired_wt_session* s) {
-  return hub ? moqtrun_find_by_wt(hub, s) : 0;
+  return hub ? moqtrun_open_peer(hub, s) : 0;
 }
 
 void wired_moqt_on_stream_data(

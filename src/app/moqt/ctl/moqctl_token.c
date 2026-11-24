@@ -127,3 +127,36 @@ int moqctl_pv_locfilter(wired_span buf, usz* at, moqctl_param* p) {
   moqctl_rangeloc19_take(p->bytes, &a, &p->rl);
   return moqctl_locfilter_exact(p->bytes, &p->lf);
 }
+
+/* The first token carrying a value (USE_VALUE, or REGISTER used as one)
+ * is the one the server's admission sees (moqctl_setup.auth_token). */
+static int moqctl_setup_token_first(
+    const moqctl_setup* out, const moqctl_token* t) {
+  return !out->has_auth_token && !moqctl_token_names_alias(t);
+}
+
+static void moqctl_setup_keep_token(moqctl_setup* out, const moqctl_token* t) {
+  if (moqctl_setup_token_first(out, t)) {
+    out->auth_token     = *t;
+    out->has_auth_token = 1;
+  }
+}
+
+/* AUTHORIZATION TOKEN (draft-18/19 10.3.1.4, draft-22 9.1.4): its Token
+ * must decode (else MOQCTL_R_AUTH_TOKEN, SS10.2.2); an Alias Type
+ * naming an Alias (DELETE / USE_ALIAS) is noted for the server's close.
+ * REGISTER and USE_VALUE are kept (moqctl_setup_keep_token): this SDK
+ * registers no SETUP token, so a REGISTER is used as USE_VALUE, never
+ * AUTH_TOKEN_CACHE_OVERFLOW. */
+int moqctl_setup_apply_token(moqctl_setup* out, const moqkvp* kv) {
+  moqctl_token t = {0};
+  if (kv->type != MOQCTL_OPT_AUTHORIZATION_TOKEN) {
+    return MOQCTL_OK;
+  }
+  if (moqctl_token_take(kv->raw, &t) != MOQCTL_OK) {
+    return MOQCTL_R_AUTH_TOKEN;
+  }
+  out->token_alias_ref |= (u8)moqctl_token_names_alias(&t);
+  moqctl_setup_keep_token(out, &t);
+  return MOQCTL_OK;
+}

@@ -792,8 +792,13 @@ static void test_moqtrun_upfetch_hub_owned(void) {
 /* draft-22 7.4: a reserved (.session) namespace is DOES_NOT_EXIST and an
  * unauthorized FETCH UNAUTHORIZED, both before any routing -- nothing goes
  * upstream even where an announcer of every namespace exists. */
-static int mupf_deny(void* ctx, const moqctl_ftn* name, const moqctl_token* t) {
+static int mupf_deny(
+    void*               ctx,
+    wired_wt_session*   s,
+    const moqctl_ftn*   name,
+    const moqctl_token* t) {
   (void)ctx;
+  (void)s;
   (void)name;
   (void)t;
   return 0;

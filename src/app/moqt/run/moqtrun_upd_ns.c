@@ -9,9 +9,15 @@ static u64 moqtrun_upd_ns_verdict(
 static void moqtrun_upd_ns_forward(
     wired_moqtrun_req* q, const moqctl_params* params);
 static int moqtrun_disc_auth_refused(
-    const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code);
+    const wired_moqt_hub*    hub,
+    const wired_moqtrun_req* q,
+    const moqns_req*         m,
+    u64*                     code);
 static int moqtrun_disc_refused(
-    const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code);
+    const wired_moqt_hub*    hub,
+    const wired_moqtrun_req* q,
+    const moqns_req*         m,
+    u64*                     code);
 
 /* Copies ns into q; 0 when it exceeds WIRED_MOQTRUN_MAX_NS (refused, never
  * truncated). */
@@ -99,24 +105,33 @@ void moqtrun_update_ns(
 /* 10.15 / 10.18: the receiver MUST verify the request is authorized
  * (moqtrun_subscribe_refused's twin). 1 + *code when refused. */
 static int moqtrun_disc_auth_refused(
-    const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code) {
+    const wired_moqt_hub*    hub,
+    const wired_moqtrun_req* q,
+    const moqns_req*         m,
+    u64*                     code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
   *code                 = MOQCTL_ERR_UNAUTHORIZED;
   if (!hub->authorize_namespace) {
     return 0;
   }
-  return !hub->authorize_namespace(hub->authorize_ns_ctx, type, &m->ns, t);
+  return !moqtrun_auth_grant(
+      hub, q->wt,
+      hub->authorize_namespace(
+          hub->authorize_ns_ctx, q->wt, q->kind, &m->ns, t));
 }
 
 /* Reserved namespaces first (2.4.2/2.4.3; a prefix leading with one is
  * just as reserved), then authorization. */
 static int moqtrun_disc_refused(
-    const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code) {
+    const wired_moqt_hub*    hub,
+    const wired_moqtrun_req* q,
+    const moqns_req*         m,
+    u64*                     code) {
   *code = MOQCTL_ERR_DOES_NOT_EXIST;
   if (moqtrun_ns_reserved(&m->ns)) {
     return 1;
   }
-  return moqtrun_disc_auth_refused(hub, type, m, code);
+  return moqtrun_disc_auth_refused(hub, q, m, code);
 }
 
 u64 moqtrun_disc_verdict(
@@ -125,7 +140,7 @@ u64 moqtrun_disc_verdict(
     const moqns_req*      m,
     moqtrun_disc_check_fn check) {
   u64 code;
-  if (moqtrun_disc_refused(hub, q->kind, m, &code)) {
+  if (moqtrun_disc_refused(hub, q, m, &code)) {
     return code;
   }
   if (!moqtrun_disc_record(q, &m->ns)) {

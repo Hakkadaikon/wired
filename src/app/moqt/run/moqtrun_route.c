@@ -131,13 +131,17 @@ int moqtrun_ns_reserved(const moqctl_ns* ns) {
  * closed the session at decode (moqtrun_take_tok_or_close). 1 + *code
  * when refused. */
 int moqtrun_subscribe_refused(
-    const wired_moqt_hub* hub, const moqctl_subscribe* m, u64* code) {
+    const wired_moqt_hub*   hub,
+    wired_wt_session*       s,
+    const moqctl_subscribe* m,
+    u64*                    code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
   *code                 = MOQCTL_ERR_UNAUTHORIZED;
   if (!hub->authorize_subscribe) {
     return 0;
   }
-  return !hub->authorize_subscribe(hub->authorize_ctx, &m->name, t);
+  return !moqtrun_auth_grant(
+      hub, s, hub->authorize_subscribe(hub->authorize_ctx, s, &m->name, t));
 }
 
 /* draft-22 16.3 "Preventing Impersonation" (the same MUST in every
@@ -145,11 +149,15 @@ int moqtrun_subscribe_refused(
  * Track Name. Every PUBLISH passes here before any slot is claimed,
  * moqtrun_subscribe_refused's twin. 1 + *code when refused. */
 int moqtrun_publish_auth_refused(
-    const wired_moqt_hub* hub, const moqctl_publish* m, u64* code) {
+    const wired_moqt_hub* hub,
+    wired_wt_session*     s,
+    const moqctl_publish* m,
+    u64*                  code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
   *code                 = MOQCTL_ERR_UNAUTHORIZED;
   if (!hub->authorize_publish) {
     return 0;
   }
-  return !hub->authorize_publish(hub->authorize_pub_ctx, &m->name, t);
+  return !moqtrun_auth_grant(
+      hub, s, hub->authorize_publish(hub->authorize_pub_ctx, s, &m->name, t));
 }

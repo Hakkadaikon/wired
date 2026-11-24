@@ -323,14 +323,20 @@ static void test_moqtrun_ns_multiple_publishers(void) {
 }
 
 /* Recording namespace authorizer. */
-static int mtns_auth_allow;
-static int mtns_auth_calls;
-static u64 mtns_auth_type;
-static usz mtns_auth_fields;
-static u64 mtns_auth_token_type;
-static int mtns_authorize(
-    void* ctx, u64 msg_type, const moqctl_ns* ns, const moqctl_token* token) {
+static int               mtns_auth_allow;
+static int               mtns_auth_calls;
+static u64               mtns_auth_type;
+static usz               mtns_auth_fields;
+static u64               mtns_auth_token_type;
+static wired_wt_session* mtns_auth_sess;
+static int               mtns_authorize(
+    void*               ctx,
+    wired_wt_session*   s,
+    u64                 msg_type,
+    const moqctl_ns*    ns,
+    const moqctl_token* token) {
   *(int*)ctx += 1;
+  mtns_auth_sess       = s;
   mtns_auth_type       = msg_type;
   mtns_auth_fields     = ns->n;
   mtns_auth_token_type = token ? token->token_type : (u64)-1;
@@ -376,10 +382,12 @@ static void test_moqtrun_ns_authorization(void) {
   CHECK(mtns_is(SESS_A, MTRQ_S1, "ERR:01|"));
   CHECK(mtns_auth_calls == 1);
   CHECK(mtns_auth_type == MOQNS_T_PUBLISH_NAMESPACE);
+  CHECK(mtns_auth_sess == SESS_A);
   CHECK(mtns_auth_fields == 1 && mtns_auth_token_type == 1);
   mtns_sub(SESS_B, MTRQ_S1, "");
   CHECK(mtns_is(SESS_B, MTRQ_S1, "ERR:01|"));
   CHECK(mtns_auth_type == MOQNS_T_SUBSCRIBE_NAMESPACE);
+  CHECK(mtns_auth_sess == SESS_B);
   CHECK(mtns_auth_fields == 0 && mtns_auth_token_type == (u64)-1);
   mtns_auth_allow = 1;
   mtns_req_with_token(

@@ -3,6 +3,10 @@
 
 /* Session close codes beside moqtrun_types.h's. */
 
+/** draft-ietf-moq-transport-19 3.5 / -22 13.1.1 UNAUTHORIZED session
+ * code. */
+#define WIRED_MOQTRUN_CLOSE_UNAUTHORIZED 0x2
+
 /** draft-ietf-moq-transport-19 3.5 GOAWAY_TIMEOUT session code. */
 #define WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT 0x10
 

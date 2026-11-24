@@ -13,7 +13,6 @@ static int moqctl_maxctl_ok(wired_span v, u64* out);
 static int moqctl_maxctl_is(const moqkvp* kv, int ver);
 static int moqctl_setup_apply_maxctl(
     moqctl_setup* out, const moqkvp* kv, int ver);
-static int moqctl_setup_apply_token(moqctl_setup* out, const moqkvp* kv);
 static int moqctl_setup_apply_checked(
     moqctl_setup* out, const moqkvp* kv, int ver);
 static int moqctl_setup_apply_kvp(moqctl_setup* out, const moqkvp* kv, int ver);
@@ -128,23 +127,6 @@ static int moqctl_setup_apply_maxctl(
   }
   out->has_max_ctl_size = 1;
   out->max_ctl_size     = v;
-  return MOQCTL_OK;
-}
-
-/* AUTHORIZATION TOKEN (draft-18/19 10.3.1.4, draft-22 9.1.4): its Token
- * must decode (else MOQCTL_R_AUTH_TOKEN, SS10.2.2); an Alias Type
- * naming an Alias (DELETE / USE_ALIAS) is noted for the server's close.
- * REGISTER and USE_VALUE need nothing: this SDK registers no SETUP token,
- * so a REGISTER is used as USE_VALUE, never AUTH_TOKEN_CACHE_OVERFLOW. */
-static int moqctl_setup_apply_token(moqctl_setup* out, const moqkvp* kv) {
-  moqctl_token t = {0};
-  if (kv->type != MOQCTL_OPT_AUTHORIZATION_TOKEN) {
-    return MOQCTL_OK;
-  }
-  if (moqctl_token_take(kv->raw, &t) != MOQCTL_OK) {
-    return MOQCTL_R_AUTH_TOKEN;
-  }
-  out->token_alias_ref |= (u8)moqctl_token_names_alias(&t);
   return MOQCTL_OK;
 }
 

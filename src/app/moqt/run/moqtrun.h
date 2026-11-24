@@ -1,6 +1,7 @@
 #ifndef WIRED_MOQTRUN_H
 #define WIRED_MOQTRUN_H
 
+#include "app/moqt/run/moqtrun_hooks.h"
 #include "app/moqt/run/moqtrun_types.h"
 
 /** @file
@@ -401,30 +402,9 @@ typedef struct {
   int sent_any[WIRED_MOQTRUN_MAX_SUBS];   /**< 0 until the first send */
 } wired_moqtrun_live;
 
-/** draft-ietf-moq-transport-19 SS13.3 authorization hook: as
- * authorize_subscribe the hub calls it once per SUBSCRIBE and per
- * TRACK_STATUS naming a known track, as authorize_publish once per
- * PUBLISH, each with the Full Track Name and the presented AUTHORIZATION
- * TOKEN (Alias Type USE_VALUE; 0 when the message carried none). Return
- * non-zero to grant, 0 to answer REQUEST_ERROR UNAUTHORIZED. The token scheme
- * (CAT / Privacy Pass) is the deployment's to verify -- this SDK carries the
- * bytes, not the policy. */
-typedef int (*wired_moqt_authorize_fn)(
-    void* ctx, const moqctl_ftn* name, const moqctl_token* token);
-
-/** draft-ietf-moq-transport-19 10.15 / 10.18 namespace authorization
- * hook: the hub calls it once per PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE
- * or SUBSCRIBE_TRACKS (msg_type MOQNS_T_PUBLISH_NAMESPACE /
- * MOQNS_T_SUBSCRIBE_NAMESPACE / MOQCTL_T_SUBSCRIBE_TRACKS) with the
- * Track Namespace or Prefix and the presented AUTHORIZATION TOKEN
- * (Alias Type USE_VALUE; 0 when the message carried none). Return non-zero
- * to grant, 0 to answer REQUEST_ERROR UNAUTHORIZED. */
-typedef int (*wired_moqt_authorize_ns_fn)(
-    void* ctx, u64 msg_type, const moqctl_ns* ns, const moqctl_token* token);
-
 /** The hub's whole state: fixed peer table plus the io table it sends
  * through. Zero-initialize with wired_moqt_init before first use.
- * views: blob_wire=caller */
+ * views: blob_wire=caller, tap_prefix=caller */
 typedef struct {
   /** One slot per connected session (wired_moqtrun_peer.in_use). */
   wired_moqtrun_peer peers[WIRED_MOQTRUN_MAX_SESSIONS];
@@ -705,6 +685,22 @@ typedef struct {
    * (draft-19 10.3.1.5, 13.8: privacy-conscious deployments); 0 (the
    * wired_moqt_init default) sends the name and major version. */
   u8 no_implementation;
+  /** Session admission at the client's SETUP (wired_moqt_admit_fn); 0
+   * (the wired_moqt_init default) admits every session. */
+  wired_moqt_admit_fn admit;
+  /** Opaque first argument handed to admit. */
+  void* admit_ctx;
+  /** Object tap (wired_moqt_tap_fn); 0 (the wired_moqt_init default)
+   * taps nothing. */
+  wired_moqt_tap_fn tap;
+  /** Opaque first argument handed to tap. */
+  void* tap_ctx;
+  /** Encoded Track Namespace prefix (count + Length-prefixed fields, as
+   * moqctl_ns_put writes it) a tapped track's namespace starts with,
+   * field-wise; a caller-owned view. Empty matches every namespace. */
+  wired_span tap_prefix;
+  /** Largest Object payload, in bytes, handed to tap (0: empty only). */
+  usz tap_max;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
@@ -723,9 +719,13 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io);
 int wired_moqt_cache_attach(wired_moqt_hub* hub, u8* arena, usz size);
 
 /** wired_wt_on_session-shaped: registers a new peer slot for s and opens
- * its control stream carrying SETUP (draft 3.3). app_ctx must be the
- * wired_moqt_hub*. path/protocol are unused (room membership is hub-side
- * fixed, not negotiated). */
+ * its control stream carrying SETUP (draft 3.3); protocol (the WT
+ * subprotocol) picks the draft, path is unused. app_ctx must be the
+ * wired_moqt_hub*. With no free peer slot s is closed INTERNAL_ERROR
+ * through io.close_session (WIRED_MOQTRUN_MAX_SESSIONS), and with
+ * hub->admit set a legacy session (empty or unlisted protocol) is closed
+ * UNAUTHORIZED (wired_moqt_admit_fn): the app sees the close, nothing is
+ * registered. */
 void wired_moqt_on_session(
     void* app_ctx, wired_wt_session* s, wired_span path, wired_span protocol);
 
@@ -778,7 +778,8 @@ void wired_moqt_on_session_raw(
  * reach a subscription only inside its Location Filter (Group-granular on
  * streams), and one whose first byte arrived longer ago than its
  * OBJECT_DELIVERY_TIMEOUT resets its stream with DELIVERY_TIMEOUT
- * (draft 8). */
+ * (draft 8). Once the hub closed a session (a protocol error or
+ * wired_moqt_close) nothing more it sends is read. */
 void wired_moqt_on_stream_data(
     void*             app_ctx,
     wired_wt_session* s,
@@ -799,7 +800,8 @@ void wired_moqt_on_stream_data(
  * 11.3.1: an invalid Type MUST close the session) unless it is padding
  * (Type 0x132B3E29); it, padding and one whose alias matches no track are
  * dropped whole on stat_dg_bad. A session never
- * registered, or an io table whose send_datagram is 0, is a no-op. */
+ * registered or already closing, or an io table whose send_datagram is 0,
+ * is a no-op. */
 void wired_moqt_on_datagram(
     void* app_ctx, wired_wt_session* s, wired_span data);
 
@@ -854,6 +856,29 @@ void wired_moqt_on_stream_reset(
  * @return sessions sent GOAWAY now, or -1 when new_uri is longer than
  *   WIRED_MOQTRUN_GOAWAY_URI_MAX (nothing sent) */
 int wired_moqt_goaway(wired_moqt_hub* hub, wired_span new_uri, u64 timeout_ms);
+
+/** Closes session s with code and reason (WT_CLOSE_SESSION, draft-ietf-
+ * webtrans-http3 6; CONNECTION_CLOSE on raw QUIC). Callable only from
+ * inside the server's own loop -- a callback such as on_step, or a hub
+ * hook (an authorizer, admit, tap) -- like wired_server_wt_close_session.
+ * No reply or request is sent to s any more, and nothing s sends is read:
+ * the rest of the delivery being handled, later requests on any stream,
+ * Objects and datagrams (neither relayed, cached nor tapped). Relay
+ * fan-out of other publishers' Objects to s as a subscriber stops only at
+ * wired_moqt_on_session_close, when its subscriptions go. The peer slot
+ * also stays until then; that call remains safe (as is this again: a
+ * session already closing, or never registered, is a no-op, and the first
+ * close's code and reason stand).
+ * @param hub the hub
+ * @param s the session
+ * @param code the close code (e.g. a draft-22 13.1.1 session error code)
+ * @param reason UTF-8 reason, a view used during the call only, at most
+ *   WTCAPSULE_CLOSE_MESSAGE_MAX (1024) bytes on WebTransport and 48 bytes
+ *   on raw QUIC; the transport truncates a longer one
+ * @return 1 when the close was handed to io.close_session, 0 when s is not
+ *   an open session of hub or io has no close_session */
+int wired_moqt_close(
+    wired_moqt_hub* hub, wired_wt_session* s, u32 code, wired_span reason);
 
 /** wired_wt_on_session_draining-shaped: the peer of s sent
  * WT_DRAIN_SESSION, so s alone is drained as by wired_moqt_goaway (empty

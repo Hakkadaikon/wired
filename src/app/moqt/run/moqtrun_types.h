@@ -21,6 +21,12 @@
  * purpose -- a room-sized deployment, not a general server.
  * ponytail: raise if a real deployment needs more concurrent participants. */
 #define WIRED_MOQTRUN_MAX_SESSIONS 32
+#ifdef WIRED_PROFILE_MOQT_ROOM
+_Static_assert(
+    WIRED_MOQTRUN_MAX_SESSIONS >=
+        WIRED_MOQT_CHAT_MAX_ROOMS * WIRED_MOQT_ROOM_PEOPLE,
+    "every participant of every room has a peer slot");
+#endif
 
 /** Fixed capacity: subscribers recorded against the hub's single published
  * track per session slot (every other connected session, at most). */
@@ -113,7 +119,9 @@ typedef struct {
   /** wired_server_wt_close_session-shaped: closes s (WT_CLOSE_SESSION on
    * WebTransport, CONNECTION_CLOSE on raw QUIC) with a MoQT session
    * termination code (draft-ietf-moq-transport-19 SS3.5, -22 6.6) and
-   * reason; the hub only ever passes WIRED_MOQTRUN_CLOSE_* codes.
+   * reason: a WIRED_MOQTRUN_CLOSE_* code of the hub's own, or the
+   * app's code and reason passed through verbatim (wired_moqt_hub.admit,
+   * wired_moqt_close).
    * Kept last so older positional initializers stay valid; a table built
    * without it (0) never closes a session -- a control message that
    * requires a close is skipped by its Length instead. */
@@ -664,8 +672,11 @@ typedef struct {
 
 /** Request streams one session may hold at once, so one session cannot
  * take the whole pool: a fair quarter of it. Past it a new request stream
- * is reset with EXCESSIVE_LOAD (draft-ietf-moq-transport-19 3.3.4). */
+ * is reset with EXCESSIVE_LOAD (draft-ietf-moq-transport-19 3.3.4). The
+ * moqt_chat room profile fixes it instead (common/profile/moqt_room.h). */
+#ifndef WIRED_MOQTRUN_MAX_REQS_PER_SESSION
 #define WIRED_MOQTRUN_MAX_REQS_PER_SESSION (WIRED_MOQTRUN_MAX_REQS / 4)
+#endif
 _Static_assert(
     WIRED_MOQTRUN_MAX_REQS_PER_SESSION >=
         WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4 + 4 + 4,
@@ -849,8 +860,11 @@ typedef struct {
 #endif
 
 /** Holds one session may own, so one session cannot take the whole table
- * (the WIRED_MOQTRUN_MAX_REQS_PER_SESSION pattern). */
+ * (the WIRED_MOQTRUN_MAX_REQS_PER_SESSION pattern; the room profile fixes
+ * it too). */
+#ifndef WIRED_MOQTRUN_RDV_PER_SESSION
 #define WIRED_MOQTRUN_RDV_PER_SESSION (WIRED_MOQTRUN_MAX_RDV / 4)
+#endif
 
 /** Longest hold, ms: the relay MAY use a shorter timeout (10.2.6). Below
  * the 2 s a runner client allots to rendezvous-timeout: imquic asks 500000

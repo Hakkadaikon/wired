@@ -5,8 +5,12 @@
  * sample's policy grants "public" and refuses everything else (the token
  * carries CAT/Privacy Pass in a real deployment; this demo ignores it). */
 static int authorize(
-    void* ctx, const moqctl_ftn* name, const moqctl_token* token) {
+    void*               ctx,
+    wired_wt_session*   s,
+    const moqctl_ftn*   name,
+    const moqctl_token* token) {
   (void)ctx;
+  (void)s;
   (void)token;
   return wired_span_eq_cstr(name->name, "public");
 }

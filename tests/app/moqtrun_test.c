@@ -14,7 +14,9 @@
 
 /* ===================== recording io stub ===================== */
 
-#define MOQTRUN_TEST_MAX_CALLS 512
+/* Room for a full request pool's replies (mtrq_fill) on top of a
+ * scenario's own calls. */
+#define MOQTRUN_TEST_MAX_CALLS (512 + 2 * WIRED_MOQTRUN_MAX_REQS)
 #define MOQTRUN_TEST_MAX_PAYLOAD 256
 
 typedef struct {
@@ -2265,13 +2267,18 @@ static usz mtauth_subscribe_with_token(u8* dst, const u8* tok, usz n) {
 
 /* Recording authorizer: counts calls, remembers what it was shown, answers
  * mtauth_allow. token==0 is remembered as type (u64)-1. */
-static int mtauth_allow;
-static u64 mtauth_seen_type;
-static usz mtauth_seen_value_len;
-static usz mtauth_seen_name_len;
-static int mtauth_authorize(
-    void* ctx, const moqctl_ftn* name, const moqctl_token* token) {
+static int               mtauth_allow;
+static u64               mtauth_seen_type;
+static usz               mtauth_seen_value_len;
+static usz               mtauth_seen_name_len;
+static wired_wt_session* mtauth_seen_sess;
+static int               mtauth_authorize(
+    void*               ctx,
+    wired_wt_session*   s,
+    const moqctl_ftn*   name,
+    const moqctl_token* token) {
   *(int*)ctx += 1;
+  mtauth_seen_sess      = s;
   mtauth_seen_name_len  = name->name.n;
   mtauth_seen_type      = token ? token->token_type : (u64)-1;
   mtauth_seen_value_len = token ? token->value.n : 0;
@@ -2332,7 +2339,8 @@ static void test_moqtrun_subscribe_requires_authorization(void) {
           g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
       0);
   CHECK(calls == 1);
-  CHECK(mtauth_seen_name_len == 5); /* "alice" */
+  CHECK(mtauth_seen_sess == SESS_B); /* the requesting session */
+  CHECK(mtauth_seen_name_len == 5);  /* "alice" */
   CHECK(mtauth_seen_type == (u64)-1);
   CHECK(mtauth_last_error_code() == MOQCTL_ERR_UNAUTHORIZED);
   CHECK(mtauth_active_subs(&hub->peers[0].tracks[0]) == 0);
@@ -3329,9 +3337,12 @@ static void test_moqtrun_audio_publisher_fin_closes_and_reopens(void) {
   usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
   mt_feed(hub, SESS_A, 999, wired_span_of(first, first_n), 0 /* fin */);
 
+  /* The next whole Object (ID Delta 0, "hi"), then FIN. */
+  static const u8 next[] = {0x00, 0x02, 0x68, 0x69};
   moqtrun_test_reset();
-  mt_feed(hub, SESS_A, 999, wired_span_of(first, first_n), 1 /* fin: close */);
+  mt_feed(hub, SESS_A, 999, wired_span_of(next, sizeof next), 1 /* fin */);
 
+  CHECK(moqtrun_test_count_kind(11) == 0); /* a well-formed stream */
   CHECK(moqtrun_test_count_kind(3) == 1);
   CHECK(moqtrun_test_last_kind(3)->fin == 1);
   CHECK(moqtrun_test_count_kind(5) == 0);

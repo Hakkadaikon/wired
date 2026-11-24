@@ -138,8 +138,12 @@ void moqtrun_req_flush(
   q->upd_answered = 0;
 }
 
-/* Flushes the queue of the stream p is handling. */
+/* Flushes the queue of the stream p is handling; nothing once p's session
+ * is closing (a hook may close it mid-dispatch, wired_moqt_close). */
 void moqtrun_flush_cur(wired_moqt_io* io, wired_moqtrun_peer* p) {
+  if (p->closing) {
+    return;
+  }
   if (p->req) {
     moqtrun_req_flush(io, p->wt, p->req);
     return;

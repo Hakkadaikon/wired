@@ -115,7 +115,7 @@ static int moqtrun_publish_slot_ok(
 static int moqtrun_publish_refuse(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_publish* m) {
   u64 code;
-  if (!moqtrun_publish_refused(hub, m, moqver_caps(p->ver), &code)) {
+  if (!moqtrun_publish_refused(hub, p->wt, m, moqver_caps(p->ver), &code)) {
     return 0;
   }
   moqtrun_refuse_or_close(hub, p, code, m->track_properties);

@@ -113,4 +113,43 @@ void moqtrun_sub_pub_defaults(
 void moqtrun_sub_reresolve(wired_moqtrun_sub* s, const wired_moqtrun_track* t);
 void moqtrun_sub_clamp_pub(wired_moqtrun_sub* s, const wired_moqtrun_track* t);
 
+/* moqtrun_setup.c: closes with a reason */
+int moqtrun_peer_close_r(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code, wired_span reason);
+int moqtrun_close_with_r(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code, wired_span reason);
+
+/* moqtrun_hooks.c: admission, app close, Object tap */
+int moqtrun_track_closing(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t);
+int moqtrun_auth_grant(
+    const wired_moqt_hub* hub, const wired_wt_session* s, int v);
+wired_moqtrun_peer* moqtrun_open_peer(wired_moqt_hub* hub, wired_wt_session* s);
+int                 moqtrun_admit_refused(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_setup* m);
+int moqtrun_tap_obj(
+    const wired_moqt_hub*      hub,
+    const wired_moqtrun_track* t,
+    const moqdata_obj*         o);
+
+/* Authorization verdicts (moqtrun_route.c, moqtrun_params.c) */
+int moqtrun_subscribe_refused(
+    const wired_moqt_hub*   hub,
+    wired_wt_session*       s,
+    const moqctl_subscribe* m,
+    u64*                    code);
+int moqtrun_publish_auth_refused(
+    const wired_moqt_hub* hub,
+    wired_wt_session*     s,
+    const moqctl_publish* m,
+    u64*                  code);
+int moqtrun_publish_refused(
+    const wired_moqt_hub* hub,
+    wired_wt_session*     s,
+    const moqctl_publish* m,
+    u64                   caps,
+    u64*                  code);
+u64 moqtrun_subscribe_refusal(
+    const wired_moqt_hub* hub, wired_wt_session* s, const moqctl_subscribe* m);
+
 #endif

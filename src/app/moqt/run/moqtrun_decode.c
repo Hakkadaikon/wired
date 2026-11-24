@@ -82,11 +82,11 @@ static void moqtrun_track_note_end(
   }
 }
 
-/* One decoded Object of t (0: no track) in group: counted toward the
- * Largest, cached and its end status noted -- unless it makes the track
- * malformed (12.1, or a Mandatory Object Property, 2.5.1), which is only
- * flagged (the Object is not cached, 12.1); the
- * PUBLISH_DONE sweep ends the track (moqtrun_pubdone_ready). */
+/* One decoded Object of t (0: no track) in group: tapped, then counted
+ * toward the Largest, cached and its end status noted -- unless it makes
+ * the track malformed (12.1, or a Mandatory Object Property, 2.5.1), which
+ * is only flagged (the Object is not cached, 12.1; the PUBLISH_DONE sweep
+ * ends the track, moqtrun_pubdone_ready), or its publisher is closing. */
 static void moqtrun_track_obj(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* t,
@@ -95,6 +95,12 @@ static void moqtrun_track_obj(
   moqctl_loc l = moqctl_loc_of(group, o->object_id);
   if (moqtrun_obj_flags_malformed(hub, t, l, o)) {
     t->malformed = 1;
+    return;
+  }
+  /* A tap closed the publisher (wired_moqt_close): o is refused. An
+   * earlier Object of this delivery stays cached but, like o, is not
+   * live-relayed (the relay checks the close after decoding). */
+  if (moqtrun_tap_obj(hub, t, o)) {
     return;
   }
   moqtrun_track_note(t, group, o->object_id);

@@ -711,7 +711,7 @@ static void test_moqtrun_repath_fresh_failed_record_dne(void) {
   mtst_pub_err(SESS_B, (u64)mrp_up(SESS_B, 0), MOQCTL_ERR_UNAUTHORIZED);
   wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MRDV_S1, 0, 0);
   for (u64 i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++) {
-    mrdv_hold_f(MRP_E, 12 + 4 * i, &f, 1000);
+    mrdv_hold_f(MRP_E, MTRQ_ID(i), &f, 1000);
   }
   CHECK(mrp_failed(SESS_B) == 1);
   mups_sub(MRP_E, MRDV_S1);
@@ -726,7 +726,7 @@ static void test_moqtrun_repath_no_room(void) {
   u64        st;
   mrp_init();
   for (u64 i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++) {
-    mrdv_hold_f(SESS_C, 12 + 4 * i, &f, 1000);
+    mrdv_hold_f(SESS_C, MTRQ_ID(i), &f, 1000);
   }
   mrp_end(MRP_GA);
   CHECK(mrp_dones(SESS_C, &st) == 1 && st == MOQCTL_DONE_GOING_AWAY);
@@ -766,30 +766,63 @@ static void mrp_sub_ok(
   mtst_send(s, (u64)mrp_up(s, n), MOQCTL_T_SUBSCRIBE_OK, mups_enc_ok, &ok);
 }
 
+/* The announcer of C's i-th wait: A for the first track-slot table's
+ * worth, then filler sessions announcing chat/r<k> (each publisher holds
+ * at most WIRED_MOQTRUN_MAX_TRACKS_PER_PEER tracks); *ns2 its namespace's
+ * second field. */
+static wired_wt_session* mrp_share_sess(usz k) {
+  return k ? (wired_wt_session*)(usz)(MTRQ_FILLER + k) : SESS_A;
+}
+
+static wired_wt_session* mrp_share_pub(usz i, const char** ns2) {
+  static char       ns[32][8];
+  usz               k = i / WIRED_MOQTRUN_MAX_TRACKS_PER_PEER;
+  wired_wt_session* s = mrp_share_sess(k);
+  *ns2                = "room1";
+  if (!k) {
+    return SESS_A;
+  }
+  bytes_memcpy(ns[k], "chat/rX", 8);
+  ns[k][6] = (char)('a' + k);
+  *ns2     = ns[k] + 5;
+  if (i % WIRED_MOQTRUN_MAX_TRACKS_PER_PEER == 0) {
+    mtst_join(s);
+    mtns_pub(s, MRDV_S1, ns[k]);
+  }
+  return s;
+}
+
 /* Re-path waits count against their session's share too: C waits for
- * WIRED_MOQTRUN_RDV_PER_SESSION Tracks of A's; its subscription to E's
- * Track, ending next, gets the end's PUBLISH_DONE at once. */
+ * WIRED_MOQTRUN_RDV_PER_SESSION Tracks of A's (and of further announcers
+ * past A's track slots); its subscription to E's Track, ending next, gets
+ * the end's PUBLISH_DONE at once. */
 static void test_moqtrun_repath_session_share(void) {
   static moqctl_publish_done d;
   static char                names[WIRED_MOQTRUN_RDV_PER_SESSION][3];
+  const usz                  per = WIRED_MOQTRUN_MAX_TRACKS_PER_PEER;
+  const u64                  at  = 30; /* clear of MTRQ_ID(20) */
   mups_init();
   mtst_join(SESS_C);
   mtst_join(MRP_E);
   mtns_pub(MRP_E, MRDV_S1, "chat/room2");
   for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++) {
-    names[i][0] = 't';
-    names[i][1] = (char)('0' + i);
-    mrp_sub_ok(SESS_A, "room1", names[i], MTRQ_ID(10 + i), 7 + i);
+    const char*       ns2;
+    wired_wt_session* pub = mrp_share_pub(i, &ns2);
+    names[i][0]           = 't';
+    names[i][1]           = (char)('0' + i);
+    mrp_sub_ok(pub, ns2, names[i], MTRQ_ID(at + i), 7 + i % per);
   }
   mrp_sub_ok(MRP_E, "room2", "x", MTRQ_ID(20), 7);
-  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i += per) {
+    wired_moqt_on_session_close(&mtst_hub, mrp_share_sess(i / per));
+  }
   CHECK(mrdv_used() == WIRED_MOQTRUN_RDV_PER_SESSION);
   d.status_code = MOQCTL_DONE_GOING_AWAY;
   mtst_send(
       MRP_E, (u64)mrp_up(MRP_E, 0), MOQCTL_T_PUBLISH_DONE, mups_enc_done, &d);
   CHECK(mrp_dones_on(SESS_C, MTRQ_ID(20)) == 1);
   for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++) {
-    CHECK(mrp_dones_on(SESS_C, MTRQ_ID(10 + i)) == 0);
+    CHECK(mrp_dones_on(SESS_C, MTRQ_ID(at + i)) == 0);
   }
   CHECK(mrdv_used() == WIRED_MOQTRUN_RDV_PER_SESSION);
 }
@@ -943,7 +976,11 @@ static void mtall_repath(void) {
   test_moqtrun_repath_fresh_own_upstream_rt();
   test_moqtrun_repath_fresh_closing_upstream();
   test_moqtrun_repath_no_room();
-  test_moqtrun_repath_table_full();
+  /* else unreachable by one Track: its subscribers (WIRED_MOQTRUN_MAX_SUBS)
+   * cannot fill the table (the moqt_chat room profile) */
+  if (WIRED_MOQTRUN_MAX_RDV < WIRED_MOQTRUN_MAX_SUBS) {
+    test_moqtrun_repath_table_full();
+  }
   test_moqtrun_repath_session_share();
   test_moqtrun_repath_update();
   test_moqtrun_repath_own_announce();

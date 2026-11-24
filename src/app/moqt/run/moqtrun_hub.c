@@ -54,6 +54,12 @@ static void moqtrun_hub_auth_clear(wired_moqt_hub* hub) {
   hub->authorize_namespace = 0;
   hub->authorize_ns_ctx    = 0;
   hub->raw_policy          = (moqraw_policy){0};
+  hub->admit               = 0;
+  hub->admit_ctx           = 0;
+  hub->tap                 = 0;
+  hub->tap_ctx             = 0;
+  hub->tap_prefix          = wired_span_of(0, 0);
+  hub->tap_max             = 0;
 }
 
 static void moqtrun_hub_relay_stats_clear(wired_moqt_hub* hub) {
