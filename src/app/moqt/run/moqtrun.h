@@ -857,6 +857,22 @@ void wired_moqt_on_stream_reset(
  *   WIRED_MOQTRUN_GOAWAY_URI_MAX (nothing sent) */
 int wired_moqt_goaway(wired_moqt_hub* hub, wired_span new_uri, u64 timeout_ms);
 
+/** wired_moqt_goaway for session s alone, with its own New Session URI
+ * (e.g. one that keeps the session's query). A later wired_moqt_goaway
+ * skips s, as it skips any session that already had a GOAWAY.
+ * @param hub the hub
+ * @param s the session
+ * @param new_uri where s reconnects, empty to reuse its current URI
+ *   (copied into the message)
+ * @param timeout_ms grace before GOAWAY_TIMEOUT, 0 for none
+ * @return 1 when sent, 0 when s is not an open session owed one, or -1
+ *   when new_uri is longer than WIRED_MOQTRUN_GOAWAY_URI_MAX */
+int wired_moqt_goaway_session(
+    wired_moqt_hub*   hub,
+    wired_wt_session* s,
+    wired_span        new_uri,
+    u64               timeout_ms);
+
 /** Closes session s with code and reason (WT_CLOSE_SESSION, draft-ietf-
  * webtrans-http3 6; CONNECTION_CLOSE on raw QUIC). Callable only from
  * inside the server's own loop -- a callback such as on_step, or a hub

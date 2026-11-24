@@ -546,6 +546,25 @@ static void test_moqtrun_drain_one_session(void) {
   CHECK(mtdr_sent(mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY) == 1);
 }
 
+/* wired_moqt_goaway_session: GOAWAY with its own URI to one session; a
+ * later wired_moqt_goaway skips it; an overlong URI sends nothing. */
+static void test_moqtrun_goaway_session_uri(void) {
+  static u8     big[WIRED_MOQTRUN_GOAWAY_URI_MAX + 1];
+  moqctl_goaway g;
+  mtrq_setup();
+  CHECK(
+      wired_moqt_goaway_session(
+          &mtst_hub, SESS_A, wired_span_of(big, sizeof big), 0) == -1);
+  CHECK(
+      wired_moqt_goaway_session(
+          &mtst_hub, SESS_A, wired_span_cstr("https://h/?room=r"), 0) == 1);
+  CHECK(mtdr_goaway_on(mtdr_ctl(SESS_A), &g));
+  CHECK(wired_span_eq_cstr(g.new_session_uri, "https://h/?room=r"));
+  CHECK(mtdr_sent(mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY) == 0);
+  CHECK(wired_moqt_goaway(&mtst_hub, wired_span_cstr("https://h/"), 0) == 1);
+  CHECK(mtdr_sent(mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY) == 1);
+}
+
 /* ===================== PUBLISH_DONE (10.11) ===================== */
 
 /* Status of the PUBLISH_DONE sent in call c; ~0 if it carries none.
@@ -896,6 +915,7 @@ static void mtall_drain(void) {
   test_moqtrun_goaway_uri_spec_max();
   test_moqtrun_goaway_late_rejected();
   test_moqtrun_drain_one_session();
+  test_moqtrun_goaway_session_uri();
   test_moqtrun_peer_goaway_twice();
   test_moqtrun_peer_goaway_uri();
   test_moqtrun_prio_per_subscriber();

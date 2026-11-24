@@ -20,6 +20,17 @@ int wired_moqt_goaway(wired_moqt_hub* hub, wired_span new_uri, u64 timeout_ms) {
   return moqtrun_goaway_send(hub, 0, new_uri, timeout_ms);
 }
 
+int wired_moqt_goaway_session(
+    wired_moqt_hub*   hub,
+    wired_wt_session* s,
+    wired_span        new_uri,
+    u64               timeout_ms) {
+  if (new_uri.n > WIRED_MOQTRUN_GOAWAY_URI_MAX) {
+    return -1;
+  }
+  return moqtrun_goaway_send(hub, s, new_uri, timeout_ms);
+}
+
 /* A peer draining its session is answered with the hub's GOAWAY and, as
  * if it had sent one, is asked nothing new (moqtrun_up_peer_usable). */
 void wired_moqt_on_session_draining(void* app_ctx, wired_wt_session* s) {
