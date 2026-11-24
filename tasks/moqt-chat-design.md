@@ -114,3 +114,22 @@ Standing constraints (decided earlier, they override the review text):
 - [x] D-40 e2e: existing moqt_chat scenarios still pass with the new markup (78d9aa974; e2e s22/s24/s25/s26/s8 PASS, s25 --shots desktop/800x600/390x667)
       (selectors updated); screenshot check of Join and room at desktop and
       390px width
+
+## Phase C: stage + chat layout (user, 2026-11-24, priority)
+- [ ] D-41 Composer (message input row, bottom right today) spans the full
+      width of the main column
+- [ ] D-42 One stage for camera and screen share: while any screen share is
+      live the stage shows the share only, no camera tiles
+- [ ] D-43 Chat (1311 list) is not pushed to the right edge: the main column
+      is a vertical stack, stage on top, chat below, both full width. While
+      a screen share is live the default split is 50 / 50; otherwise the
+      stage default is the φ minor part (0.382)
+- [ ] D-44 Draggable splitter between stage and chat (pointer drag +
+      keyboard arrows, role=separator with aria-valuenow, min sizes); the
+      chosen ratio is remembered per viewer (localStorage, try/catch)
+- [ ] D-45 Settings controls use one button size (height, padding, min width
+      from the φ scale)
+- [ ] D-46 Stage fills its area: video / share scaled to fit (object-fit
+      contain) using all available width and height, camera tiles share the
+      area in a grid sized to the space
+- [ ] D-47 e2e + screenshots (desktop, 800x600, 390x667) for D-41..D-46
