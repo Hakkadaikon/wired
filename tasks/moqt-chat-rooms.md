@@ -237,17 +237,17 @@ name before any check (low value: room ids are random).
 - [ ] Tests per hook; measure BSS / RSS of a 3-room x 4-person hub
 
 ### P4 NIP-05 resolver (Go helper, option A) — est. 1-1.5 days
-- [ ] https on 443 only; no IP literals / ports; domain <= 253, punycode
-- [ ] Connect only to the checked address (dial-time check; stops DNS
+- [x] https on 443 only; no IP literals / ports; domain <= 253, punycode (3f036b8c9; nip05d main_test.go)
+- [x] Connect only to the checked address (dial-time check; stops DNS (3f036b8c9; nip05d main_test.go)
       rebinding); refuse loopback, private, link-local, CGNAT, ULA,
       multicast, IPv4-mapped, 169.254.169.254 (e2e flag may allow private)
-- [ ] No redirects; response <= 64 KiB; JSON parse; 3 s timeout;
+- [x] No redirects; response <= 64 KiB; JSON parse; 3 s timeout; (3f036b8c9; nip05d main_test.go)
       concurrency cap; positive and negative cache
-- [ ] Local part `[a-z0-9-_.]` lowercased, `_` root; value = 64-char
+- [x] Local part `[a-z0-9-_.]` lowercased, `_` root; value = 64-char (3f036b8c9; nip05d main_test.go)
       lowercase hex = pubkey
-- [ ] Unix socket 0600 (or loopback TCP), unprivileged; build + lint in CI
+- [~] Unix socket 0600 (or loopback TCP), unprivileged; build + lint in CI (3f036b8c9, e9dd8806e; CI build+test done — shipping next to the scratch image is left for P6/P8)
       (examples.yml) and shipping next to the scratch image
-- [ ] Tests: timeout, oversized, redirect, private address, wrong pubkey,
+- [x] Tests: timeout, oversized, redirect, private address, wrong pubkey, (3f036b8c9; nip05d main_test.go)
       missing name
 
 ### P6 server rooms — est. 2 days
