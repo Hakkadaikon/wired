@@ -57,6 +57,10 @@ E2E_RNNOISE=1 just e2e-stability s9-survivor-hears-rejoin
 
 `run-stability.sh` は、`CHROME_PATH` が未設定で `~/.cache/puppeteer/chrome/linux-146.0.7680.153/` に Chrome があるとき、それを使う。Chrome 150 以降はこのサーバーの証明書のハッシュの固定(`serverCertificateHashes`)で `CERTIFICATE_VERIFY_FAILED` になる。
 
+### 2.5 ルーム
+
+フロントエンドはルームのリンクなしでは参加できない([フロントエンド](frontend.md) 2.1 節)。そのため e2e のハーネスは、ページの URL に `room` がなければ、決まったルーム `E2E_ROOM`(`e2e/lib/args.mjs` の `withDefaultRoom`。ID `e2eDefaultRoom0000000A`、誰も鍵を持たない 64 桁の 0 がホスト)を足す。s15、s16、s18、`e2e-load` など、ルームを選ばないシナリオはこのルームに入る。`s24`、`s25`、`s26` は `nostrE2e.mjs` の `roomUrl` で実行ごとに新しいルーム(16 バイトの乱数、ホストは試験用の鍵)を作り、`?room=&host=` を URL で渡す。ビルドの設定は要らない。
+
 ## 3. 安定性のシナリオ
 
 `just e2e-stability <id>` で実行する。
@@ -88,7 +92,8 @@ E2E_RNNOISE=1 just e2e-stability s9-survivor-hears-rejoin
 | `s22-camera` | カメラ、背景のぼかしと画像、mp4、途中参加、停止を Chrome の偽のカメラで確かめる |
 | `s23-voice-stream` | データグラムが使えないとき、音声を単方向ストリームで送って届く |
 | `s24-nostr-chat` | NIP-07 の模擬の拡張機能でログインした 2 人が kind 1311 のメッセージを交わし、互いの短い npub で表示され、ルームの一覧にも出る。拡張機能のない 1 人も従来の形式で送受信できる。投稿に検証の印が付き、"⋯" で元のイベントを開閉できる。`?relays=` で公開のリレーにはつながない |
-| `s25-nostr-room` | NIP-53 の meeting space。ホスト(user1)とゲスト(user2)が模擬の拡張機能でログインする。ゲストにホストの space の名前、meeting の題と LIVE が出て、投稿の前からホストが一覧に名前で出る(presence)。ゲストの挙手がホストに見え、ゲストの `+` がホストの投稿に `Like: 1` と数えられ、ホストの削除でゲストの画面の投稿が削除の行になり、ホストの退出で meeting が ended になる。ホストの鍵を `NEXT_PUBLIC_NOSTR_HOST` でビルドに渡す必要があるので、`./e2e/run-nostr-room.sh [--shots=<dir>]` で実行する(鍵を設定して `just e2e-stability s25-nostr-room` を呼ぶ)。`--shots=<dir>` で画面を保存する |
+| `s25-nostr-room` | NIP-53 の meeting space。ホスト(user1)とゲスト(user2)が模擬の拡張機能でログインする。ゲストにホストの space の名前、meeting の題と LIVE が出て、投稿の前からホストが一覧に名前で出る(presence)。ゲストの挙手がホストに見え、ゲストの `+` がホストの投稿に `Like: 1` と数えられ、ホストの削除でゲストの画面の投稿が削除の行になり、ホストの退出で meeting が ended になる。ルームのリンクの `host` を user1 の試験用の鍵にする。`--shots=<dir>` で画面を保存する |
+| `s26-rooms` | 1 つのハブの 2 つのルームが混ざらない。2 つの場合を順に確かめる。1 つ目は user1 と user2 がルーム A に、user3 と user4 がルーム B に入る。2 つ目は両方のルームに user1 と user2 が入る(同じ参加者 ID)。どの参加者も同じルームの相手を一覧に出してそのメッセージを受け取り、接続を保つ。別のルームのメッセージは出ず、1 つ目の場合は別のルームの参加者も出ない。ハブは 4 セッションまでなので、2 つの場合は同時に流さない。いまのハブはルームを確かめないので、確かめているのはクライアントでの分離である |
 
 ## 4. そのほかの確認
 

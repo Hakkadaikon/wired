@@ -32,9 +32,9 @@ sequenceDiagram
     C->>H: SETUP (uni control stream)
     H->>C: SETUP (uni control stream)
     C->>H: PUBLISH user1, user1/audio (one bidi stream each)
-    C->>H: PUBLISH_NAMESPACE wired/moqt_chat/user1
-    C->>H: SUBSCRIBE_NAMESPACE wired/moqt_chat
-    H->>C: NAMESPACE wired/moqt_chat/user2
+    C->>H: PUBLISH_NAMESPACE wired/moqt_chat/<room>/user1
+    C->>H: SUBSCRIBE_NAMESPACE wired/moqt_chat/<room>
+    H->>C: NAMESPACE user2 (suffix)
     C->>H: SUBSCRIBE user2 (NextObject + FILL_PARAMETERS)
     C->>H: SUBSCRIBE user2/audio
     H->>C: fill fetch stream (FETCH_HEADER)
@@ -42,12 +42,22 @@ sequenceDiagram
 
 ## 3. 名前空間の発見(4.1〜4.2)
 
+ルームの ID はページの URL の `?room=` で決まる(`roomLink.ts`)。ルームの Track と告知は、すべて `wired/moqt_chat/<room>` の下に置く(`MoqtChatClient` の `roomNamespace`)。
+
+| 名前空間 | 用途 |
+|---|---|
+| `wired/moqt_chat/<room>` | Track の名前空間(PUBLISH、SUBSCRIBE)。発見の SUBSCRIBE_NAMESPACE の接頭辞 |
+| `wired/moqt_chat/<room>/<id>` | 参加者の告知(PUBLISH_NAMESPACE) |
+| `wired/moqt_chat/<room>/<id>/screen`、`.../<id>/camera` | 画面共有とカメラの告知 |
+
+NAMESPACE と NAMESPACE_DONE が運ぶ接尾辞は接頭辞 `wired/moqt_chat/<room>` のあとの部分で、`["user2"]` や `["user2", "screen"]` になる。ルームが違えば名前空間も違うので、別のルームの参加者、Track、履歴は届かない。ただし、いまのハブはルームを確かめない。`wired/moqt_chat` の下ならどの名前空間でも許すので、ルームを分けているのはクライアントである(サーバーでの強制は tasks/moqt-chat-rooms.md の P6)。
+
 | 受け取るもの | クライアントの動作 |
 |---|---|
 | ピアの NAMESPACE | ピアを参加者の一覧に加え、チャット、Nostr の 4 つ(5.2 節)、音声の Track を購読する |
 | ピアの NAMESPACE_DONE | ピアを一覧から外し、その購読を取り消す |
 
-画面共有の間は、送る側が `wired/moqt_chat/<id>/screen` も告知する。カメラの間は `wired/moqt_chat/<id>/camera` を告知する。クライアントはポーリングしない。
+画面共有の間は、送る側が `wired/moqt_chat/<room>/<id>/screen` も告知する。カメラの間は `wired/moqt_chat/<room>/<id>/camera` を告知する。クライアントはポーリングしない。
 
 ## 4. 履歴と途中参加(3.4〜3.5)
 
@@ -92,7 +102,7 @@ FILL_PARAMETERS(0x23、9.19.15)は、Length を持たない Parameter の数と 
 
 ### 5.2 Nostr のイベント
 
-Nostr のイベントは参加者の名前空間 `wired/moqt_chat/<id>` の下の Track で運ぶ。1 つのイベントが 1 つの Group の 1 つの Object になる。ペイロードは、拡張機能が署名して返したイベントの JSON そのものである。どの Track に載せるかは kind で決まる(`moqNostr.ts` の `NOSTR_TRACKS`、`trackForKind`)。
+Nostr のイベントはルームの名前空間 `wired/moqt_chat/<room>` の、参加者の Track で運ぶ。1 つのイベントが 1 つの Group の 1 つの Object になる。ペイロードは、拡張機能が署名して返したイベントの JSON そのものである。どの Track に載せるかは kind で決まる(`moqNostr.ts` の `NOSTR_TRACKS`、`trackForKind`)。
 
 | Track 名 | kind | Track Alias | 途中参加の fill |
 |---|---|---|---|
@@ -126,7 +136,7 @@ Track Alias はカメラの範囲(18〜21)の上に、Track ごとに参加者 4
 
 ### 5.3 NIP-53 の meeting space
 
-ルームは NIP-53 の meeting space である。座標は `30312:<ホストの pubkey>:<d>` で、ホストはビルド時の `NEXT_PUBLIC_NOSTR_HOST`、`d` は `NEXT_PUBLIC_NOSTR_SPACE_D`(既定 `wired-moqt-chat`)で決まる。ホストのいないルームでも座標は決まり、画面は設定の `d` を出す。どのイベントも公開リレーには送らない。
+ルームは NIP-53 の meeting space である。座標は `30312:<host>:<room>` で、ページの URL の `?host=`(hex か npub。hex に直す)と `?room=` で決まる(`roomLink.ts` の `activeRoom`)。ホストが参加していないルームでも座標は決まり、画面は `Room <ルーム ID の先頭 6 文字>` を出す。ホストが送る space の `room` タグも同じ名前である。どのイベントも公開リレーには送らない。
 
 | kind | 送る人 | タグ | 受け取る側の確認(`nostrRoom.ts`) |
 |---|---|---|---|

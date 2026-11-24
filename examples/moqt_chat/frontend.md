@@ -20,7 +20,7 @@
 ## 2. ルームに入る
 
 1. サーバーを起動し、ログからフィンガープリントを写す([サーバー 2.2](server.md#22-自己署名の証明書のフィンガープリント))。
-2. フロントエンドのページを開く。
+2. ルームのリンク(`?room=<id>&host=<pubkey>`)でページを開く。リンクがなければ、ルームを作る(2.1 節)。
 3. "Server URL" にサーバーの URL、"Certificate hash (SHA-256)" にフィンガープリントを入れる。
 4. "Participant ID" で `user1`〜`user4` から 1 つ選び、接続する。
 5. ブラウザーのマイクの許可を承認する。
@@ -29,7 +29,23 @@
 
 ページの URL に `?ns=0` を付けると、RNNoise のノイズ抑制を切った状態で始まる。e2e のハーネスはこれを使う。
 
-### 2.1 Nostr でログインする
+### 2.1 ルームを作る、リンクで入る
+
+ルームはページの URL で決まる(`roomLink.ts`)。ビルドの設定は要らない。
+
+| URL | 参加の画面 |
+|---|---|
+| `room` も `host` もない | "Create room" を出す。押せるのは Nostr でログインしたときだけで、ログインした公開鍵がホストになる。押すと、16 バイトの乱数(`crypto.getRandomValues`)を base64url にした 22 文字のルーム ID を作り、`history.replaceState` で URL に `room` と `host` を足す。そのあとは下の行と同じ |
+| `room` と `host` が正しい | "Joining room <ルーム ID>" と、共有のリンク `<ページの URL>?room=<id>&host=<hex>`("Copy share link" で写す)を出し、ふだんどおり参加できる |
+| どちらかが不正 | "Invalid room link: ..." を出す。"Join" は押せず、接続しない。"Create room" は出る |
+
+ルーム ID は base64url の 22 文字で、16 バイトを表す形(最後の文字が `A`、`Q`、`g`、`w` のどれか)だけを受け付ける。`host` は 64 桁の小文字の hex か npub で、npub は hex に直す。共有のリンクにはページの URL のほかの引数(`?relays=` など)を入れない。
+
+ルームは名前空間 `wired/moqt_chat/<room>` と NIP-53 の space の座標 `30312:<host>:<room>` を決める([MoQT の使い方](wire.md) 3 節、5.3 節)。いまのハブはルームを確かめない。別のルームのメッセージや参加者が見えないのは、クライアントが自分のルームの名前空間だけを使うからである。
+
+ハブの上限は、まだルームの数に合わせて増えない(tasks/moqt-chat-rooms.md の P3 で増やす)。それまで 1 つのハブが受け入れるのは、全ルーム合わせて 4 人分(満員のルーム 1 つ分)である。2 つ目のルームが埋まると、接続(既定の接続表は 4)やリクエストストリーム(ハブ全体で 192)がハブの上限で失敗する([サーバー](server.md) 3 節)。
+
+### 2.2 Nostr でログインする
 
 参加の画面の右上にある紫の "Log in with Nostr" を押すと、NIP-07 の拡張機能(nos2x、Alby など)の `window.nostr` から公開鍵を受け取る。秘密鍵はページに渡らず、署名は拡張機能が行う。拡張機能は document_end で注入されるので、ページは最大 1.5 秒待つ。失敗は「拡張機能がない」「拒否された」「公開鍵が不正」を分けて表示する。ログイン後は同じ場所にアイコンと名前と "Log out" が出て、ルームの画面では上の操作の列の右端にアイコンと名前が出る。"Log out" でログインをやめる。
 
@@ -43,9 +59,9 @@
 | アイコン | kind 0 の `picture` を名前の左に小さく出す。`https:` の URL(2048 文字まで)だけを使い、`referrerpolicy="no-referrer"` で読み込む。`picture` がない、不正、読み込めないときは、公開鍵から色を決めた丸を代わりに出す |
 | 古いクライアント | この機能より前のビルドは、Nostr のメッセージをその参加者からの生の JSON の 1 行として表示する |
 | 元のイベント | Nostr のメッセージの右下の "⋯" で、Object で運ばれたイベントの JSON(検証済みと id)を投稿の下に開く。"Copy raw" は受け取った文字列をそのまま写す |
-| ルームの座標 | NIP-53 の meeting space `30312:<ホスト>:<d>`。ビルド時の `NEXT_PUBLIC_NOSTR_HOST`(hex か npub。なければ誰も署名できない 64 桁の 0)と `NEXT_PUBLIC_NOSTR_SPACE_D`(既定 `wired-moqt-chat`)で決まる。space の名前は `NEXT_PUBLIC_NOSTR_ROOM_NAME`(既定 `Wired MoQT chat`)、meeting の題は `Open session` |
-| ホスト | `NEXT_PUBLIC_NOSTR_HOST` の公開鍵でログインした人。参加すると space(kind 30312)と live の meeting(kind 30313)を送り、参加者が変わると meeting を更新し、"Leave" で ended を送る |
-| ルームの見出し | メッセージの上に space の名前(届く前は設定の `d`)、meeting の題、状態(LIVE、ENDED など)を出す。meeting が届いていなければ "No meeting announced" を、ハブが Nostr の Track を拒んだときは "Room events unavailable: the hub refused the Nostr tracks" を出す |
+| ルームの座標 | NIP-53 の meeting space `30312:<host>:<room>`。ルームのリンクの `host` と `room` で決まる(2.1 節)。space の名前(`room` タグ)は `Room <ルーム ID の先頭 6 文字>`、meeting の題は `Open session` |
+| ホスト | ルームのリンクの `host` の公開鍵でログインした人。参加すると space(kind 30312)と live の meeting(kind 30313)を送り、参加者が変わると meeting を更新し、"Leave" で ended を送る |
+| ルームの見出し | メッセージの上に space の名前(届く前は `Room <ルーム ID の先頭 6 文字>`)、meeting の題、状態(LIVE、ENDED など)を出す。meeting が届いていなければ "No meeting announced" を、ハブが Nostr の Track を拒んだときは "Room events unavailable: the hub refused the Nostr tracks" を出す |
 | 挙手 | ログイン中は上の操作の列に "Raise hand"(`aria-pressed`)が出る。押すと `hand` 付きの presence を送り、一覧の自分と、ほかの人の画面のその人に "HAND" の札が出る。送れなければ押す前に戻す。presence は 60 秒ごとに送り直し、3 分より古いものは使わない。札は 30 秒ごとに古さを確かめ直す |
 | リアクション | Nostr の投稿の ✓ の右に、内容ごとの数(`+ 1` など)を出す。ログイン中は "React" で `+`、❤️、😂、🎉 を開き、選ぶと kind 7 を送る。数の札を押すと同じ内容を送る。自分が送った内容のボタンは押せなくなる。同じ人の同じ内容は 1 回だけ、1 人 4 種類まで数え、数は 999 で止める。従来の形式の投稿には付かない |
 | 削除 | 自分の Nostr の投稿の "⋯" の左に "Delete" が出る。押すと kind 5 を送り、投稿は全員の画面で「Deleted by the author」の行になる。削除の作者と投稿の作者が違えば従わない。ハブの履歴には元のイベントが残る |

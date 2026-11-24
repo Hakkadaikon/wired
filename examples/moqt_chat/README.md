@@ -34,14 +34,14 @@ graph LR
 | 項目 | 値 |
 |---|---|
 | MoQT のドラフト | draft-ietf-moq-transport-23。クライアントは `moqt-23` だけを提示する |
-| ルーム | 固定で 1 つ |
+| ルーム | ページの URL の `?room=<id>&host=<pubkey>` で決まる。1 つのハブに複数のルームが入る([フロントエンド](frontend.md) 2.1 節)。ただし、ハブの上限がルームの数に合わせて増えるまで(tasks/moqt-chat-rooms.md の P3)、1 つのハブが受け入れるのは全ルーム合わせて 4 人分(満員のルーム 1 つ分)である。2 つ目のルームが埋まると、接続やリクエストがハブの上限で失敗する([サーバー](server.md) 3 節) |
 | 参加者 ID | `user1`〜`user4` の 4 つ(`CANDIDATE_PARTICIPANT_IDS`、`moqtClient.ts`) |
-| 名前空間 | `wired/moqt_chat` |
+| 名前空間 | `wired/moqt_chat/<ルーム ID>` |
 | フロントエンド | Next.js と React の静的エクスポート。GitHub Pages にだけデプロイする |
 
 ## 3. Track
 
-参加者は名前空間 `wired/moqt_chat` の下に、次の Track を配信する。Track Alias は参加者 ID の添字(`user1` が 0)に表のオフセットを足した値である。
+参加者は名前空間 `wired/moqt_chat/<ルーム ID>` の下に、次の Track を配信する。Track Alias は参加者 ID の添字(`user1` が 0)に表のオフセットを足した値である。
 
 | Track 名 | 中身 | Track Alias | 配信する条件 |
 |---|---|---|---|

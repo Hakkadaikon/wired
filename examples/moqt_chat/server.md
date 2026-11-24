@@ -112,7 +112,7 @@ cert sha-256 fingerprint: b4:6d:57:7b:de:f6:70:d6:f1:f9:e9:91:c3:a3:6a:db:15:e8:
 |---|---|---|
 | PUBLISH | 9 | チャット、音声、`screen`、`screen-lo`、`camera`、`nostr-presence`、`nostr-30312`、`nostr-30313`、`nostr-react` |
 | PUBLISH_NAMESPACE | 3 | `<id>`、`<id>/screen`、`<id>/camera` |
-| SUBSCRIBE_NAMESPACE | 1 | `wired/moqt_chat` |
+| SUBSCRIBE_NAMESPACE | 1 | `wired/moqt_chat/<room>` |
 | SUBSCRIBE | 27 | ほかの 3 人 × 9 Track(Auto で `screen` と `screen-lo` の両方を購読するとき) |
 | 合計 | 40 | ハブ全体で 160 |
 
