@@ -2,12 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { closeMessage, remaining } from "@/lib/roomAuth";
+import { activeRoom } from "@/lib/roomLink";
+import { newlyRaised, timerLevel } from "@/lib/roomUi";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
+import { authorLabels } from "./rawNostrEvent";
+import { showToast } from "./toast";
 
 const nowSeconds = () => Date.now() / 1000;
 
 /** The room's time left, from the host's meeting `ends`, ticking each
- * second; hidden once past or when `ends` is out of range. */
+ * second; hidden once past or when `ends` is out of range. Yellow under
+ * 30 min, red under 5 min, when it also toasts once. */
 export function Countdown({ ends }: { ends: number }) {
 	const [now, setNow] = useState(nowSeconds);
 	useEffect(() => {
@@ -15,11 +20,44 @@ export function Countdown({ ends }: { ends: number }) {
 		return () => clearInterval(t);
 	}, []);
 	const left = remaining(ends, now);
+	const level = timerLevel(ends - now);
+	// Only the warn -> danger crossing toasts: not a join under 5 min, and
+	// not once the time is past.
+	const seen = useRef(level);
+	useEffect(() => {
+		if (seen.current === "warn" && level === "danger" && left)
+			showToast("5 minutes left in this room");
+		seen.current = level;
+	}, [level, left]);
 	if (!left) return null;
 	return (
-		<span className="room-head__countdown" data-testid="room-countdown">
+		<span
+			className="room-head__countdown"
+			data-testid="room-countdown"
+			data-level={level}
+		>
 			{left} left
 		</span>
+	);
+}
+
+/** "<name> raised their hand" for each peer whose presence raises it. */
+export function useHandToasts(): void {
+	useEffect(
+		() =>
+			useMoqtChatStore.subscribe((s, prev) => {
+				const raised = newlyRaised(
+					prev.nostrRoom.presence,
+					s.nostrRoom.presence,
+					activeRoom.space,
+					nowSeconds(),
+				);
+				for (const pk of raised.filter((pk) => pk !== s.nostrPubkey)) {
+					const name = authorLabels(pk, s.nostrProfiles[pk] ?? {}).title;
+					showToast(`${name} raised their hand`);
+				}
+			}),
+		[],
 	);
 }
 
