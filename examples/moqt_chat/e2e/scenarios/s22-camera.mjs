@@ -21,6 +21,19 @@ import {
 } from "../lib/stabilityClient.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The camera / file / background controls sit in the rail's Settings
+// drawer: a desktop-width viewport keeps the rail on screen, and the drawer
+// is opened so page.click can reach them.
+async function join(opts) {
+	const c = await joinStabilityClient(opts);
+	await c.page.setViewport({ width: 1280, height: 800 });
+	await c.page.evaluate(() => {
+		const d = document.querySelector('[data-testid="settings"]');
+		if (d) d.open = true;
+	});
+	return c;
+}
 // Records every camera track the page opens, so a test can see it ended.
 const TAP_SCRIPT = `window.__wiredCameraTap = [];
 window.__camTracks = [];
@@ -313,8 +326,8 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 	const report = {};
 	const clients = [];
 	try {
-		const user1 = await joinStabilityClient(opts("user1"));
-		const user2 = await joinStabilityClient(opts("user2"));
+		const user1 = await join(opts("user1"));
+		const user2 = await join(opts("user2"));
 		clients.push(user1, user2);
 		const ctx = { user1, user2, report, failures, log };
 		await sleep(1000);
@@ -371,7 +384,7 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 			failures.push("camera toggle still on after switching to the file");
 
 		log("user3 joins while the file streams");
-		const user3 = await joinStabilityClient(opts("user3"));
+		const user3 = await join(opts("user3"));
 		clients.push(user3);
 		const late = await waitFor(async () => {
 			const f = await lastFrameSize(user3, "user1", 0);

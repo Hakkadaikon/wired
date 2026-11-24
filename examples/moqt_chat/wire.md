@@ -183,7 +183,7 @@ Track Alias はカメラの範囲(18〜21)の上に、Track ごとに参加者 4
 | 30313 meeting | ホスト。参加したとき(セッションごとに新しい `d`、status live)、参加者が変わったとき(2 秒まとめて `current_participants` を更新)、退出したとき(status ended、`ends` は退出した時刻) | `d`、`a`(space の座標)、`title`、`starts`、`status`、`current_participants`、`ends`(live ではルームが終わる時刻 = 作った時刻 + 5 時間) | ホストの pubkey、`a` が自分の space、`d`、`title`、数字の `starts`、`status` が planned、live、ended のどれか |
 | 10312 presence | ログインした全員。参加したとき、60 秒ごと、挙手を切り替えたとき | `["a", space, "", "root"]`、挙手中は `["hand", "1"]`、`["wired-participant", <参加者 ID>]` | `a` が自分の space で、3 分以内のもの |
 | 7 リアクション(NIP-25) | ログインした人。同じ投稿に同じ内容は 1 回だけ送る | `e`(対象の id)、`p`(対象の作者)、`k` 1311。content は `+`、`-`、絵文字 | 最後の `e` と最後の `p` が対象の投稿と作者に一致する。content は 1〜32 文字。(pubkey、content)ごとに 1 回だけ数え、1 人あたり 4 種類まで、1 つの数は 999 まで |
-| 5 削除(NIP-09) | 投稿の作者 | `e`(対象の id)、`k` 1311 | 削除の pubkey が対象の作者と同じときだけ従う。対象の投稿は「Deleted by the author」の行になる |
+| 5 削除(NIP-09) | 投稿の作者 | `e`(対象の id)、`k` 1311 | 削除の pubkey が対象の作者と同じときだけ従う。対象の投稿は「<名前> deleted this message」(削除した本人の画面では「You deleted this message」)の行になる |
 
 同じ秒に 2 回送っても新しい方が勝つように、送る側は `created_at` を前回より必ず大きくする。拡張機能が返したイベントの `created_at` が頼んだ値と違えば送らない。
 

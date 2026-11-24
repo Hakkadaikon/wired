@@ -7,7 +7,8 @@
 // hand shows at the host, the guest's "+" reaction (kind 7) is counted under
 // the host's post, the host's kind 5 deletion turns its post into the
 // "Deleted" line at the guest, and the host leaving ends the meeting.
-// --shots=<dir> saves room2-desktop-light.png (guest) and
+// --shots=<dir> saves room2-desktop-light.png, room2-tablet-light.png and
+// room2-phone-light.png (guest) and
 // room2-phone-dark.png (host) before the host leaves.
 //
 //   just e2e-stability s25-nostr-room [--shots=<dir>]
@@ -142,11 +143,15 @@ async function checkDelete(host, guest, hostPk, text, report, failures) {
 async function shoot(host, guest, dir) {
 	await guest.page.setViewport({ width: 1280, height: 800 });
 	await guest.page.screenshot({ path: `${dir}/room2-desktop-light.png` });
+	await guest.page.setViewport({ width: 800, height: 600 });
+	await guest.page.screenshot({ path: `${dir}/room2-tablet-light.png` });
+	await guest.page.setViewport({ width: 390, height: 667 });
+	await guest.page.screenshot({ path: `${dir}/room2-phone-light.png` });
 	await host.page.emulateMediaFeatures([
 		{ name: "prefers-color-scheme", value: "dark" },
 	]);
-	// No isMobile: Puppeteer reloads the page to change it. Tall enough
-	// that the stacked rail leaves the messages on screen.
+	// No isMobile: Puppeteer reloads the page to change it. At 390px the
+	// room shows one pane (the Video tab) above the bottom tabs.
 	await host.page.setViewport({
 		width: 390,
 		height: 1400,

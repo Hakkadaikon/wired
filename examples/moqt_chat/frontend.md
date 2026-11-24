@@ -86,7 +86,7 @@
 | ルームの見出し | メッセージの上に space の名前(届く前は `Room <ルーム ID の先頭 6 文字>`)、meeting の題、状態(LIVE、ENDED など)、live の meeting に `ends` があれば残り時間を出す。meeting が届いていなければ "No meeting announced" を、ハブが Nostr の Track を拒んだときは "Room events unavailable: the hub refused the Nostr tracks" を出す |
 | 挙手 | ログイン中は上の操作の列に "Raise hand"(`aria-pressed`)が出る。押すと `hand` 付きの presence を送り、一覧の自分と、ほかの人の画面のその人に "HAND" の札が出る。送れなければ押す前に戻す。presence は 60 秒ごとに送り直し、3 分より古いものは使わない。札は 30 秒ごとに古さを確かめ直す |
 | リアクション | Nostr の投稿の ✓ の右に、内容ごとの数(`+ 1` など)を出す。ログイン中は "React" で `+`、❤️、😂、🎉 を開き、選ぶと kind 7 を送る。数の札を押すと同じ内容を送る。自分が送った内容のボタンは押せなくなる。同じ人の同じ内容は 1 回だけ、1 人 4 種類まで数え、数は 999 で止める。従来の形式の投稿には付かない |
-| 削除 | 自分の Nostr の投稿の "⋯" の左に "Delete" が出る。押すと kind 5 を送り、投稿は全員の画面で「Deleted by the author」の行になる。削除の作者と投稿の作者が違えば従わない。ハブの履歴には元のイベントが残る |
+| 削除 | 自分の Nostr の投稿の "⋯" の左に "Delete" が出る。押すと kind 5 を送り、投稿は全員の画面で「<名前> deleted this message」(自分の投稿なら「You deleted this message」)の行になり、行の高さは保たれる。削除の作者と投稿の作者が違えば従わない。ハブの履歴には元のイベントが残る |
 
 #### プロフィールのリレー
 
