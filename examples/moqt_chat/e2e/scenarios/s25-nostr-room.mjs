@@ -44,7 +44,7 @@ const textOf = (client, testId) =>
 	);
 
 // The message bubble containing `text`, then a click on the testId inside
-// it (or on the picked reaction, after "React" opened the row).
+// it (or on the picked reaction, after "Add reaction" opened the row).
 function clickIn(client, text, testId) {
 	return waitFor(
 		client,
@@ -141,6 +141,10 @@ async function checkDelete(host, guest, hostPk, text, report, failures) {
 }
 
 async function shoot(host, guest, dir) {
+	// The settings drawer open, to show its one control size.
+	await guest.page.evaluate(() => {
+		document.querySelector('[data-testid="settings"]').open = true;
+	});
 	await guest.page.setViewport({ width: 1280, height: 800 });
 	await guest.page.screenshot({ path: `${dir}/room2-desktop-light.png` });
 	await guest.page.setViewport({ width: 800, height: 600 });

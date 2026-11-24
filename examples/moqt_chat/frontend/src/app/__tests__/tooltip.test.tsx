@@ -54,6 +54,20 @@ describe("Tooltip", () => {
 		expect(tip?.textContent).toBe("Copy the full value");
 	});
 
+	it("does not describe a trigger whose aria-label already says the tip", () => {
+		const el = render(
+			<Tooltip tip="Add reaction">
+				<button type="button" aria-label="Add reaction">
+					+
+				</button>
+			</Tooltip>,
+		);
+		expect(button(el).hasAttribute("aria-describedby")).toBe(false);
+		expect(el.querySelector('[role="tooltip"]')?.textContent).toBe(
+			"Add reaction",
+		);
+	});
+
 	it("a touch tap pins it open, a second tap or Esc closes it", () => {
 		const el = render(
 			<Tooltip tip="Join in this slot">

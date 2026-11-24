@@ -20,6 +20,7 @@
 //
 //   just e2e-stability s14-screen-rejoin
 //   just e2e-stability s14-screen-rejoin --idle-ms=5000   # quick smoke
+//   just e2e-stability s14-screen-rejoin --shots=<dir>    # share-*.png
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -108,6 +109,101 @@ function hubOpenDropped(logPath) {
 	return m ? Number(m.at(-1).slice("open_dropped=".length)) : null;
 }
 
+// --shots=<dir>: a viewer's room while user1's share is live (the share
+// fills the stage, no camera tiles) at desktop, tablet and phone widths.
+async function shootShare(client, dir) {
+	const sizes = { desktop: [1280, 800], tablet: [800, 600], phone: [390, 667] };
+	for (const [name, [width, height]] of Object.entries(sizes)) {
+		await client.page.setViewport({ width, height });
+		await sleep(500);
+		await client.page.screenshot({ path: `${dir}/share-${name}.png` });
+	}
+}
+
+// Camera / avatar tiles on the client's stage (none while a share is live).
+const peerTiles = (client) =>
+	client.page.evaluate(
+		() =>
+			document.querySelectorAll(
+				'[data-testid^="camera-tile-"], [data-testid^="avatar-tile-"]',
+			).length,
+	);
+
+async function tilesBack(client, ms) {
+	for (const end = Date.now() + ms; Date.now() < end; await sleep(250))
+		if ((await peerTiles(client)) > 0) return true;
+	return false;
+}
+
+const splitter = (client) =>
+	client.page.evaluate(() => ({
+		now: Number(
+			document
+				.querySelector('[data-testid="splitter"]')
+				?.getAttribute("aria-valuenow"),
+		),
+		stage: document.querySelector(".stage")?.offsetHeight,
+	}));
+
+// The splitter on a desktop-sized viewer: ArrowDown grows the stage one
+// step (5 points) and the ratio is saved for the rejoin to restore.
+async function splitterDown(client, report, failures) {
+	await client.page.setViewport({ width: 1280, height: 800 });
+	await sleep(300);
+	const before = await splitter(client);
+	await client.page.focus('[data-testid="splitter"]');
+	await client.page.keyboard.press("ArrowDown");
+	await sleep(300);
+	const after = await splitter(client);
+	report.splitter = { before, after };
+	if (!(after.now === before.now + 5 && after.stage > before.stage))
+		failures.push(`splitter ArrowDown: ${JSON.stringify(report.splitter)}`);
+}
+
+async function splitterKept(client, report, failures) {
+	await client.page.setViewport({ width: 1280, height: 800 });
+	await sleep(300);
+	report.splitter.reloaded = await splitter(client);
+	if (report.splitter.reloaded.now !== report.splitter.after.now)
+		failures.push(`splitter not restored: ${JSON.stringify(report.splitter)}`);
+}
+
+// While a share is live the stage shows it alone (no camera tiles), then
+// the shots and the splitter step on the same viewer.
+async function layoutDuringShare(client, shots, report, failures) {
+	report.tilesDuringShare = await peerTiles(client);
+	if (report.tilesDuringShare !== 0)
+		failures.push(`${report.tilesDuringShare} camera tiles during the share`);
+	if (shots) await shootShare(client, shots);
+	await splitterDown(client, report, failures);
+}
+
+async function layoutAfterShare(client, report, failures) {
+	report.tilesBackAfterShare = await tilesBack(client, 15000);
+	if (!report.tilesBackAfterShare)
+		failures.push("camera tiles did not come back after the share stopped");
+}
+
+// The rejoined user2 decodes the live share again in time, and its page
+// restored the splitter ratio it saved before leaving.
+async function gateA(user2, resumeMaxMs, report, failures) {
+	report.user2ResumeMs = await waitFrames(
+		user2,
+		"user1",
+		3,
+		resumeMaxMs + 15000,
+	);
+	if (report.user2ResumeMs === null)
+		failures.push(
+			"gate A: rejoined user2 never decoded user1's live share again",
+		);
+	else if (report.user2ResumeMs > resumeMaxMs)
+		failures.push(
+			`gate A: rejoined user2 resumed only after ${report.user2ResumeMs}ms > ${resumeMaxMs}ms`,
+		);
+	await splitterKept(user2, report, failures);
+}
+
 export async function run({ pageUrl, server, arg, log }) {
 	const resumeMaxMs = Number(arg("resume-max-ms", "5000"));
 	const idleMs = Number(arg("idle-ms", "40000"));
@@ -151,23 +247,11 @@ export async function run({ pageUrl, server, arg, log }) {
 					`${c.tag}: never decoded user1's share before the rejoin test began`,
 				);
 		}
+		await layoutDuringShare(user2, arg("shots", ""), report, failures);
 
 		log("user2 leaves and rejoins while the share is live");
 		await rejoin(user2);
-		report.user2ResumeMs = await waitFrames(
-			user2,
-			"user1",
-			3,
-			resumeMaxMs + 15000,
-		);
-		if (report.user2ResumeMs === null)
-			failures.push(
-				"gate A: rejoined user2 never decoded user1's live share again",
-			);
-		else if (report.user2ResumeMs > resumeMaxMs)
-			failures.push(
-				`gate A: rejoined user2 resumed only after ${report.user2ResumeMs}ms > ${resumeMaxMs}ms`,
-			);
+		await gateA(user2, resumeMaxMs, report, failures);
 
 		await sendChat(user2, "msg:user2:after-rejoin");
 		for (const c of [user1, user3, user4]) {
@@ -182,6 +266,7 @@ export async function run({ pageUrl, server, arg, log }) {
 
 		log("user1 stops sharing; user3 leaves and rejoins against the idle track");
 		await toggleShare(user1);
+		await layoutAfterShare(user4, report, failures);
 		await rejoin(user3);
 		log(`room idles for ${idleMs}ms`);
 		await sleep(idleMs);

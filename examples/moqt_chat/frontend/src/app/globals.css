@@ -14,8 +14,9 @@
    padding block 0.618rem x phi. Minimum width: primary (Join, Send) =
    height x phi^2, others = height x phi, icon-only = height (square).
    Gaps between buttons in a row: --s-2; above a primary action: --s-4.
-   Text links (.link) keep the 44px height; the per-message check and "⋯"
-   are exempt as inline targets (2.5.5 exception) so rows stay dense. */
+   Text links (.link) keep the 44px height; the per-message check, "⋯"
+   and the add-reaction icon are exempt as inline targets (2.5.5
+   exception) so rows stay dense. */
 :root {
 	--s-1: 0.382rem;
 	--s-2: 0.618rem;
@@ -94,6 +95,7 @@ body {
 
 button,
 input,
+select,
 textarea {
 	font: inherit;
 	color: inherit;
@@ -422,16 +424,17 @@ textarea {
 	margin-top: var(--s-4);
 }
 
-/* Room. Desktop: rail | video | chat (the chat keeps its width). Tablet
-   (<= 64em): video | chat, the rail a drawer from "People & settings".
-   Phone (<= 40em): one pane at a time, picked by the bottom tabs. */
+/* Room. Desktop: rail | main, main = stage over chat (both full width,
+   a splitter between). Tablet (<= 64em): main alone, the rail a drawer
+   from "People & settings". Phone (<= 40em): one pane at a time, picked
+   by the bottom tabs, no splitter. */
 .room {
 	display: grid;
-	grid-template-columns: 14em minmax(0, 1fr) minmax(20em, 26em);
+	grid-template-columns: 14em minmax(0, 1fr);
 	grid-template-rows: auto minmax(0, 1fr);
 	grid-template-areas:
-		"rail head head"
-		"rail stage chat";
+		"rail head"
+		"rail main";
 	gap: var(--s-3) var(--s-4);
 	position: relative;
 	flex: 1;
@@ -451,16 +454,74 @@ textarea {
 	overflow-y: auto;
 }
 
-.stage {
-	grid-area: stage;
+/* Stage and chat grow by the split ratio (inline flex-grow); the splitter
+   keeps page.tsx's STAGE_MIN_PX / CHAT_MIN_PX, a short window shrinks both. */
+.room-main {
+	grid-area: main;
+	display: flex;
+	flex-direction: column;
 	min-height: 0;
-	overflow-y: auto;
+}
+
+.room-main[data-dragging] {
+	user-select: none;
+}
+
+.stage {
+	display: flex;
+	flex-direction: column;
+	gap: var(--s-2);
+	flex: 1 1 0;
+	min-height: 0;
+	overflow: hidden;
 }
 
 .chat {
-	grid-area: chat;
 	display: flex;
 	flex-direction: column;
+	flex: 1 1 0;
+	min-height: 0;
+}
+
+/* A hairline with a grip; the hit area is --s-3 tall. */
+.splitter {
+	flex: none;
+	position: relative;
+	height: var(--s-3);
+	cursor: row-resize;
+	touch-action: none;
+}
+
+.splitter::before {
+	content: "";
+	position: absolute;
+	inset: 50% 0 auto;
+	border-top: 1px solid var(--line);
+}
+
+.splitter::after {
+	content: "";
+	position: absolute;
+	top: calc(50% - 2px);
+	left: calc(50% - var(--s-4));
+	width: calc(var(--s-4) * 2);
+	height: 4px;
+	border-radius: 2px;
+	background: var(--muted);
+}
+
+.splitter:hover::after,
+.splitter:focus-visible::after {
+	background: var(--primary);
+}
+
+/* The tiles fill the stage: --cols / --rows from page.tsx's StageGrid. */
+.stage-grid {
+	display: grid;
+	grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr));
+	grid-template-rows: repeat(var(--rows, 1), minmax(0, 1fr));
+	gap: var(--s-1);
+	flex: 1;
 	min-height: 0;
 }
 
@@ -472,15 +533,53 @@ textarea {
 
 @media (max-width: 64em) {
 	.room {
-		grid-template-columns: minmax(0, 1fr) minmax(18em, 22em);
+		grid-template-columns: minmax(0, 1fr);
 		grid-template-areas:
-			"head head"
-			"stage chat";
+			"head"
+			"main";
 	}
 
 	.room-head__drawer {
 		display: inline-flex;
+		min-width: var(--control-h);
+		padding-inline: var(--s-1);
+		font-size: 0;
+	}
+
+	.room-head__drawer .icon {
+		width: 1.2rem;
+		height: 1.2rem;
+	}
+
+	.room-head > .tip:last-child {
 		margin-left: auto;
+	}
+
+	/* Compact chrome so stage and chat get the height: icon-only room
+	   buttons (the label stays for assistive tech), no brand, no folio. */
+	.page--room .masthead {
+		gap: var(--s-1);
+		padding: var(--s-2) 0;
+	}
+
+	.page--room .masthead__brand,
+	.page--room .folio {
+		display: none;
+	}
+
+	.masthead__tools .sign {
+		min-width: var(--control-h);
+		padding-inline: var(--s-1);
+		font-size: 0;
+	}
+
+	.masthead__tools .sign .icon {
+		width: 1.2rem;
+		height: 1.2rem;
+	}
+
+	.room-head {
+		gap: var(--s-1) var(--s-2);
 	}
 
 	/* Inside .room (below the masthead), so the room tools stay reachable. */
@@ -517,32 +616,6 @@ textarea {
 		display: none;
 	}
 
-	/* Compact chrome so the one pane gets the height: icon-only room
-	   buttons (the label stays for assistive tech), no folio. */
-	.page--room .masthead {
-		gap: var(--s-1);
-		padding: var(--s-2) 0;
-	}
-
-	.page--room .masthead__brand {
-		display: none;
-	}
-
-	.masthead__tools .sign {
-		min-width: var(--control-h);
-		padding-inline: var(--s-1);
-		font-size: 0;
-	}
-
-	.masthead__tools .sign .icon {
-		width: 1.2rem;
-		height: 1.2rem;
-	}
-
-	.page--room .folio {
-		display: none;
-	}
-
 	.room {
 		gap: var(--s-2);
 		padding: var(--s-2) 0 0;
@@ -557,6 +630,15 @@ textarea {
 		display: none;
 	}
 
+	/* The stage and chat become the room grid's own items. */
+	.room-main {
+		display: contents;
+	}
+
+	.splitter {
+		display: none;
+	}
+
 	.rail,
 	.stage,
 	.chat {
@@ -564,15 +646,16 @@ textarea {
 		grid-area: pane;
 		display: none;
 		width: auto;
+		min-height: 0;
 		padding: 0;
 		border: 0;
 	}
 
-	.room[data-view="video"] .stage,
 	.room[data-view="people"] .rail {
 		display: block;
 	}
 
+	.room[data-view="video"] .stage,
 	.room[data-view="chat"] .chat {
 		display: flex;
 	}
@@ -727,12 +810,15 @@ textarea {
 	color: var(--muted);
 }
 
-/* Video rail: --s-2 from a toggle to its setting, --s-3 between groups. */
-.video .sign {
+/* Settings: every button and select is one size -- the rail's width,
+   --control-h tall, the sign's --s-2 / --s-3 padding, label left. */
+.settings .sign {
 	display: flex;
-	width: fit-content;
+	justify-content: flex-start;
+	width: 100%;
 }
 
+/* Video rail: --s-2 from a toggle to its setting, --s-3 between groups. */
 .video .sign + .volume {
 	margin-top: var(--s-2);
 }
@@ -748,31 +834,33 @@ textarea {
 
 .rail select {
 	width: 100%;
+	min-height: var(--control-h);
 	margin-top: 0.35em;
-	padding: 0.3em 0;
-	border: 0;
-	border-bottom: 1px solid var(--muted);
+	padding: 0 var(--s-3);
+	border: 1px solid var(--ink);
 	background: transparent;
 	color: inherit;
 }
 
-/* Video tile: name bar over the bottom-left, avatar while no camera. */
+/* Video tile: one grid cell; the canvas fits inside it (contain), name
+   bar bottom-left, tools top-right, avatar while no camera. */
 .vtile {
 	position: relative;
 	display: flex;
-	align-items: flex-start;
-	min-width: 160px;
-	min-height: 90px;
+	align-items: center;
+	justify-content: center;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	outline: 1px solid var(--line);
 	background: #000;
 }
 
-.vtile__avatar {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: var(--tile-w, 320px);
-	max-width: 100%;
-	aspect-ratio: 16 / 9;
+.vtile canvas {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
 }
 
 .vtile__bar {
@@ -788,7 +876,7 @@ textarea {
 	color: #fff;
 }
 
-.screens__empty {
+.stage__empty {
 	align-self: center;
 }
 
@@ -812,8 +900,8 @@ textarea {
 	align-items: center;
 	justify-content: center;
 	gap: var(--s-2);
-	aspect-ratio: 16 / 9;
-	max-width: 32em;
+	flex: none;
+	min-height: var(--control-h);
 	background: var(--bubble);
 	color: var(--muted-strong);
 }
@@ -839,58 +927,31 @@ textarea {
 	background: #000;
 }
 
-.screens {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0.5em;
-	padding: 0.5em 0;
-}
-
-.screens canvas {
-	display: block;
-	max-width: 100%;
-	background: #000;
-}
-
-/* Own preview: the backing store follows the captured frame's size (like
-   a remote tile), the displayed width stays small. */
-.screen-own {
-	width: 160px;
-	height: auto;
-}
-
-.screen-own-wrap {
-	display: flex;
-	flex-direction: column;
-	gap: 0.25em;
-}
-
-/* Remote tiles: the canvas backing store is the sender's own frame size
-   (useMoqtChat.ts's drawScreenFrame), so a CSS width alone keeps the
-   aspect. --tile-w comes from the rail's "Tile width" slider. */
-.screen-tile {
-	display: flex;
-	flex-direction: column;
-	gap: 0.25em;
-}
-
-.screen-tile canvas {
-	width: var(--tile-w, 320px);
-	height: auto;
-}
-
-.screen-tile--max {
-	width: 100%;
-}
-
-.screen-tile--max canvas {
-	width: 100%;
-}
-
-.screen-tile__bar {
+.vtile__tools {
+	position: absolute;
+	top: 0;
+	right: 0;
 	display: flex;
 	align-items: center;
-	gap: 0.75em;
+	gap: var(--s-2);
+	max-width: 100%;
+	padding: var(--s-1);
+	background: rgb(0 0 0 / 0.6);
+	color: #fff;
+}
+
+.vtile__tools button {
+	border-color: #fff;
+	color: #fff;
+}
+
+/* LO / HI and Stalled: white on the 60% black bar, not the muted caption. */
+.vtile__tools .caption {
+	color: #fff;
+}
+
+.vtile[hidden] {
+	display: none;
 }
 
 .screen-tile__variant {
@@ -904,10 +965,6 @@ textarea {
 	border-bottom: 1px solid var(--muted);
 	background: transparent;
 	color: inherit;
-}
-
-.screen-tile__bar .sign--small {
-	margin-left: auto;
 }
 
 /* Bubbles, no separators: --s-2 between them. */
@@ -1043,7 +1100,8 @@ textarea {
 	align-items: center;
 }
 
-.message__raw-toggle {
+/* Per-post icon buttons (add reaction, ⋯): dense inline targets. */
+.post-icon {
 	align-self: center;
 	min-height: auto;
 	margin-top: 0;
@@ -1075,11 +1133,6 @@ textarea {
 
 .reaction:disabled {
 	cursor: default;
-}
-
-.reaction--add {
-	border-color: var(--ink);
-	font-weight: 500;
 }
 
 .message__delete {
@@ -1372,7 +1425,13 @@ textarea {
 
 /* Triggers at the right of their row (copy, attach, the last slots) open
  * leftward so a tip stays inside a 390px viewport. */
-:where(.field__row, .compose, .tiles .tip:nth-child(n + 3)) .tip__text {
+:where(
+		.field__row,
+		.compose,
+		.tiles .tip:nth-child(n + 3),
+		.room-head > .tip:last-child
+	)
+	.tip__text {
 	left: auto;
 	right: 0;
 }

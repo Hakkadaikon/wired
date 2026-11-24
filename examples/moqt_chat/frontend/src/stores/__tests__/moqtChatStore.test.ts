@@ -21,13 +21,10 @@ describe("moqtChatStore", () => {
 		expect(s.voiceQuality).toEqual({});
 	});
 
-	it("holds the remote screen tile width (320 px by default) and which tile is maximized", () => {
+	it("holds which remote screen tile is maximized", () => {
 		const s = useMoqtChatStore.getState();
-		expect(s.screenTileWidth).toBe(320);
 		expect(s.maximizedScreenTile).toBeNull();
-		s.setScreenTileWidth(640);
 		s.setMaximizedScreenTile("user2");
-		expect(useMoqtChatStore.getState().screenTileWidth).toBe(640);
 		expect(useMoqtChatStore.getState().maximizedScreenTile).toBe("user2");
 	});
 

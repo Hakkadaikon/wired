@@ -156,7 +156,7 @@ export function RawNostrEvent({
 					{actions}
 					<button
 						type="button"
-						className="link message__raw-toggle"
+						className="link post-icon"
 						aria-label={open ? "Hide raw Nostr event" : "Show raw Nostr event"}
 						aria-expanded={open}
 						aria-controls={panelId}

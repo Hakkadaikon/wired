@@ -238,22 +238,34 @@ async function previewStep({ user1, user2, report, failures }) {
 	);
 	if (!report.tileLabel?.includes("user1"))
 		failures.push(`user1's tile is not labelled: ${report.tileLabel}`);
-	// The rail's "Tile width" slider sizes camera tiles like screen tiles.
-	report.tileWidth = await user2.page.evaluate(async () => {
-		const range = document.querySelector('[data-testid="screen-tile-width"]');
-		const set = Object.getOwnPropertyDescriptor(
-			HTMLInputElement.prototype,
-			"value",
-		).set;
-		set.call(range, "480");
-		range.dispatchEvent(new Event("input", { bubbles: true }));
-		await new Promise((r) => requestAnimationFrame(() => r()));
-		return document.querySelector('[data-testid="camera-tile-user1"]')
-			?.offsetWidth;
-	});
-	if (report.tileWidth !== 480)
-		failures.push(`user1's tile ignores the tile width: ${report.tileWidth}`);
+	report.tileFill = await stageFill(user2);
+	const f = report.tileFill;
+	if (!(f.gridW > 0.98 && f.gridH > 0.98 && f.cellW > 0.95 && f.cellH > 0.95))
+		failures.push(`user1's tile does not fill the stage: ${JSON.stringify(f)}`);
 }
+
+// The camera grid against the stage (width and height), and user1's canvas
+// as drawn on screen against its grid cell (the stage height less gaps,
+// split by the grid's own rows and columns).
+const stageFill = (client) =>
+	client.page.evaluate(() => {
+		const stage = document.querySelector(".stage").getBoundingClientRect();
+		const el = document.querySelector(".stage-grid");
+		const grid = el.getBoundingClientRect();
+		const css = getComputedStyle(el);
+		const cols = css.gridTemplateColumns.split(" ").length;
+		const rows = css.gridTemplateRows.split(" ").length;
+		const gap = Number.parseFloat(css.gap) || 0;
+		const canvas = document
+			.querySelector('[data-testid="camera-tile-user1"] canvas')
+			.getBoundingClientRect();
+		return {
+			gridW: grid.width / stage.width,
+			gridH: grid.height / stage.height,
+			cellW: canvas.width / ((grid.width - gap * (cols - 1)) / cols),
+			cellH: canvas.height / ((grid.height - gap * (rows - 1)) / rows),
+		};
+	});
 
 // A sender that vanishes without withdrawing its namespace (its browser is
 // killed; the hub only notices at its idle timeout) loses its tile once its

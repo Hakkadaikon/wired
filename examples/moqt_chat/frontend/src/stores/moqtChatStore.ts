@@ -15,7 +15,6 @@ import { create } from "zustand";
 import { noiseSuppressionDefault } from "@/lib/joinPrefs";
 import type { ScreenQuality, ScreenVariant } from "@/lib/moqtScreenClient";
 import { type NostrProfile, ProfileResolver } from "@/lib/nostr";
-import { SCREEN_TILE_DEFAULT_PX } from "@/lib/screenTileSize";
 import type { VideoSourceView } from "@/lib/videoSourceController";
 import type { QualityLevel } from "@/lib/voiceQuality";
 
@@ -73,7 +72,6 @@ export type MoqtChatState = {
 	screenTiles: string[]; // participant ids currently sharing, for rendering tiles
 	screenShareError: string | null; // screen-share-only error; never surfaces in chat/voice errors
 	stalledScreenTiles: Record<string, boolean>; // per-sender "no frame for a while"; absent key renders as false
-	screenTileWidth: number; // displayed width of every remote screen tile, px
 	maximizedScreenTile: string | null; // remote tile shown fullscreen (or full-width without the API)
 	screenSwitching: boolean; // track switching on this session (the hub advertised SSTS): the quality selector shows
 	screenTileVariants: Record<string, ScreenVariant>; // per-sender variant last decoded (keyframe); absent = unknown
@@ -109,7 +107,6 @@ export type MoqtChatState = {
 	clearScreenTiles: () => void;
 	setScreenShareError: (msg: string | null) => void;
 	setScreenTileStalled: (id: string, stalled: boolean) => void;
-	setScreenTileWidth: (px: number) => void;
 	setMaximizedScreenTile: (id: string | null) => void;
 	setScreenSwitching: (on: boolean) => void;
 	setScreenTileVariant: (id: string, variant: ScreenVariant) => void;
@@ -149,7 +146,6 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 	screenTiles: [],
 	screenShareError: null,
 	stalledScreenTiles: {},
-	screenTileWidth: SCREEN_TILE_DEFAULT_PX,
 	maximizedScreenTile: null,
 	screenSwitching: false,
 	screenTileVariants: {},
@@ -237,7 +233,6 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 	setScreenShareError: (screenShareError) => set({ screenShareError }),
 	// Polled every drain tick, so an unchanged flag must not produce a new
 	// object (and a re-render) each time.
-	setScreenTileWidth: (screenTileWidth) => set({ screenTileWidth }),
 	setMaximizedScreenTile: (maximizedScreenTile) => set({ maximizedScreenTile }),
 	setScreenSwitching: (screenSwitching) => set({ screenSwitching }),
 	// Set on every decoded keyframe: an unchanged variant keeps the object.

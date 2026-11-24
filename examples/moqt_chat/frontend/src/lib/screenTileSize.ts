@@ -1,12 +1,7 @@
 // Remote screen-share tiles draw each decoded VideoFrame at its own size:
-// the canvas backing store follows the frame, and CSS (--tile-w) sets the
-// displayed width, so the aspect ratio is the sender's, never a stretch
-// into a fixed 320x180.
-
-export const SCREEN_TILE_MIN_PX = 160;
-export const SCREEN_TILE_MAX_PX = 960;
-export const SCREEN_TILE_STEP_PX = 20;
-export const SCREEN_TILE_DEFAULT_PX = 320;
+// the canvas backing store follows the frame, and CSS (object-fit:
+// contain) fits it to the tile, so the aspect ratio is the sender's, never
+// a stretch into a fixed 320x180.
 
 /** Sets the canvas backing store to frameW x frameH; returns whether it
  * changed. Writing width/height clears a canvas, so an equal size is a

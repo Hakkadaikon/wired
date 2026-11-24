@@ -11,7 +11,10 @@ import {
 } from "react";
 import { Icon } from "./icons";
 
-type Trigger = ReactElement<{ "aria-describedby"?: string }>;
+type Trigger = ReactElement<{
+	"aria-describedby"?: string;
+	"aria-label"?: string;
+}>;
 
 /** The page's one tooltip: shown on hover AND keyboard focus (CSS), a
  * touch tap pins it until the next tap or a tap elsewhere, and Esc hides a
@@ -65,7 +68,11 @@ export function Tooltip({
 			data-dismissed={dismissed || undefined}
 			data-open={pinned || undefined}
 		>
-			{cloneElement(children, { "aria-describedby": id })}
+			{/* A label that already says the tip would be read twice. */}
+			{cloneElement(
+				children,
+				children.props["aria-label"] === tip ? {} : { "aria-describedby": id },
+			)}
 			<span className="tip__text" role="tooltip" id={id}>
 				{tip}
 			</span>

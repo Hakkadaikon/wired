@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useId,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { deletePost, reactTo, toggleHand } from "@/hooks/nostrRoomSession";
 import { useMoqtChat } from "@/hooks/useMoqtChat";
 import { useObjectUrl } from "@/hooks/useObjectUrl";
@@ -34,12 +41,15 @@ import {
 	roomName,
 } from "@/lib/roomLink";
 import { retryMessage } from "@/lib/roomUi";
-import {
-	SCREEN_TILE_MAX_PX,
-	SCREEN_TILE_MIN_PX,
-	SCREEN_TILE_STEP_PX,
-} from "@/lib/screenTileSize";
 import { isMuteShortcut } from "@/lib/shortcuts";
+import {
+	clampSplit,
+	gridColumns,
+	loadSplit,
+	saveSplit,
+	splitKey,
+	stageMode,
+} from "@/lib/stageLayout";
 import {
 	type ChatMessage,
 	type ConnectionState,
@@ -204,17 +214,21 @@ function RoomHead({
 				</p>
 			)}
 			<RoomInvite room={activeRoom} />
-			<button
-				type="button"
-				id="room-drawer-toggle"
-				className="sign sign--outline room-head__drawer"
-				aria-expanded={view === "people"}
-				aria-controls="room-rail"
-				onClick={() => onView(view === "people" ? "video" : "people")}
-			>
-				<Icon name="users" />
-				People & settings
-			</button>
+			{/* Icon-only on a tablet (CSS) so it shares the head's row. */}
+			<Tooltip tip="People & settings">
+				<button
+					type="button"
+					id="room-drawer-toggle"
+					className="sign sign--outline room-head__drawer"
+					aria-label="People & settings"
+					aria-expanded={view === "people"}
+					aria-controls="room-rail"
+					onClick={() => onView(view === "people" ? "video" : "people")}
+				>
+					<Icon name="users" />
+					People & settings
+				</button>
+			</Tooltip>
 		</header>
 	);
 }
@@ -288,9 +302,7 @@ function ScreenTiles({
 }) {
 	const screenTiles = useMoqtChatStore((s) => s.screenTiles);
 	const screenSharing = useMoqtChatStore((s) => s.screenSharing);
-	const screenShareError = useMoqtChatStore((s) => s.screenShareError);
 	const stalledScreenTiles = useMoqtChatStore((s) => s.stalledScreenTiles);
-	const screenTileWidth = useMoqtChatStore((s) => s.screenTileWidth);
 	const nicknames = useMoqtChatStore((s) => s.nicknames);
 	const maximized = useMoqtChatStore((s) => s.maximizedScreenTile);
 	const setMaximized = useMoqtChatStore((s) => s.setMaximizedScreenTile);
@@ -314,114 +326,147 @@ function ScreenTiles({
 			return;
 		}
 		setMaximized(id);
-		// Without the Fullscreen API the .screen-tile--max class (full width)
-		// stands in.
+		// Without the Fullscreen API the tile alone filling the stage stands in.
 		if (canvas?.requestFullscreen)
 			void canvas.requestFullscreen().catch(() => {});
 	};
-	if (screenTiles.length === 0 && !screenSharing) return null;
+	const remote = screenTiles.filter((id) => id !== "own");
+	// While one tile is maximized the others hide but stay mounted, so their
+	// canvases keep the last frame instead of starting black on restore.
+	const solo = maximized && remote.includes(maximized) ? maximized : null;
+	const hidden = (id: string) => solo !== null && solo !== id;
+	const count = solo ? 1 : remote.length + (screenSharing ? 1 : 0);
 	return (
-		<div
-			className="screens"
-			style={{ "--tile-w": `${screenTileWidth}px` } as React.CSSProperties}
-		>
+		<StageGrid count={count}>
 			{screenSharing && (
-				<div className="screen-own-wrap">
-					<div className="vtile">
-						<canvas
-							ref={(el) => registerScreenCanvas("own", el)}
-							className="screen-own"
-							data-testid="screen-tile-own"
-							width={160}
-							height={90}
-						/>
-						<span className="vtile__bar">
-							<Icon name="screen" />
-							Sharing screen
-						</span>
-					</div>
+				<div className="vtile" hidden={hidden("own")}>
+					<canvas
+						ref={(el) => registerScreenCanvas("own", el)}
+						data-testid="screen-tile-own"
+						width={160}
+						height={90}
+					/>
+					<span className="vtile__bar">
+						<Icon name="screen" />
+						Sharing screen
+					</span>
 					{stalledScreenTiles.own && (
-						<span className="caption" data-testid="screen-stalled-own">
+						<span className="vtile__tools" data-testid="screen-stalled-own">
 							Screen sharing seems to have stalled. Stop sharing, then share
 							again.
 						</span>
 					)}
 				</div>
 			)}
-			{screenTiles
-				.filter((id) => id !== "own")
-				.map((id) => (
-					<div
-						key={id}
-						className={
-							maximized === id ? "screen-tile screen-tile--max" : "screen-tile"
-						}
-					>
-						<div className="vtile">
-							<canvas
-								ref={(el) => registerScreenCanvas(id, el)}
-								data-testid={`screen-tile-${id}`}
-								width={320}
-								height={180}
-							/>
-							<span className="vtile__bar">
-								<Icon name="screen" />
-								{resolveDisplayName(id, nicknames)}
-							</span>
-						</div>
-						<div className="screen-tile__bar">
-							{/* The variant being decoded (follows each keyframe), so a
+			{remote.map((id) => (
+				<div key={id} className="vtile" hidden={hidden(id)}>
+					<canvas
+						ref={(el) => registerScreenCanvas(id, el)}
+						data-testid={`screen-tile-${id}`}
+						width={320}
+						height={180}
+					/>
+					<span className="vtile__bar">
+						<Icon name="screen" />
+						{resolveDisplayName(id, nicknames)}
+					</span>
+					<div className="vtile__tools">
+						{/* The variant being decoded (follows each keyframe), so a
                   switch is observable: "HI" / "LO". */}
-							{switching && variants[id] && (
-								<span
-									className="caption screen-tile__variant"
-									data-testid={`screen-variant-${id}`}
-								>
-									{variants[id] === "lo" ? "LO" : "HI"}
-								</span>
-							)}
-							{switching && (
-								<select
-									className="screen-tile__quality"
-									data-testid={`screen-quality-${id}`}
-									aria-label="Screen quality"
-									value={qualities[id] ?? "auto"}
-									onChange={(e) =>
-										setScreenQuality(id, e.target.value as ScreenQuality)
-									}
-								>
-									{SCREEN_QUALITIES.map((q) => (
-										<option key={q.value} value={q.value}>
-											{q.label}
-										</option>
-									))}
-								</select>
-							)}
-							{stalledScreenTiles[id] && (
-								<span className="caption" data-testid={`screen-stalled-${id}`}>
-									Stalled
-								</span>
-							)}
-							<button
-								type="button"
-								className="sign sign--outline sign--small"
-								data-testid={`screen-maximize-${id}`}
-								onClick={(e) =>
-									toggleMaximize(
-										id,
-										e.currentTarget
-											.closest(".screen-tile")
-											?.querySelector("canvas") ?? null,
-									)
+						{switching && variants[id] && (
+							<span
+								className="caption screen-tile__variant"
+								data-testid={`screen-variant-${id}`}
+							>
+								{variants[id] === "lo" ? "LO" : "HI"}
+							</span>
+						)}
+						{switching && (
+							<select
+								className="screen-tile__quality"
+								data-testid={`screen-quality-${id}`}
+								aria-label="Screen quality"
+								value={qualities[id] ?? "auto"}
+								onChange={(e) =>
+									setScreenQuality(id, e.target.value as ScreenQuality)
 								}
 							>
-								<Icon name={maximized === id ? "minimize" : "maximize"} />
-								{maximized === id ? "Restore" : "Maximize"}
-							</button>
-						</div>
+								{SCREEN_QUALITIES.map((q) => (
+									<option key={q.value} value={q.value}>
+										{q.label}
+									</option>
+								))}
+							</select>
+						)}
+						{stalledScreenTiles[id] && (
+							<span className="caption" data-testid={`screen-stalled-${id}`}>
+								Stalled
+							</span>
+						)}
+						<button
+							type="button"
+							className="sign sign--outline sign--small"
+							data-testid={`screen-maximize-${id}`}
+							onClick={(e) =>
+								toggleMaximize(
+									id,
+									e.currentTarget.closest(".vtile")?.querySelector("canvas") ??
+										null,
+								)
+							}
+						>
+							<Icon name={maximized === id ? "minimize" : "maximize"} />
+							{maximized === id ? "Restore" : "Maximize"}
+						</button>
 					</div>
-				))}
-			<Notice message={screenShareError} />
+				</div>
+			))}
+		</StageGrid>
+	);
+}
+
+/** The element's content box, measured before the first paint (no
+ * one-column frame) and on every resize. */
+function useSize(ref: React.RefObject<HTMLElement | null>) {
+	const [size, setSize] = useState({ w: 0, h: 0 });
+	useLayoutEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		setSize({ w: el.clientWidth, h: el.clientHeight });
+		if (typeof ResizeObserver === "undefined") return;
+		const ro = new ResizeObserver(([e]) =>
+			setSize({ w: e.contentRect.width, h: e.contentRect.height }),
+		);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [ref]);
+	return size;
+}
+
+/** The stage's tiles in a grid whose column count makes each 16:9 tile
+ * as large as the stage allows. */
+function StageGrid({
+	count,
+	children,
+}: {
+	count: number;
+	children: React.ReactNode;
+}) {
+	const ref = useRef<HTMLDivElement>(null);
+	const size = useSize(ref);
+	const cols = gridColumns(count, size.w, size.h);
+	return (
+		<div
+			ref={ref}
+			className="stage-grid"
+			style={
+				{
+					"--cols": cols,
+					"--rows": Math.max(1, Math.ceil(count / cols)),
+				} as React.CSSProperties
+			}
+		>
+			{children}
 		</div>
 	);
 }
@@ -518,66 +563,65 @@ function VideoGrid({
 	const cameraTiles = useMoqtChatStore((s) => s.cameraTiles);
 	const peers = useMoqtChatStore((s) => s.peers);
 	const source = useMoqtChatStore((s) => s.video.source);
-	const tileWidth = useMoqtChatStore((s) => s.screenTileWidth);
 	const ids = [...new Set([...peers, ...cameraTiles])];
 	return (
-		<div
-			className="screens"
-			style={{ "--tile-w": `${tileWidth}px` } as React.CSSProperties}
-		>
-			<div
-				className="vtile"
-				data-testid={source === "off" ? "avatar-tile-own" : "camera-tile-own"}
-			>
-				{source === "off" ? (
-					<span className="vtile__avatar">
-						<ParticipantAvatar id="own" />
-					</span>
-				) : (
-					<canvas
-						ref={(el) => registerCameraCanvas("own", el)}
-						className="screen-own"
-						width={160}
-						height={90}
-					/>
-				)}
-				<span className="vtile__bar">
-					{source === "file" && (
-						<Badge icon="play" label="Playing a video file" />
-					)}
-					You
-					<PeerBadges id="own" handTestId="tile-hand-you" />
-				</span>
-			</div>
-			{ids.map((id) => (
+		<>
+			<StageGrid count={ids.length + 1}>
 				<div
-					key={id}
-					className="vtile screen-tile"
-					data-testid={
-						cameraTiles.includes(id) ? `camera-tile-${id}` : `avatar-tile-${id}`
-					}
+					className="vtile"
+					data-testid={source === "off" ? "avatar-tile-own" : "camera-tile-own"}
 				>
-					{cameraTiles.includes(id) ? (
-						<canvas
-							ref={(el) => registerCameraCanvas(id, el)}
-							width={320}
-							height={180}
-						/>
-					) : (
+					{source === "off" ? (
 						<span className="vtile__avatar">
-							<ParticipantAvatar id={id} />
+							<ParticipantAvatar id="own" />
 						</span>
+					) : (
+						<canvas
+							ref={(el) => registerCameraCanvas("own", el)}
+							width={160}
+							height={90}
+						/>
 					)}
 					<span className="vtile__bar">
-						<PeerName id={id} />
-						<PeerBadges id={id} handTestId={`tile-hand-${id}`} />
+						{source === "file" && (
+							<Badge icon="play" label="Playing a video file" />
+						)}
+						You
+						<PeerBadges id="own" handTestId="tile-hand-you" />
 					</span>
 				</div>
-			))}
+				{ids.map((id) => (
+					<div
+						key={id}
+						className="vtile"
+						data-testid={
+							cameraTiles.includes(id)
+								? `camera-tile-${id}`
+								: `avatar-tile-${id}`
+						}
+					>
+						{cameraTiles.includes(id) ? (
+							<canvas
+								ref={(el) => registerCameraCanvas(id, el)}
+								width={320}
+								height={180}
+							/>
+						) : (
+							<span className="vtile__avatar">
+								<ParticipantAvatar id={id} />
+							</span>
+						)}
+						<span className="vtile__bar">
+							<PeerName id={id} />
+							<PeerBadges id={id} handTestId={`tile-hand-${id}`} />
+						</span>
+					</div>
+				))}
+			</StageGrid>
 			{ids.length === 0 && (
-				<p className="caption screens__empty">No one has joined yet</p>
+				<p className="caption stage__empty">No one has joined yet</p>
 			)}
-		</div>
+		</>
 	);
 }
 
@@ -721,31 +765,6 @@ function Volume() {
 	);
 }
 
-function ScreenTileWidth() {
-	const width = useMoqtChatStore((s) => s.screenTileWidth);
-	const setWidth = useMoqtChatStore((s) => s.setScreenTileWidth);
-	return (
-		<section>
-			<h2>
-				<Icon name="screen" />
-				Screens
-			</h2>
-			<label className="volume">
-				<span className="volume__label">Tile width</span>
-				<input
-					type="range"
-					min={SCREEN_TILE_MIN_PX}
-					max={SCREEN_TILE_MAX_PX}
-					step={SCREEN_TILE_STEP_PX}
-					value={width}
-					data-testid="screen-tile-width"
-					onChange={(e) => setWidth(Number(e.target.value))}
-				/>
-			</label>
-		</section>
-	);
-}
-
 function OutputDevice({ onSelect }: { onSelect: (deviceId: string) => void }) {
 	const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
 	useEffect(() => {
@@ -861,16 +880,18 @@ function Reactions({ target }: { target: Target }) {
 				</button>
 			))}
 			{canReact && (
-				<button
-					type="button"
-					className="reaction reaction--add"
-					aria-expanded={open}
-					aria-label="Add reaction"
-					data-testid="reaction-add"
-					onClick={() => setOpen(!open)}
-				>
-					React
-				</button>
+				<Tooltip tip="Add reaction">
+					<button
+						type="button"
+						className="link post-icon"
+						aria-expanded={open}
+						aria-label="Add reaction"
+						data-testid="reaction-add"
+						onClick={() => setOpen(!open)}
+					>
+						<Icon name="reactAdd" />
+					</button>
+				</Tooltip>
 			)}
 			{open &&
 				REACTIONS.map((c) => (
@@ -1031,8 +1052,29 @@ function MessageList({ onRetry }: { onRetry: Retry }) {
 		if (el) el.scrollTop = el.scrollHeight;
 	}, [messages.length]);
 
+	// A list read to its end stays there when it gets shorter (a share
+	// starting, the splitter moving); one scrolled back keeps its place.
+	const pinned = useRef(true);
+	useEffect(() => {
+		const el = listRef.current;
+		if (!el || typeof ResizeObserver === "undefined") return;
+		const ro = new ResizeObserver(() => {
+			if (pinned.current) el.scrollTop = el.scrollHeight;
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, []);
+
 	return (
-		<div ref={listRef} className="messages" data-testid="messages">
+		<div
+			ref={listRef}
+			className="messages"
+			data-testid="messages"
+			onScroll={(e) => {
+				const el = e.currentTarget;
+				pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 2;
+			}}
+		>
 			{messages.length === 0 && (
 				<span className="caption">Send the first message</span>
 			)}
@@ -1280,6 +1322,98 @@ function Connecting() {
 	);
 }
 
+// The minimum pane heights the splitter keeps: --control-h (44px) times
+// φ² for the stage, φ³ for the chat (the composer and two posts).
+const STAGE_MIN_PX = 44 * 2.618;
+const CHAT_MIN_PX = 44 * 4.236;
+
+/** The main column: the stage on top (the share while one is live, else
+ * the cameras), the chat below, both full width, split by a separator
+ * that drags (pointer) or steps (arrows, Home / End). The phone shows one
+ * pane at a time and hides the separator (CSS). */
+function RoomMain({
+	stage,
+	children,
+}: {
+	stage: (share: boolean) => React.ReactNode;
+	children: React.ReactNode;
+}) {
+	const mode = useMoqtChatStore((s) =>
+		stageMode(s.screenSharing, s.screenTiles, s.stalledScreenTiles),
+	);
+	const [ratios, setRatios] = useState(() => ({
+		share: loadSplit("share"),
+		camera: loadSplit("camera"),
+	}));
+	const ref = useRef<HTMLDivElement>(null);
+	// The stage and chat share the column less the splitter (--s-3, 16px).
+	// Clamped on every render: a loaded ratio, a resize, a mode switch.
+	const total = useSize(ref).h - 16;
+	const keep = (r: number) =>
+		total > 0 ? clampSplit(r, total, STAGE_MIN_PX, CHAT_MIN_PX) : r;
+	const ratio = keep(ratios[mode]);
+	const latest = useRef(ratio);
+	latest.current = ratio;
+	const grab = useRef(0);
+	const set = (r: number) => {
+		latest.current = keep(r);
+		setRatios((p) => ({ ...p, [mode]: latest.current }));
+	};
+	const start = (e: React.PointerEvent<HTMLDivElement>) => {
+		if (e.button !== 0) return;
+		e.preventDefault();
+		grab.current = e.clientY - e.currentTarget.getBoundingClientRect().top;
+		e.currentTarget.setPointerCapture(e.pointerId);
+		ref.current?.setAttribute("data-dragging", "");
+	};
+	const drag = (e: React.PointerEvent<HTMLDivElement>) => {
+		const top = ref.current?.getBoundingClientRect().top ?? 0;
+		if (e.currentTarget.hasPointerCapture(e.pointerId))
+			set((e.clientY - grab.current - top) / total);
+	};
+	const end = () => {
+		ref.current?.removeAttribute("data-dragging");
+		saveSplit(mode, latest.current);
+	};
+	return (
+		<div ref={ref} className="room-main">
+			<section className="stage" aria-label="Video" style={{ flexGrow: ratio }}>
+				{stage(mode === "share")}
+			</section>
+			{/* biome-ignore lint/a11y/useSemanticElements: a focusable WAI-ARIA window splitter, not a thematic <hr> */}
+			<div
+				role="separator"
+				tabIndex={0}
+				className="splitter"
+				data-testid="splitter"
+				aria-label="Resize video and chat"
+				aria-orientation="horizontal"
+				aria-valuemin={Math.round(keep(0) * 100)}
+				aria-valuemax={Math.round(keep(1) * 100)}
+				aria-valuenow={Math.round(ratio * 100)}
+				onPointerDown={start}
+				onPointerMove={drag}
+				onPointerUp={end}
+				onPointerCancel={end}
+				onKeyDown={(e) => {
+					const r = splitKey(ratio, e.key);
+					if (r === null) return;
+					e.preventDefault();
+					set(r);
+					saveSplit(mode, latest.current);
+				}}
+			/>
+			<section
+				className="chat"
+				aria-label="Chat"
+				style={{ flexGrow: 1 - ratio }}
+			>
+				{children}
+			</section>
+		</div>
+	);
+}
+
 // A final screen (roomClosed) replaces the connect error notice.
 const whileOpen = <T,>(roomClosed: string | null, v: T) =>
 	roomClosed ? null : v;
@@ -1460,10 +1594,8 @@ export default function Home() {
 				message={whileOpen(roomClosed, connectError)}
 			/>
 			<Notice message={micError} />
-			{/* Also shown inside ScreenTiles while a tile is on screen; repeated
-          here so the message survives an auto-stop that removed the last
-          tile (own's auto-stop clears screenSharing and its own tile,
-          which can make ScreenTiles render nothing at all). */}
+			{/* Here, not in the stage: an auto-stop that removed the last share
+          tile also unmounts the share stage, and the message must stay. */}
 			<Notice message={screenShareError} />
 			<Notice message={messageSendError} />
 
@@ -1498,19 +1630,24 @@ export default function Home() {
 								onBackground={setVideoBackground}
 								onPickFile={pickVideoFile}
 							/>
-							<ScreenTileWidth />
 							<OutputDevice onSelect={setOutputDevice} />
 						</details>
 					</aside>
-					<section className="stage" aria-label="Video">
-						<Connecting />
-						<ScreenTiles
-							registerScreenCanvas={registerScreenCanvas}
-							setScreenQuality={setScreenQuality}
-						/>
-						<VideoGrid registerCameraCanvas={registerCameraCanvas} />
-					</section>
-					<section className="chat" aria-label="Chat">
+					<RoomMain
+						stage={(share) => (
+							<>
+								<Connecting />
+								{share ? (
+									<ScreenTiles
+										registerScreenCanvas={registerScreenCanvas}
+										setScreenQuality={setScreenQuality}
+									/>
+								) : (
+									<VideoGrid registerCameraCanvas={registerCameraCanvas} />
+								)}
+							</>
+						)}
+					>
 						<MessageList
 							onRetry={(m) =>
 								retryMessage(m, sendMessage, useMoqtChatStore.getState())
@@ -1525,7 +1662,7 @@ export default function Home() {
 							}
 							state={connectionState}
 						/>
-					</section>
+					</RoomMain>
 					<RoomTabs view={view} onView={setView} />
 				</div>
 			) : (

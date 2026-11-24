@@ -17,6 +17,9 @@ const PATHS = {
 		"M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7",
 	trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
 	plus: "M12 5v14M5 12h14",
+	// A face open at the top right, where the plus sits.
+	reactAdd:
+		"M11 5a8 8 0 1 0 8 8M8 15.5a4 4 0 0 0 6 0M8 11h.01M14 11h.01M19 2v6M16 5h6",
 	file: "M6 3h8l4 4v14H6zM14 3v4h4M10 11l5 3-5 3z",
 	chevron: "M9 6l6 6-6 6",
 	rejoin: "M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5",
