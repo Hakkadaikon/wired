@@ -204,10 +204,10 @@ name before any check (low value: room ids are random).
 - [x] OD1 NIP-05 resolver option chosen: A (Go helper) now, B (native SDK HTTPS client) later in #341
 
 ### P1 frontend room links (no rebuild per host) — est. 0.5 day
-- [ ] Room id + host from `?room=&host=`; namespace includes the room;
-      suffix parsing updated
-- [ ] Remove NEXT_PUBLIC_NOSTR_HOST / _SPACE_D / _ROOM_NAME (docs, e2e, tests)
-- [ ] e2e: two rooms on one hub do not see each other (client-side only)
+- [x] Room id + host from `?room=&host=`; namespace includes the room;
+      suffix parsing updated (9916a40b3; s26-rooms, roomLink tests)
+- [x] Remove NEXT_PUBLIC_NOSTR_HOST / _SPACE_D / _ROOM_NAME (docs, e2e, tests) (9916a40b3; s26-rooms, roomLink tests)
+- [x] e2e: two rooms on one hub do not see each other (client-side only) (9916a40b3; s26-rooms, roomLink tests)
 
 ### P2 Nostr verification in the SDK — est. 3-4 days
 - [ ] secp256k1 field / scalar / group (variable time, public inputs); lift_x
