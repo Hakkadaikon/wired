@@ -35,7 +35,7 @@ crypto は transport にパケット保護の AEAD(認証付き暗号)を、tls 
 |---|---|
 | AEAD | AES-GCM、ChaCha20-Poly1305 |
 | ハッシュ | SHA-256、SHA-384、SHA-512、HMAC |
-| 署名 | Ed25519、ECDSA P-256 / P-384 / P-521、RSA-PSS、RSA PKCS#1 v1.5 |
+| 署名 | Ed25519、ECDSA P-256 / P-384 / P-521、RSA-PSS、RSA PKCS#1 v1.5、BIP-340 Schnorr(secp256k1、検証のみ) |
 | 鍵導出 | HKDF |
 | 証明書 | X.509 の解析と検証 |
 

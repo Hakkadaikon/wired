@@ -16,11 +16,12 @@
 | QUIC のコア | 4 |
 | QUIC の拡張 | 13 |
 | TLS と PKI | 16 |
-| 暗号プリミティブ | 11 |
+| 暗号プリミティブ | 12 |
 | HTTP/3 と QPACK | 6 |
 | WebTransport | 4 |
 | MoQT | 3(ドラフト) |
 | IP と UDP の基盤 | 3 |
+| Nostr | 2 |
 
 ## 1. グループの依存
 
@@ -136,6 +137,7 @@ QUIC は AEAD とヘッダー保護の暗号をパケットごとに直接呼び
 | FIPS 180-4 | Secure Hash Standard (SHS) | <https://csrc.nist.gov/pubs/fips/180/4/final> | SHA-256、SHA-384、SHA-512。ハンドシェイクのトランスクリプトと鍵導出の土台。 |
 | FIPS 198-1 | The Keyed-Hash Message Authentication Code (HMAC) | <https://csrc.nist.gov/pubs/fips/198/1/final> | HMAC。HKDF と Finished の検証の土台。 |
 | RFC 5869 | HMAC ベースの抽出・展開鍵導出関数(HKDF) | <https://www.rfc-editor.org/rfc/rfc5869> | TLS 1.3 の鍵スケジュール全体を動かす鍵導出関数。 |
+| BIP-340 | secp256k1 上の Schnorr 署名 | <https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki> | Nostr のイベントの署名の検証(検証のみ、可変時間)。ヘルパーのみ。サーバーはまだ呼ばない。 |
 
 ガイドの関連ページは [X25519](https://hakkadaikon.github.io/wired/guide/ja/tls/x25519/) と [SHA-256](https://hakkadaikon.github.io/wired/guide/ja/tls/sha256/) である。
 
@@ -234,3 +236,10 @@ MoQT は配信の告知、購読、メディアの区切り方を定める。制
 | RFC 768 | ユーザーデータグラムプロトコル | <https://www.rfc-editor.org/rfc/rfc768> | QUIC が載る UDP のヘッダー形式とチェックサム。 |
 | RFC 791 | インターネットプロトコル | <https://www.rfc-editor.org/rfc/rfc791> | UDP データグラムを運ぶ IPv4 のヘッダー形式。 |
 | RFC 1071 | インターネットチェックサムの計算 | <https://www.rfc-editor.org/rfc/rfc1071> | IP と UDP のチェックサムの計算手順。 |
+
+## 10. Nostr
+
+| 仕様 | タイトル | リンク | 理由 |
+|------|------------|--------|-----------|
+| NIP-01 | Basic protocol flow description | <https://github.com/nostr-protocol/nips/blob/master/01.md> | イベントの解析、id を計算する直列化、id と署名の検証。ヘルパーのみ。サーバーはまだ呼ばない。 |
+| NIP-98 | HTTP Auth | <https://github.com/nostr-protocol/nips/blob/master/98.md> | kind 27235 のイベントによる認証の検査とリプレイキャッシュ。ヘルパーのみ。サーバーはまだ呼ばない。 |

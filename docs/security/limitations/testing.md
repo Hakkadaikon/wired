@@ -27,7 +27,7 @@
 
 Issue #24 では、何からも呼ばれないコードを削除し、ファズハーネス、guide のスニペット、例、出荷する経路の動作テストが使うものだけを残すと決めた。
 
-以下の 46 個のソースファイルはライブラリにコンパイルされるが、`examples/` のどのサーバーからも関数が 1 つも到達しない。呼び出し元は、サーバーを相手にするテストのピア(TLS と HTTP/3 のクライアント側)、ファズハーネス、`examples/` が使わない公開 API、単体テストである。
+以下の 60 個のソースファイルはライブラリにコンパイルされるが、`examples/` のどのサーバーからも関数が 1 つも到達しない。呼び出し元は、サーバーを相手にするテストのピア(TLS と HTTP/3 のクライアント側)、ファズハーネス、`examples/` が使わない公開 API、単体テストである。
 
 これらのどれか 1 つだけを根拠に挙げている台帳の行は、出荷するサーバーの裏付けにならない。
 
@@ -44,9 +44,13 @@ Issue #24 では、何からも呼ばれないコードを削除し、ファズ�
 - `app/moqt/ctl/`: `moqctl_rngf_put.c`
 - `app/moqt/data/`: `moqdata_blob.c`
 - `app/moqt/dgram/`: `moqdg_put2.c`
+- `app/nostr/event/`: `nostrev_esc.c`, `nostrev_lex.c`, `nostrev_list.c`, `nostrev_obj.c`, `nostrev_ser.c`, `nostrev_tags.c`, `nostrev_utf8.c`
+- `app/nostr/nip98/`: `nip98.c`, `nip98_replay.c`, `nip98_tag.c`
 - `app/webtransport/exporter/`: `exporter.c`
+- `crypto/asymmetric/ecc/bip340/`: `bip340.c`
 - `crypto/asymmetric/ecc/p256/`: `p256_field_fe.c`
 - `crypto/asymmetric/ecc/p256fixed/`: `p256fixed_table.c`
+- `crypto/asymmetric/ecc/secp256k1/`: `secp256k1_field.c`, `secp256k1_mul.c`, `secp256k1_point.c`
 - `crypto/kdf/keys/`: `discard_driver.c`
 - `crypto/symmetric/aead/chacha/`: `poly1305_poly.c`
 - `crypto/symmetric/aead/gcm/`: `gcm.c`

@@ -115,11 +115,26 @@ MoQT ハブ(`src/app/moqt/run/`)は、`wired_moqt_init` が用意するサーバ
 
 パブリッシャーは各フラグメントを 1 つの MoQT Group として送る。
 
-## 9. ドメイン
+## 9. nostr: イベントと NIP-98 の検証
 
-HTTP/3 のフレームと制御ストリーム、リクエストとレスポンスの組み立て、QPACK のエンコードとデコード、DATAGRAM、WebTransport、MoQT(WebTransport 上と生の QUIC 上)、生の QUIC のバインディング用ヘルパー、フラグメント化 MP4 の解析。
+`src/app/nostr/` は Nostr のイベントを検証する。署名の検証は crypto の `bip340_verify` に任せる。サーバーからはまだ呼ばれない。
 
-## 10. ガイドの関連ページ
+| API | 役割 |
+|---|---|
+| `nostrev_parse(ev, json, len, buf, cap)` | NIP-01 のイベント 1 件を厳密な JSON の部分集合として解析する。文字列は `buf` にデコードし、`ev` は `buf` の中の位置を持つ。`cap >= len` なら足りる |
+| `nostrev_serialize(ev, sink)` | id を計算するための NIP-01 の直列化を `sink` に書く。エスケープしない 0x20 未満のバイトがあれば 0 を返す |
+| `nostrev_compute_id(ev, id)` | 直列化の SHA-256 |
+| `nostrev_verify(ev)` | id、次に BIP-340 の署名を確かめ、`NOSTREV_OK`、`NOSTREV_BAD_ID`、`NOSTREV_BAD_SIG` を返す |
+| `nip98_check(rq, token, ev, buf, cap)` | 生の JSON か `Nostr <base64>` のトークンを、kind、時間の窓、u、method、payload、id、署名の順に確かめ、`nip98_verdict` を返す。id はリプレイキャッシュに登録しない。`cap` はトークンの長さの 2 倍で足りる |
+| `nip98_replay_init(rc, window)`、`nip98_replay_admit(rc, id, created_at, now)` | 固定の大きさ(`NIP98_REPLAY_CAP`、既定 256)のリプレイキャッシュ。時間の窓は初期化で決まる(0 なら 60 秒)。項目は created_at + 窓まで有効で、有効な項目は追い出さず、満杯なら `NIP98_REPLAY_FULL` を返す |
+
+`nip98_req` は、期待する u と method、body のハッシュ(なければ payload タグを見ない)、今の時刻、リプレイキャッシュ(窓だけを読む)を持つ。呼び出しの順は `nip98_check`、公開鍵の認可、`nip98_replay_admit` である。認可の前に登録すると、認可されない鍵でキャッシュが埋まる。今の時刻は両方の呼び出しで同じ時計を使い、1 つのキャッシュに対して戻してはならない。受け付ける JSON の範囲は [NIP-01 の台帳](../features/nip01.md) にある。
+
+## 10. ドメイン
+
+HTTP/3 のフレームと制御ストリーム、リクエストとレスポンスの組み立て、QPACK のエンコードとデコード、DATAGRAM、WebTransport、MoQT(WebTransport 上と生の QUIC 上)、生の QUIC のバインディング用ヘルパー、フラグメント化 MP4 の解析、Nostr のイベントと NIP-98 の検証。
+
+## 11. ガイドの関連ページ
 
 | 内容 | ページ |
 |---|---|
