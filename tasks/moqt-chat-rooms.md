@@ -118,9 +118,9 @@ same line). Related: #340 (per-room containers, deferred).
 
 | Request | Hook | Rule |
 |---|---|---|
-| PUBLISH_NAMESPACE | authorize_namespace | exactly `wired/moqt_chat/<room>/<claimed id>` (4 fields) |
+| PUBLISH_NAMESPACE | authorize_namespace | >= 4 fields `wired/moqt_chat/<room>/<id>[/...]`; field 4 is (or claims) the session's id |
 | SUBSCRIBE_NAMESPACE / SUBSCRIBE_TRACKS | authorize_namespace | >= 3 fields, field 3 = session's room |
-| PUBLISH | authorize_publish | namespace = `wired/moqt_chat/<room>/<claimed id>` |
+| PUBLISH | authorize_publish | namespace exactly `wired/moqt_chat/<room>` (3 fields), track `<id>` or `<id>/<kind>`; `<id>` is (or claims) the session's id |
 | SUBSCRIBE / FETCH / TRACK_STATUS | authorize_subscribe | namespace under `wired/moqt_chat/<room>/` |
 
 Every authorize hook first checks that the session is a current member (not
@@ -245,15 +245,15 @@ name before any check (low value: room ids are random).
 - [x] e2e: two rooms on one hub do not see each other (client-side only) (9916a40b3; s26-rooms, roomLink tests)
 
 ### P2 Nostr verification in the SDK — est. 3-4 days
-- [~] secp256k1 field / scalar / group (variable time, public inputs); lift_x (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
-- [~] BIP-340 verify; all test-vectors.csv rows pass (valid and invalid) (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
-- [~] NIP-01 strict parser (caps, integers, lowercase hex, \u + surrogates) (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
-- [~] NIP-01 canonical serialisation; reject other C0 / lone surrogates (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
-- [~] NIP-98 checker (kind, window, u, method, id, sig, replay cache rules) (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
-- [~] Wiring in tests/run.c (+ fuzz harnesses that include the base .c); (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
+- [x] secp256k1 field / scalar / group (variable time, public inputs); lift_x (345a508e1/b2e53dca3/7dcc03d72; wired into the moqt_chat server at 8d72ac8b1)
+- [x] BIP-340 verify; all test-vectors.csv rows pass (valid and invalid) (345a508e1/b2e53dca3/7dcc03d72; wired into the moqt_chat server at 8d72ac8b1)
+- [x] NIP-01 strict parser (caps, integers, lowercase hex, \u + surrogates) (345a508e1/b2e53dca3/7dcc03d72; wired into the moqt_chat server at 8d72ac8b1)
+- [x] NIP-01 canonical serialisation; reject other C0 / lone surrogates (345a508e1/b2e53dca3/7dcc03d72; wired into the moqt_chat server at 8d72ac8b1)
+- [x] NIP-98 checker (kind, window, u, method, id, sig, replay cache rules) (345a508e1/b2e53dca3/7dcc03d72; wired into the moqt_chat server at 8d72ac8b1)
+- [x] Wiring in tests/run.c (+ fuzz harnesses that include the base .c); (345a508e1/b2e53dca3/7dcc03d72; wired into the moqt_chat server at 8d72ac8b1)
       name-collision grep
-- [~] Fuzz harnesses: event parser, NIP-98 checker (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
-- [~] docs/features rows (BIP-340, NIP-01, NIP-98 deviation); vuln-ledger, (345a508e1/b2e53dca3/7dcc03d72; tested, not yet called from a server — [x] when P3 wires it)
+- [x] Fuzz harnesses: event parser, NIP-98 checker (345a508e1/b2e53dca3/7dcc03d72; wired into the moqt_chat server at 8d72ac8b1)
+- [x] docs/features rows (BIP-340, NIP-01, NIP-98 deviation); vuln-ledger, (345a508e1/b2e53dca3/7dcc03d72; wired into the moqt_chat server at 8d72ac8b1)
       feature-gaps
 
 ### P5 TLA+ room lifecycle — est. 1 day
@@ -268,7 +268,7 @@ name before any check (low value: room ids are random).
 - [x] Read-only object tap on a namespace prefix (size cap) -- done (a92990472/90534740d) (hub.tap/tap_prefix/tap_max; test_mthk_tap_prefix_and_cap, test_mthk_close_inside_tap); Subgroup streams only, not datagrams
 - [x] Room-scaled capacities as formulas + `_Static_assert`s; per-session
       caps fixed -- done (a92990472/90534740d) (moqt_room.h: REQS 576, per session 67 = 40 + 27 joining FETCHes, FETCHES 41, RDV 81, RDV per session 27, GONE 82; test_moqtrun_repath_table_full is skipped in the room profile, unreachable there)
-- [~] view-check entries for new stored views (room table, token copy, tap) -- tap_prefix=caller done (a92990472/90534740d); left: room table and token copy (P6)
+- [~] view-check entries for new stored views (room table, token copy, tap) -- tap_prefix=caller done (a92990472/90534740d); P6 (uncommitted): `views:` tags on chatroom_table / chatroom_who; no token copy is kept (the room copies only the NIP-05 name and the host key), and the room table is not reachable from viewcheck's roots
 - [~] Tests per hook; measure BSS / RSS of a 3-room x 4-person hub -- tests done, BSS of wired_moqt_hub 12.43 MB at the room profile (was ~10.47 MB), uncommitted; left: RSS of a running hub
 - [x] Docs: guide moqt/authorize (admit, close, tap) and concepts/responsibilities (en/ja), docs/features/draft-moq-transport.md, docs/security/protocols.md -- done (a92990472/90534740d)
 
@@ -287,21 +287,31 @@ name before any check (low value: room ids are random).
       missing name
 
 ### P6 server rooms — est. 2 days
-- [ ] Room table, create / join / refuse rules; host query check
-- [ ] Participant id claims per room
-- [ ] Namespace confinement per the table
-- [ ] Optimistic create (`verifying`), async NIP-05 verdict, timeout
-- [ ] Anti-squatting (per pubkey, per domain, optional allowlist), SETUP
-      timeout, no-room sessions closed, per-tick verify cap
-- [ ] Lifecycle: lifetime, alone, empty grace, host end via 30313
-- [ ] Close with code + reason token; slot freed once; restart semantics;
-      --goaway-uri keeps room/host
-- [ ] Flags (durations, allowlist, public URL); WIRED_MOQT_CHAT_MAX_ROOMS
-- [ ] Logging without tokens; unit tests per rule
-- [ ] Test first: host end ignores an `ended` older than the newest recorded
-      `open` (the newest `open` created_at is stored); P5 survivor
-- [ ] Test list from tasks/loopeng/MoqtChatRooms.feature transferred to
-      tasks/test-design/ before the P6 tests are written
+(All P6 lines: done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e), 2026-11-25. Code examples/moqt_chat/server/room*.c +
+room_server.c, tests tests/app/chatroom_test.c (T-01..T-34). Rooms are on only with
+--public-url; without it the hub keeps the old unchecked namespace, which the pre-room
+e2e use. Wire deviations from the Namespace table: PUBLISH is ns
+wired/moqt_chat/<room> + name "<id>[/<kind>]" (the frontend's wire), and a PUBLISH or
+PUBLISH_NAMESPACE claims the id. `[x]` after commit + a room-mode e2e (P8).
+Review round 1 fixed, round 2 PASS: NIP-05 charset (no request-line injection; nip05d echoes
+nothing, so replies still match by order), tap budget 1/room/tick apart from NIP-98's 8,
+BIP-340 spent only after nip98_precheck, `open` clamped to now+60 s, --nip05 127/8 only,
+"moqt rooms: OFF" log; T-35..T-43.)
+- [~] Room table, create / join / refuse rules; host query check -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-01..T-08, T-23)
+- [~] Participant id claims per room -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-24)
+- [~] Namespace confinement per the table -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-25, T-27; frontend-wire deviation above)
+- [~] Optimistic create (`verifying`), async NIP-05 verdict, timeout -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-01, T-09, T-10, T-33; nip05d over loopback TCP, --nip05)
+- [~] Anti-squatting (per pubkey, per domain, optional allowlist), SETUP
+      timeout, no-room sessions closed, per-tick verify cap -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-26, T-29, T-30; --room-allow)
+- [~] Lifecycle: lifetime, alone, empty grace, host end via 30313 -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-11..T-15, T-28, T-32)
+- [~] Close with code + reason token; slot freed once; restart semantics;
+      --goaway-uri keeps room/host -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-16..T-18, T-31, T-34; new SDK call wired_moqt_goaway_session, test_moqtrun_goaway_session_uri); left: restart semantics in server.md (P8)
+- [~] Flags (durations, allowlist, public URL); WIRED_MOQT_CHAT_MAX_ROOMS -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (room_server.c: --public-url --nip05 --room-lifetime --room-alone-timeout --room-empty-grace --room-allow; no flag test)
+- [~] Logging without tokens; unit tests per rule -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (create/end lines + "moqt rooms: admitted= refused ..." with the 10 s stats line)
+- [~] Test first: host end ignores an `ended` older than the newest recorded
+      `open` (the newest `open` created_at is stored); P5 survivor -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-12 test_chatroom_host_end_ignores_ended_older_than_open; red without the open_at record)
+- [~] Test list from tasks/loopeng/MoqtChatRooms.feature transferred to
+      tasks/test-design/ before the P6 tests are written -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (tasks/test-design/MoqtChatRooms.md)
 
 ### P7 frontend — est. 1 day
 - [~] Create room UI (NIP-07 + nip05 + mode), share link (2afd44193; client side + unit tests done, server side and e2e pending P6/P8)
@@ -315,6 +325,14 @@ name before any check (low value: room ids are random).
 - [ ] e2e: create, join, room full, id taken, 4th room refused, auth room
       refuses unauthenticated join, host mismatch, host end, alone timeout,
       empty grace, lifetime (short flags), cross-room isolation
+- [ ] Remove the legacy mode: `--public-url` required (else wired_die),
+      delete chat_authorize_room_ns, migrate s24/s25/s26 and the other
+      scenarios to create rooms (no-compat; P6 review deviation 1)
+- [ ] P6 review minors: T-35 inputs NUL / non-ASCII / '%'; rename
+      g_rooms / g_nip05 / g_room_hub with a module prefix; fold
+      nip98_tag_is into nostrev_tag_value if they overlap
+- [ ] e2e: nip05d running -> create goes live; nip05d stopped ->
+      nip05-unverified after 3 s while other sessions keep running
 - [ ] wire.md (codes/reasons, NIP-98 and NIP-53 deviations), server.md,
       frontend.md, e2e.md; limitations (restart ends rooms, shared hub
       capacity and cache, squatting with many domains, NIP-05 dependency)
