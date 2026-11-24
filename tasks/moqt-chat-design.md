@@ -47,70 +47,70 @@ Standing constraints (decided earlier, they override the review text):
       display name, relays — the joinPrefs key)
 
 ## Room top bar
-- [ ] D-11 States (Mic, Noise suppression) as toggles with aria-pressed;
+- [x] D-11 States (Mic, Noise suppression) as toggles with aria-pressed; (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       actions (Raise hand, Share screen, Leave) as ghost/outline; all with icons
-- [ ] D-12 "NS on" → "Noise suppression" + waveform icon; on = accent
-- [ ] D-13 Icon + short label on every top-bar button
+- [x] D-12 "NS on" → "Noise suppression" + waveform icon; on = accent (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
+- [x] D-13 Icon + short label on every top-bar button (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
 
 ## Left sidebar
-- [ ] D-14 Always visible: participant list + own volume. Video / Background /
+- [x] D-14 Always visible: participant list + own volume. Video / Background / (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       Video file / Tile width / Output move to a settings drawer
-- [ ] D-15 Participant rows: avatar + name + mic / screen / hand icons,
+- [~] D-15 Participant rows: avatar + name + mic / screen / hand icons, (e09dffec4; remaining: remote mute is not transmitted, peers show a speaking icon)
       "You" marker, connection dot
-- [ ] D-16 File picker: custom "Choose video file" button (no browser-locale
+- [x] D-16 File picker: custom "Choose video file" button (no browser-locale (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       text), truncated name with full-name tooltip
-- [ ] D-17 Volume slider shows its value (0–100)
+- [x] D-17 Volume slider shows its value (0–100) (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
 
 ## Main area
-- [ ] D-18 Two columns: video grid (max width) + chat with guaranteed width;
+- [x] D-18 Two columns: video grid (max width) + chat with guaranteed width; (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       mobile tabs Video / Chat. Avatar on every message, own message tinted
       purple, others faint gray (layout per standing constraints)
-- [ ] D-19 Message separators: none or 1px rgba(255,255,255,.06); gap on φ scale
-- [ ] D-20 Composer: 1px border, purple on focus, filled purple Send,
+- [x] D-19 Message separators: none or 1px rgba(255,255,255,.06); gap on φ scale (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
+- [x] D-20 Composer: 1px border, purple on focus, filled purple Send, (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       attach icon always visible
-- [ ] D-21 Video tile overlay: name bar bottom-left, mic / screen icons,
+- [~] D-21 Video tile overlay: name bar bottom-left, mic / screen icons, (e09dffec4; remaining: remote mute not transmitted, speaking icon instead)
       "You" on own tile
-- [ ] D-22 Camera off → avatar + name placeholder; "Sharing screen" label;
+- [x] D-22 Camera off → avatar + name placeholder; "Sharing screen" label; (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       play icon while a video file plays
-- [ ] D-23 Raise hand: purple button while raised, hand icon in participant
+- [x] D-23 Raise hand: purple button while raised, hand icon in participant (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       list and tile, toast "<name> raised their hand" to everyone
-- [ ] D-24 Send states: pending (gray + spinner), failed (red + Retry);
+- [~] D-24 Send states: pending (gray + spinner), failed (red + Retry); (e09dffec4; failed + Retry + Disconnected done; remaining: pending state, needs a pre-sign dedup key)
       disconnected → composer disabled with "Reconnecting…"
-- [ ] D-25 "Share screen" → "Start sharing"; while sharing "Stop sharing"
+- [x] D-25 "Share screen" → "Start sharing"; while sharing "Stop sharing" (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
 
 ## Cross-cutting
 - [x] D-26 Palette tokens: primary #7C3AED, success #10B981, danger #EF4444, (413c054cf; js-check, e2e s24/s25/s26/s8)
       neutral grays; replace brown/stray accents
-- [~] D-27 Inline SVG icon set; every button / state / section header (413c054cf; icons on join + top bar; remaining: room sidebar/chat/tiles in phase B)
-- [~] D-28 Spacing and type hierarchy (heading 16 medium, body 14 regular, (413c054cf; CSS scale done; remaining: room screen small text 0.8/0.85em)
+- [x] D-27 Inline SVG icon set; every button / state / section header (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
+- [x] D-28 Spacing and type hierarchy (heading 16 medium, body 14 regular, (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       mapped to the φ scale)
 - [x] D-29 No Japanese anywhere in the UI/UX (user, 2026-11-24): labels, (738ffb632; noJapanese.test.ts)
       tooltips, toasts, errors, aria-labels, confirm dialogs, and no
       browser-locale widget text (native file input, default validation
       bubbles). Gate: a test that fails on any CJK/kana character in
       `frontend/src/**` outside `__tests__`
-- [~] D-30 State never by color alone: icon + text, aria-pressed on toggles, (5dbaf610e; aria-pressed toggles; remaining: connection text with D-33)
+- [x] D-30 State never by color alone: icon + text, aria-pressed on toggles, (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       "Connected" / "Disconnected" text
-- [ ] D-31 Responsive: desktop 2 columns, tablet sidebar drawer, mobile
+- [x] D-31 Responsive: desktop 2 columns, tablet sidebar drawer, mobile (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       bottom tabs Video / Chat / Settings
-- [ ] D-32 Empty states: "Send the first message", "No one has joined yet"
-- [ ] D-33 Loading: "Connecting…" / skeleton in the video area after join;
+- [x] D-32 Empty states: "Send the first message", "No one has joined yet" (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
+- [x] D-33 Loading: "Connecting…" / skeleton in the video area after join; (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       connection dot in the top bar (green / yellow / red)
 - [x] D-34 Focus ring 2px purple on every interactive element; M toggles mute (413c054cf/738ffb632; shortcuts.test.ts)
       (not while typing)
-- [~] D-35 Tooltips on every icon button and abbreviation. The small (413c054cf/5dbaf610e; tooltip.test.tsx, join hints moved; remaining: room icon buttons in phase B)
+- [x] D-35 Tooltips on every icon button and abbreviation. The small (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       inline hint/annotation texts (too small to read, user 2026-11-24) move
       into tooltips shown on hover AND keyboard focus (aria-describedby,
       Esc closes, tap on touch); readable size on the φ scale; no hint
       text left at the current small size
-- [ ] D-36 Deleted message: "<name> deleted this message" / "You deleted this
+- [x] D-36 Deleted message: "<name> deleted this message" / "You deleted this (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       message" (NIP-09: only the author can delete); keeps its height
-- [ ] D-37 Remaining time: yellow < 30 min, red < 5 min, toast at 5 min
-- [ ] D-38 Copy buttons: room id and "Copy invite link" (`?room=&host=`)
+- [x] D-37 Remaining time: yellow < 30 min, red < 5 min, toast at 5 min (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
+- [x] D-38 Copy buttons: room id and "Copy invite link" (`?room=&host=`) (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
 
 ## Verification
-- [~] D-39 Unit tests for new pure helpers (hash shortening, validation, (738ffb632; joinForm/shortcuts tests; remaining: timer color, invite link helpers)
+- [x] D-39 Unit tests for new pure helpers (hash shortening, validation, (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       timer color, invite link); `just js-check` green
-- [ ] D-40 e2e: existing moqt_chat scenarios still pass with the new markup
+- [x] D-40 e2e: existing moqt_chat scenarios still pass with the new markup (78d9aa974; e2e s22/s24/s25/s26/s8 PASS, s25 --shots desktop/800x600/390x667)
       (selectors updated); screenshot check of Join and room at desktop and
       390px width
