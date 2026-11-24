@@ -132,4 +132,6 @@ Standing constraints (decided earlier, they override the review text):
 - [ ] D-46 Stage fills its area: video / share scaled to fit (object-fit
       contain) using all available width and height, camera tiles share the
       area in a grid sized to the space
+- [ ] D-48 The per-post "React" text button becomes an icon button (smiley
+      plus), aria-label and tooltip "Add reaction", same size as ⋯
 - [ ] D-47 e2e + screenshots (desktop, 800x600, 390x667) for D-41..D-46
