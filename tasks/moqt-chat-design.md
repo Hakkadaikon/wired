@@ -116,22 +116,23 @@ Standing constraints (decided earlier, they override the review text):
       390px width
 
 ## Phase C: stage + chat layout (user, 2026-11-24, priority)
-- [ ] D-41 Composer (message input row, bottom right today) spans the full
+- [x] D-41 Composer (message input row, bottom right today) spans the full
       width of the main column
-- [ ] D-42 One stage for camera and screen share: while any screen share is
+- [x] D-42 One stage for camera and screen share: while any screen share is
       live the stage shows the share only, no camera tiles
-- [ ] D-43 Chat (1311 list) is not pushed to the right edge: the main column
+- [x] D-43 Chat (1311 list) is not pushed to the right edge: the main column
       is a vertical stack, stage on top, chat below, both full width. While
       a screen share is live the default split is 50 / 50; otherwise the
       stage default is the φ minor part (0.382)
-- [ ] D-44 Draggable splitter between stage and chat (pointer drag +
+- [x] D-44 Draggable splitter between stage and chat (pointer drag +
       keyboard arrows, role=separator with aria-valuenow, min sizes); the
       chosen ratio is remembered per viewer (localStorage, try/catch)
-- [ ] D-45 Settings controls use one button size (height, padding, min width
+- [x] D-45 Settings controls use one button size (height, padding, min width
       from the φ scale)
-- [ ] D-46 Stage fills its area: video / share scaled to fit (object-fit
+- [x] D-46 Stage fills its area: video / share scaled to fit (object-fit
       contain) using all available width and height, camera tiles share the
       area in a grid sized to the space
-- [ ] D-48 The per-post "React" text button becomes an icon button (smiley
+- [x] D-48 The per-post "React" text button becomes an icon button (smiley
       plus), aria-label and tooltip "Add reaction", same size as ⋯
-- [ ] D-47 e2e + screenshots (desktop, 800x600, 390x667) for D-41..D-46
+- [x] D-47 e2e + screenshots (desktop, 800x600, 390x667) for D-41..D-46 (42b3052fc; s14 cameras hide/return + splitter keys/persist, s22 grid vs stage, s25 shots; stageLayout.test.ts)
+- [x] D-49 Footer hidden at <= 64em to give the stage and chat the height; kept on desktop (42b3052fc)

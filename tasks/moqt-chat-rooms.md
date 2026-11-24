@@ -257,20 +257,20 @@ name before any check (low value: room ids are random).
       feature-gaps
 
 ### P5 TLA+ room lifecycle — est. 1 day
-- [x] Requirements (D1-D6, admission, claims) into the loop-engineering ledger (tasks/loopeng/MoqtChatRooms.extract.md, S-001..S-047)
-- [~] Spec + TLC + mutation oracle; Gherkin from counterexamples (10 cfgs No error, guard mutants 34/34; remaining: readback, reviewer, one true survivor -> P6 test)
+- [x] Requirements into the loop-engineering ledger (tasks/loopeng/MoqtChatRooms.extract.md, S-001..S-052)
+- [~] Spec + TLC + mutation oracle; Gherkin (round 3: creation-second ghost, per-term due checks, full oracle rerun on the final text; readback round 2 passed on the round-2 text)
 
 ### P3 hub / SDK hooks — est. 2-3 days
-- [~] `moqctl_setup` keeps the auth token value (view) -- done, uncommitted (test_mthk_setup_keeps_first_token, test_mthk_setup_token_alias_types); left: commit
-- [~] Session argument on the three authorize hooks; all callers updated
-      (examples, guide snippets + goldens, fuzz, tests, docs) -- done, uncommitted (test_moqtrun_subscribe_requires_authorization et al.); left: commit
-- [~] Sync admission hook (session + token); hub close with reason -- done, uncommitted: hub.admit, wired_moqt_close (callable inside admit / authorize / tap), a closing session is no longer read (requests, Objects, datagrams), legacy sessions closed UNAUTHORIZED while admit is set, full peer table closes INTERNAL_ERROR (test_mthk_admit_*, test_mthk_close_*). On-close / async verdict / timers reuse srvrun's wt_on_session_close and on_step (the app wraps them, as chat_on_session_close / chat_on_step do): no new SDK hook. Left: commit
-- [~] Read-only object tap on a namespace prefix (size cap) -- done, uncommitted (hub.tap/tap_prefix/tap_max; test_mthk_tap_prefix_and_cap, test_mthk_close_inside_tap); Subgroup streams only, not datagrams. Left: commit
-- [~] Room-scaled capacities as formulas + `_Static_assert`s; per-session
-      caps fixed -- done, uncommitted (moqt_room.h: REQS 576, per session 67 = 40 + 27 joining FETCHes, FETCHES 41, RDV 81, RDV per session 27, GONE 82; test_moqtrun_repath_table_full is skipped in the room profile, unreachable there). Left: commit
-- [~] view-check entries for new stored views (room table, token copy, tap) -- tap_prefix=caller done, uncommitted; left: room table and token copy (P6)
-- [~] Tests per hook; measure BSS / RSS of a 3-room x 4-person hub -- tests done, BSS of wired_moqt_hub 12.43 MB at the room profile (was ~10.47 MB), uncommitted; left: RSS of a running hub, commit
-- [~] Docs: guide moqt/authorize (admit, close, tap) and concepts/responsibilities (en/ja), docs/features/draft-moq-transport.md, docs/security/protocols.md -- done, uncommitted; left: commit
+- [x] `moqctl_setup` keeps the auth token value (view) -- done (a92990472/90534740d) (test_mthk_setup_keeps_first_token, test_mthk_setup_token_alias_types)
+- [x] Session argument on the three authorize hooks; all callers updated
+      (examples, guide snippets + goldens, fuzz, tests, docs) -- done (a92990472/90534740d) (test_moqtrun_subscribe_requires_authorization et al.)
+- [x] Sync admission hook (session + token); hub close with reason -- done (a92990472/90534740d): hub.admit, wired_moqt_close (callable inside admit / authorize / tap), a closing session is no longer read (requests, Objects, datagrams), legacy sessions closed UNAUTHORIZED while admit is set (the moqt_chat frontend always offers moqt-23 and refuses otherwise: moqtClient.ts:773, :800), full peer table closes INTERNAL_ERROR, the first close's code/reason stand, an authorizer that closes yet grants refuses, a close inside tap stops that delivery's cache and relay (test_mthk_admit_*, test_mthk_close_*, test_mthk_first_close_stands, test_mthk_close_then_grant_refuses, test_mthk_full_hub_closes_wt). On-close / async verdict / timers reuse srvrun's wt_on_session_close and on_step (the app wraps them, as chat_on_session_close / chat_on_step do): no new SDK hook
+- [x] Read-only object tap on a namespace prefix (size cap) -- done (a92990472/90534740d) (hub.tap/tap_prefix/tap_max; test_mthk_tap_prefix_and_cap, test_mthk_close_inside_tap); Subgroup streams only, not datagrams
+- [x] Room-scaled capacities as formulas + `_Static_assert`s; per-session
+      caps fixed -- done (a92990472/90534740d) (moqt_room.h: REQS 576, per session 67 = 40 + 27 joining FETCHes, FETCHES 41, RDV 81, RDV per session 27, GONE 82; test_moqtrun_repath_table_full is skipped in the room profile, unreachable there)
+- [~] view-check entries for new stored views (room table, token copy, tap) -- tap_prefix=caller done (a92990472/90534740d); left: room table and token copy (P6)
+- [~] Tests per hook; measure BSS / RSS of a 3-room x 4-person hub -- tests done, BSS of wired_moqt_hub 12.43 MB at the room profile (was ~10.47 MB), uncommitted; left: RSS of a running hub
+- [x] Docs: guide moqt/authorize (admit, close, tap) and concepts/responsibilities (en/ja), docs/features/draft-moq-transport.md, docs/security/protocols.md -- done (a92990472/90534740d)
 
 ### P4 NIP-05 resolver (Go helper, option A) — est. 1-1.5 days
 - [x] https on 443 only; no IP literals / ports; domain <= 253, punycode (3f036b8c9; nip05d main_test.go)
