@@ -16,6 +16,7 @@ import {
 } from "@/lib/nostr";
 import type { RoomLink } from "@/lib/roomLink";
 import { lookupNostrName, useMoqtChatStore } from "@/stores/moqtChatStore";
+import { CopyButton } from "./copyButton";
 import { Icon } from "./icons";
 import { NostrAuthor } from "./rawNostrEvent";
 import { RoomPicker } from "./roomPicker";
@@ -24,7 +25,6 @@ import { InfoTip, Tooltip } from "./tooltip";
 export const DEFAULT_URL = "https://localhost:4433/";
 export const DEFAULT_RELAYS_TEXT = DEFAULT_NOSTR_RELAYS.join("\n");
 const LOGIN_TIMEOUT_MS = 30_000;
-const COPY_RESET_MS = 2000;
 
 // NIP-07 login: the extension holds the key and signs; this page only learns
 // the pubkey. Logged in, text messages go out as signed kind 1311 events.
@@ -101,62 +101,6 @@ export function NostrAccount({
 				{error}
 			</span>
 		</div>
-	);
-}
-
-const COPY_TIP = {
-	idle: "Copy",
-	empty: "Nothing to copy yet",
-	copied: "Copied",
-	failed: "Could not copy: select the text and copy it by hand",
-};
-
-type CopyResult = { state: "copied" | "failed"; value: string };
-
-/** Copies value; the result shows for COPY_RESET_MS, or until the value
- * changes, and is announced (aria-live). */
-function CopyButton({
-	value,
-	label,
-	testId,
-}: {
-	value: string;
-	label: string;
-	testId: string;
-}) {
-	const [result, setResult] = useState<CopyResult | null>(null);
-	useEffect(() => {
-		if (!result) return;
-		const t = window.setTimeout(() => setResult(null), COPY_RESET_MS);
-		return () => window.clearTimeout(t);
-	}, [result]);
-	const fresh = result?.value === value ? result.state : null;
-	const state = fresh ?? (value ? "idle" : "empty");
-	// No clipboard (an insecure context) fails like a refused write.
-	const copy = () => {
-		if (!value) return;
-		(navigator.clipboard?.writeText(value) ?? Promise.reject()).then(
-			() => setResult({ state: "copied", value }),
-			() => setResult({ state: "failed", value }),
-		);
-	};
-	return (
-		<>
-			<Tooltip tip={COPY_TIP[state]}>
-				<button
-					type="button"
-					className="icon-button"
-					aria-label={label}
-					data-testid={testId}
-					onClick={copy}
-				>
-					<Icon name={state === "copied" ? "check" : "copy"} />
-				</button>
-			</Tooltip>
-			<span className="sr-only" aria-live="polite">
-				{fresh && COPY_TIP[fresh]}
-			</span>
-		</>
 	);
 }
 

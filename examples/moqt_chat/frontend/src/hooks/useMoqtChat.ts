@@ -955,7 +955,7 @@ export function useMoqtChat() {
 					useMoqtChatStore
 						.getState()
 						.setScreenShareError(
-							"Screen sharing stopped. Press Share screen to share again.",
+							"Screen sharing stopped. Press Start sharing to share again.",
 						);
 					stopScreenShareRef.current();
 				}

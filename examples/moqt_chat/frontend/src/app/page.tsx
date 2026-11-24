@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { deletePost, reactTo, toggleHand } from "@/hooks/nostrRoomSession";
 import { useMoqtChat } from "@/hooks/useMoqtChat";
 import { useObjectUrl } from "@/hooks/useObjectUrl";
@@ -33,6 +33,7 @@ import {
 	type RoomLink,
 	roomName,
 } from "@/lib/roomLink";
+import { retryMessage } from "@/lib/roomUi";
 import {
 	SCREEN_TILE_MAX_PX,
 	SCREEN_TILE_MIN_PX,
@@ -41,18 +42,33 @@ import {
 import { isMuteShortcut } from "@/lib/shortcuts";
 import {
 	type ChatMessage,
+	type ConnectionState,
 	resolveDisplayName,
 	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
-import { Icon } from "./icons";
+import { Icon, type IconName } from "./icons";
 import {
 	DEFAULT_RELAYS_TEXT,
 	DEFAULT_URL,
 	JoinScreen,
 	NostrAccount,
 } from "./joinScreen";
-import { NostrAuthor, NostrName, RawNostrEvent } from "./rawNostrEvent";
-import { Countdown, RoomClosed, useEndOnRoomClosed } from "./roomStatus";
+import {
+	authorLabels,
+	NostrAuthor,
+	NostrAvatar,
+	NostrName,
+	RawNostrEvent,
+} from "./rawNostrEvent";
+import { RoomInvite } from "./roomPicker";
+import {
+	Countdown,
+	RoomClosed,
+	useEndOnRoomClosed,
+	useHandToasts,
+} from "./roomStatus";
+import { RoomTabs, type RoomView, useEscToClose } from "./roomTabs";
+import { Toast } from "./toast";
 import { Tooltip } from "./tooltip";
 import { VideoSection } from "./videoSection";
 import { Wordmark } from "./wordmark";
@@ -60,17 +76,19 @@ import { Wordmark } from "./wordmark";
 const DEFAULT_PARTICIPANT_ID = CANDIDATE_PARTICIPANT_IDS[0];
 
 const STATUS_LABEL: Record<string, string> = {
-	connecting: "Connecting",
+	connecting: "Connecting…",
 	connected: "Connected",
 	disconnected: "Disconnected",
 };
 
+/** The connection: a green / yellow / red dot and its word (never colour
+ * alone). */
 function Status() {
 	const connectionState = useMoqtChatStore((s) => s.connectionState);
 	return (
-		<div className="status">
+		<div className="status" role="status">
 			<span
-				className="status__block"
+				className="status__dot"
 				data-testid="status"
 				data-status={connectionState}
 			/>
@@ -85,7 +103,7 @@ function MicToggle({ onToggleMute }: { onToggleMute: () => void }) {
 		<Tooltip tip="Mute or unmute (M)">
 			<button
 				type="button"
-				className={muted ? "sign sign--outline" : "sign"}
+				className="sign sign--outline"
 				aria-pressed={!muted}
 				data-testid="mic-toggle"
 				onClick={onToggleMute}
@@ -108,7 +126,7 @@ function NoiseSuppressionToggle() {
 	return (
 		<button
 			type="button"
-			className={enabled ? "sign" : "sign sign--outline"}
+			className="sign sign--outline"
 			aria-pressed={enabled}
 			data-testid="ns-toggle"
 			onClick={() => setNoiseSuppressionEnabled(!enabled)}
@@ -131,20 +149,29 @@ function HandToggle() {
 	return (
 		<button
 			type="button"
-			className={hand ? "sign sign--primary" : "sign sign--outline"}
+			className="sign sign--outline"
 			aria-pressed={hand}
 			data-testid="hand-toggle"
 			onClick={toggleHand}
 		>
-			<Icon name={hand ? "check" : "hand"} />
-			Raise hand
+			<Icon name="hand" />
+			Hand{" "}
+			<span className="sign__state" aria-hidden="true">
+				{hand ? "up" : "down"}
+			</span>
 		</button>
 	);
 }
 
 /** NIP-53: the host's space name (else roomName of the link's id), then the
  * live meeting's title and status. */
-function RoomHead() {
+function RoomHead({
+	view,
+	onView,
+}: {
+	view: RoomView;
+	onView: (view: RoomView) => void;
+}) {
 	const space = useMoqtChatStore((s) => s.nostrRoom.space);
 	const meeting = useMoqtChatStore((s) => s.nostrRoom.meeting);
 	const status = meeting && tag(meeting, "status");
@@ -176,6 +203,18 @@ function RoomHead() {
 						: "No meeting announced"}
 				</p>
 			)}
+			<RoomInvite room={activeRoom} />
+			<button
+				type="button"
+				id="room-drawer-toggle"
+				className="sign sign--outline room-head__drawer"
+				aria-expanded={view === "people"}
+				aria-controls="room-rail"
+				onClick={() => onView(view === "people" ? "video" : "people")}
+			>
+				<Icon name="users" />
+				People & settings
+			</button>
 		</header>
 	);
 }
@@ -205,7 +244,7 @@ function Hand({ pubkey, testId }: { pubkey?: string | null; testId: string }) {
 			aria-label="Hand raised"
 			data-testid={testId}
 		>
-			Hand
+			<Icon name="hand" />
 		</span>
 	);
 }
@@ -222,12 +261,12 @@ function ScreenShareToggle({
 	return (
 		<button
 			type="button"
-			className={sharing ? "sign sign--outline" : "sign"}
+			className="sign sign--outline"
 			data-testid="screen-toggle"
 			onClick={sharing ? onStop : onStart}
 		>
 			<Icon name="screen" />
-			{sharing ? "Stop sharing" : "Share screen"}
+			{sharing ? "Stop sharing" : "Start sharing"}
 		</button>
 	);
 }
@@ -288,13 +327,19 @@ function ScreenTiles({
 		>
 			{screenSharing && (
 				<div className="screen-own-wrap">
-					<canvas
-						ref={(el) => registerScreenCanvas("own", el)}
-						className="screen-own"
-						data-testid="screen-tile-own"
-						width={160}
-						height={90}
-					/>
+					<div className="vtile">
+						<canvas
+							ref={(el) => registerScreenCanvas("own", el)}
+							className="screen-own"
+							data-testid="screen-tile-own"
+							width={160}
+							height={90}
+						/>
+						<span className="vtile__bar">
+							<Icon name="screen" />
+							Sharing screen
+						</span>
+					</div>
 					{stalledScreenTiles.own && (
 						<span className="caption" data-testid="screen-stalled-own">
 							Screen sharing seems to have stalled. Stop sharing, then share
@@ -312,16 +357,19 @@ function ScreenTiles({
 							maximized === id ? "screen-tile screen-tile--max" : "screen-tile"
 						}
 					>
-						<canvas
-							ref={(el) => registerScreenCanvas(id, el)}
-							data-testid={`screen-tile-${id}`}
-							width={320}
-							height={180}
-						/>
-						<div className="screen-tile__bar">
-							<span className="caption">
+						<div className="vtile">
+							<canvas
+								ref={(el) => registerScreenCanvas(id, el)}
+								data-testid={`screen-tile-${id}`}
+								width={320}
+								height={180}
+							/>
+							<span className="vtile__bar">
+								<Icon name="screen" />
 								{resolveDisplayName(id, nicknames)}
 							</span>
+						</div>
+						<div className="screen-tile__bar">
 							{/* The variant being decoded (follows each keyframe), so a
                   switch is observable: "HI" / "LO". */}
 							{switching && variants[id] && (
@@ -367,7 +415,8 @@ function ScreenTiles({
 									)
 								}
 							>
-								{maximized === id ? "Restore ↙" : "Maximize ↗"}
+								<Icon name={maximized === id ? "minimize" : "maximize"} />
+								{maximized === id ? "Restore" : "Maximize"}
 							</button>
 						</div>
 					</div>
@@ -377,45 +426,157 @@ function ScreenTiles({
 	);
 }
 
-// Camera tiles beside the screen tiles: the own preview while a source is
-// on, then one per peer whose camera is decoding.
-function CameraTiles({
+/** A participant with no Nostr name yet: a muted disc with the initial
+ * (CSS attr, so it stays out of the row's text). */
+function PeerAvatar({ name }: { name: string }) {
+	return (
+		<span
+			className="nostr-avatar nostr-avatar--placeholder peer-avatar"
+			aria-hidden="true"
+			data-initial={([...name][0] ?? "").toUpperCase()}
+		/>
+	);
+}
+
+/** The avatar beside a participant's label, from the same source: the
+ * Nostr picture / display name when the pubkey is known ("own" = this
+ * page's login), else the nickname's initial. */
+function ParticipantAvatar({ id }: { id: string }) {
+	const pubkey = useMoqtChatStore((s) =>
+		id === "own" ? s.nostrPubkey : s.peerPubkeys[id],
+	);
+	const profile = useMoqtChatStore((s) =>
+		pubkey ? s.nostrProfiles[pubkey] : undefined,
+	);
+	const nicknames = useMoqtChatStore((s) => s.nicknames);
+	if (!pubkey)
+		return (
+			<PeerAvatar
+				name={id === "own" ? "You" : resolveDisplayName(id, nicknames)}
+			/>
+		);
+	return (
+		<NostrAvatar
+			key={profile?.picture}
+			pubkey={pubkey}
+			picture={profile?.picture}
+			initial={authorLabels(pubkey, profile ?? {}).initial}
+		/>
+	);
+}
+
+function PeerName({ id }: { id: string }) {
+	const pubkey = useMoqtChatStore((s) => s.peerPubkeys[id]);
+	const nicknames = useMoqtChatStore((s) => s.nicknames);
+	return pubkey ? (
+		<NostrName pubkey={pubkey} />
+	) : (
+		resolveDisplayName(id, nicknames)
+	);
+}
+
+function Badge({ icon, label }: { icon: IconName; label: string }) {
+	return (
+		<Tooltip tip={label}>
+			<span className="badge" role="img" aria-label={label}>
+				<Icon name={icon} />
+			</span>
+		</Tooltip>
+	);
+}
+
+/** A participant's mic / screen / hand state as icons ("own" = this page). */
+function PeerBadges({ id, handTestId }: { id: string; handTestId: string }) {
+	const own = id === "own";
+	const pubkey = useMoqtChatStore((s) =>
+		own ? s.nostrPubkey : s.peerPubkeys[id],
+	);
+	const muted = useMoqtChatStore((s) => own && s.muted);
+	const speaking = useMoqtChatStore((s) =>
+		own ? s.localSpeaking : Boolean(s.speaking[id]),
+	);
+	const sharing = useMoqtChatStore((s) =>
+		own ? s.screenSharing : s.screenTiles.includes(id),
+	);
+	return (
+		<span className="badges">
+			{muted && <Badge icon="micOff" label="Muted" />}
+			{speaking && !muted && <Badge icon="mic" label="Speaking" />}
+			{sharing && <Badge icon="screen" label="Sharing screen" />}
+			<Hand pubkey={pubkey} testId={handTestId} />
+		</span>
+	);
+}
+
+/** The video grid: own tile then one per peer, the camera when it is
+ * decoding, else the avatar and name. Name bar bottom-left over the tile. */
+function VideoGrid({
 	registerCameraCanvas,
 }: {
 	registerCameraCanvas: (id: string, el: HTMLCanvasElement | null) => void;
 }) {
 	const cameraTiles = useMoqtChatStore((s) => s.cameraTiles);
+	const peers = useMoqtChatStore((s) => s.peers);
 	const source = useMoqtChatStore((s) => s.video.source);
 	const tileWidth = useMoqtChatStore((s) => s.screenTileWidth);
-	const nicknames = useMoqtChatStore((s) => s.nicknames);
-	if (cameraTiles.length === 0 && source === "off") return null;
+	const ids = [...new Set([...peers, ...cameraTiles])];
 	return (
 		<div
 			className="screens"
 			style={{ "--tile-w": `${tileWidth}px` } as React.CSSProperties}
 		>
-			{source !== "off" && (
-				<div className="screen-own-wrap" data-testid="camera-tile-own">
+			<div
+				className="vtile"
+				data-testid={source === "off" ? "avatar-tile-own" : "camera-tile-own"}
+			>
+				{source === "off" ? (
+					<span className="vtile__avatar">
+						<ParticipantAvatar id="own" />
+					</span>
+				) : (
 					<canvas
 						ref={(el) => registerCameraCanvas("own", el)}
 						className="screen-own"
 						width={160}
 						height={90}
 					/>
-				</div>
-			)}
-			{cameraTiles.map((id) => (
-				<div key={id} className="screen-tile" data-testid={`camera-tile-${id}`}>
-					<canvas
-						ref={(el) => registerCameraCanvas(id, el)}
-						width={320}
-						height={180}
-					/>
-					<div className="screen-tile__bar">
-						<span className="caption">{resolveDisplayName(id, nicknames)}</span>
-					</div>
+				)}
+				<span className="vtile__bar">
+					{source === "file" && (
+						<Badge icon="play" label="Playing a video file" />
+					)}
+					You
+					<PeerBadges id="own" handTestId="tile-hand-you" />
+				</span>
+			</div>
+			{ids.map((id) => (
+				<div
+					key={id}
+					className="vtile screen-tile"
+					data-testid={
+						cameraTiles.includes(id) ? `camera-tile-${id}` : `avatar-tile-${id}`
+					}
+				>
+					{cameraTiles.includes(id) ? (
+						<canvas
+							ref={(el) => registerCameraCanvas(id, el)}
+							width={320}
+							height={180}
+						/>
+					) : (
+						<span className="vtile__avatar">
+							<ParticipantAvatar id={id} />
+						</span>
+					)}
+					<span className="vtile__bar">
+						<PeerName id={id} />
+						<PeerBadges id={id} handTestId={`tile-hand-${id}`} />
+					</span>
 				</div>
 			))}
+			{ids.length === 0 && (
+				<p className="caption screens__empty">No one has joined yet</p>
+			)}
 		</div>
 	);
 }
@@ -449,10 +610,12 @@ function Peers() {
 	const localSpeaking = useMoqtChatStore((s) => s.localSpeaking);
 	const nicknames = useMoqtChatStore((s) => s.nicknames);
 	const peerPubkeys = useMoqtChatStore((s) => s.peerPubkeys);
-	const ownPubkey = useMoqtChatStore((s) => s.nostrPubkey);
 	return (
 		<section>
-			<h2>Room</h2>
+			<h2>
+				<Icon name="users" />
+				Participants
+			</h2>
 			<p className="caption">{peers.length + 1} in room</p>
 			<ul className="peers">
 				<li className="you">
@@ -461,8 +624,9 @@ function Peers() {
 						data-testid="speaking-you"
 						data-speaking={localSpeaking || undefined}
 					/>
+					<ParticipantAvatar id="own" />
 					You
-					<Hand pubkey={ownPubkey} testId="hand-you" />
+					<PeerBadges id="own" handTestId="hand-you" />
 				</li>
 				{peers.map((p) => (
 					<li key={p}>
@@ -477,14 +641,52 @@ function Peers() {
 						{peerPubkeys[p] ? (
 							<NostrAuthor pubkey={peerPubkeys[p]} />
 						) : (
-							resolveDisplayName(p, nicknames)
+							<>
+								<ParticipantAvatar id={p} />
+								{resolveDisplayName(p, nicknames)}
+							</>
 						)}
-						<Hand pubkey={peerPubkeys[p]} testId={`hand-${p}`} />
+						<PeerBadges id={p} handTestId={`hand-${p}`} />
 					</li>
 				))}
 			</ul>
-			{peers.length === 0 && <p className="caption">Waiting for others…</p>}
 		</section>
+	);
+}
+
+/** A 0-1 volume slider; its 0-100 value sits outside the label, so the
+ * slider's name stays the label alone. */
+function VolumeSlider({
+	label,
+	value,
+	testId,
+	onChange,
+}: {
+	label: React.ReactNode;
+	value: number;
+	testId: string;
+	onChange: (v: number) => void;
+}) {
+	const id = useId();
+	return (
+		<div className="volume">
+			<span className="volume__head">
+				<label className="volume__label" htmlFor={id}>
+					{label}
+				</label>
+				<output htmlFor={id}>{Math.round(value * 100)}</output>
+			</span>
+			<input
+				id={id}
+				type="range"
+				min={0}
+				max={1}
+				step={0.01}
+				value={value}
+				data-testid={testId}
+				onChange={(e) => onChange(Number(e.target.value))}
+			/>
+		</div>
 	);
 }
 
@@ -494,42 +696,26 @@ function Volume() {
 	const peerVolumes = useMoqtChatStore((s) => s.peerVolumes);
 	const setMasterVolume = useMoqtChatStore((s) => s.setMasterVolume);
 	const setPeerVolume = useMoqtChatStore((s) => s.setPeerVolume);
-	const nicknames = useMoqtChatStore((s) => s.nicknames);
-	const peerPubkeys = useMoqtChatStore((s) => s.peerPubkeys);
 	return (
 		<section>
-			<h2>Volume</h2>
-			<label className="volume">
-				<span className="volume__label">Master</span>
-				<input
-					type="range"
-					min={0}
-					max={1}
-					step={0.01}
-					value={masterVolume}
-					data-testid="master-volume"
-					onChange={(e) => setMasterVolume(Number(e.target.value))}
-				/>
-			</label>
+			<h2>
+				<Icon name="volume" />
+				Volume
+			</h2>
+			<VolumeSlider
+				label="Master"
+				value={masterVolume}
+				testId="master-volume"
+				onChange={setMasterVolume}
+			/>
 			{peers.map((p) => (
-				<label key={p} className="volume volume--peer">
-					<span className="volume__label">
-						{peerPubkeys[p] ? (
-							<NostrName pubkey={peerPubkeys[p]} />
-						) : (
-							resolveDisplayName(p, nicknames)
-						)}
-					</span>
-					<input
-						type="range"
-						min={0}
-						max={1}
-						step={0.01}
-						value={peerVolumes[p] ?? 1}
-						data-testid={`peer-volume-${p}`}
-						onChange={(e) => setPeerVolume(p, Number(e.target.value))}
-					/>
-				</label>
+				<VolumeSlider
+					key={p}
+					label={<PeerName id={p} />}
+					value={peerVolumes[p] ?? 1}
+					testId={`peer-volume-${p}`}
+					onChange={(v) => setPeerVolume(p, v)}
+				/>
 			))}
 		</section>
 	);
@@ -540,7 +726,10 @@ function ScreenTileWidth() {
 	const setWidth = useMoqtChatStore((s) => s.setScreenTileWidth);
 	return (
 		<section>
-			<h2>Screens</h2>
+			<h2>
+				<Icon name="screen" />
+				Screens
+			</h2>
 			<label className="volume">
 				<span className="volume__label">Tile width</span>
 				<input
@@ -572,7 +761,10 @@ function OutputDevice({ onSelect }: { onSelect: (deviceId: string) => void }) {
 	if (devices.length === 0) return null;
 	return (
 		<section>
-			<h2>Output</h2>
+			<h2>
+				<Icon name="volume" />
+				Output
+			</h2>
 			<select
 				data-testid="output-device"
 				onChange={(e) => onSelect(e.target.value)}
@@ -626,7 +818,12 @@ function MessageAttachment({
 function Sender({ m }: { m: ChatMessage }) {
 	const nicknames = useMoqtChatStore((s) => s.nicknames);
 	if (m.author) return <NostrAuthor pubkey={m.author} />;
-	return m.own ? "You" : resolveDisplayName(m.senderId, nicknames);
+	return (
+		<>
+			<ParticipantAvatar id={m.own ? "own" : m.senderId} />
+			{m.own ? "You" : resolveDisplayName(m.senderId, nicknames)}
+		</>
+	);
 }
 
 const REACTIONS = ["+", "❤️", "😂", "🎉"];
@@ -713,10 +910,13 @@ function useNostrPost(m: ChatMessage) {
 function NostrFoot({ m }: { m: ChatMessage }) {
 	const post = useNostrPost(m);
 	if (!post || !m.raw) return null;
+	// NIP-09: isDeleted only honours the author's own kind 5.
 	if (post.deleted)
 		return (
 			<span className="message__deleted caption" data-testid="message-deleted">
-				Deleted by the author
+				<Icon name="trash" />
+				{post.own ? "You" : <NostrName pubkey={post.target.pubkey} />} deleted
+				this message
 			</span>
 		);
 	return (
@@ -731,6 +931,7 @@ function NostrFoot({ m }: { m: ChatMessage }) {
 						data-testid="nostr-delete"
 						onClick={() => deletePost(post.target)}
 					>
+						<Icon name="trash" />
 						Delete
 					</button>
 				)
@@ -741,7 +942,34 @@ function NostrFoot({ m }: { m: ChatMessage }) {
 	);
 }
 
-function Message({ m }: { m: ChatMessage }) {
+/** A failed message's line: Retry keeps the bubble (disabled, "Retrying…")
+ * until the re-send is done. */
+function NotSent({ onRetry }: { onRetry: () => Promise<void> }) {
+	const [busy, setBusy] = useState(false);
+	return (
+		<span className="message__failed" role="alert">
+			<Icon name="alert" />
+			Not sent
+			<button
+				type="button"
+				className="link"
+				data-testid="message-retry"
+				disabled={busy}
+				onClick={() => {
+					setBusy(true);
+					void onRetry().finally(() => setBusy(false));
+				}}
+			>
+				<Icon name={busy ? "spinner" : "rejoin"} />
+				{busy ? "Retrying…" : "Retry"}
+			</button>
+		</span>
+	);
+}
+
+type Retry = (m: ChatMessage) => Promise<void>;
+
+function Message({ m, onRetry }: { m: ChatMessage; onRetry: Retry }) {
 	const deleted = useNostrPost(m)?.deleted;
 	// A fixed English 24 h clock, not the browser's locale (D-29).
 	const time = new Date(m.at).toLocaleTimeString("en", {
@@ -765,9 +993,10 @@ function Message({ m }: { m: ChatMessage }) {
 	// directly after the text would extend the digits.
 	return (
 		<div
-			className={m.author ? "message message--nostr" : "message"}
+			className={`message${m.author ? " message--nostr" : ""}${m.own ? " message--own" : ""}`}
 			data-testid="message"
 			data-sender={m.senderId}
+			data-failed={m.failed || undefined}
 		>
 			<span className={m.own ? "message__sender you" : "message__sender"}>
 				<Sender m={m} />
@@ -787,12 +1016,12 @@ function Message({ m }: { m: ChatMessage }) {
 					))}
 				</div>
 			)}
-			{m.failed && <span className="message__failed caption">Not sent</span>}
+			{m.failed && <NotSent onRetry={() => onRetry(m)} />}
 		</div>
 	);
 }
 
-function MessageList() {
+function MessageList({ onRetry }: { onRetry: Retry }) {
 	const messages = useMoqtChatStore((s) => s.messages);
 	const listRef = useRef<HTMLDivElement>(null);
 
@@ -805,10 +1034,10 @@ function MessageList() {
 	return (
 		<div ref={listRef} className="messages" data-testid="messages">
 			{messages.length === 0 && (
-				<span className="caption">No messages yet</span>
+				<span className="caption">Send the first message</span>
 			)}
 			{messages.map((m) => (
-				<Message key={m.id} m={m} />
+				<Message key={m.id} m={m} onRetry={onRetry} />
 			))}
 		</div>
 	);
@@ -852,27 +1081,38 @@ function DraftChip({
 				// biome-ignore lint/performance/noImgElement: blob: URL in a static export; next/image cannot optimize it
 				<img src={previewUrl} alt={draft.fileName} />
 			)}
-			<button
-				type="button"
-				className="draft-chip__remove"
-				data-testid="draft-remove"
-				onClick={onRemove}
-			>
-				✕
-			</button>
+			<Tooltip tip="Remove attachment">
+				<button
+					type="button"
+					className="draft-chip__remove"
+					aria-label="Remove attachment"
+					data-testid="draft-remove"
+					onClick={onRemove}
+				>
+					<Icon name="x" />
+				</button>
+			</Tooltip>
 		</div>
 	);
 }
 
+// Gave up reconnecting ("disconnected"): say so, not "Reconnecting…".
+const COMPOSE_PLACEHOLDER: Record<ConnectionState, string> = {
+	connected: "Type a message",
+	connecting: "Reconnecting…",
+	disconnected: "Disconnected",
+};
+
 function Compose({
 	onSend,
 	onAttachmentRejected,
-	disabled,
+	state,
 }: {
 	onSend: (text: string, attachments: WireChatAttachment[]) => void;
 	onAttachmentRejected: (reason: string) => void;
-	disabled: boolean;
+	state: ConnectionState;
 }) {
+	const disabled = state !== "connected";
 	const [draft, setDraft] = useState("");
 	const [draftAttachments, setDraftAttachments] = useState<Draft[]>([]);
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -973,7 +1213,7 @@ function Compose({
 			)}
 			<input
 				name="chat-message"
-				placeholder="Type a message"
+				placeholder={COMPOSE_PLACEHOLDER[state]}
 				value={draft}
 				disabled={disabled}
 				data-testid="text"
@@ -1009,7 +1249,8 @@ function Compose({
 				disabled={disabled || !canSend}
 				onClick={submit}
 			>
-				Send →
+				<Icon name="send" />
+				Send
 			</button>
 		</div>
 	);
@@ -1023,6 +1264,19 @@ function NostrIdentity() {
 		<span className="account__who" data-testid="nostr-identity">
 			<NostrAuthor pubkey={pubkey} />
 		</span>
+	);
+}
+
+/** The video area's placeholder until the session is (back) up. */
+function Connecting() {
+	const state = useMoqtChatStore((s) => s.connectionState);
+	if (state === "connected") return null;
+	const lost = state === "disconnected";
+	return (
+		<p className="skeleton" data-testid="video-connecting" data-status={state}>
+			<Icon name={lost ? "alert" : "spinner"} />
+			{lost ? "Disconnected" : "Connecting…"}
+		</p>
 	);
 }
 
@@ -1061,6 +1315,8 @@ export default function Home() {
 	const screenShareError = useMoqtChatStore((s) => s.screenShareError);
 	const messageSendError = useMoqtChatStore((s) => s.messageSendError);
 	const roomClosed = useMoqtChatStore((s) => s.roomClosed);
+	const [view, setView] = useState<RoomView>("video");
+	useHandToasts();
 
 	// Switch to the chat screen once the connection is established.
 	useEffect(
@@ -1126,8 +1382,18 @@ export default function Home() {
 	const exit = () => {
 		leave();
 		setJoined(false);
+		setView("video");
 		exitRoom();
 	};
+	// The tablet drawer closes on Esc or its Close, focus back on its toggle.
+	// On a phone the toggle is hidden and People is a tab: Esc leaves it be.
+	const closeDrawer = useCallback(() => {
+		const toggle = document.getElementById("room-drawer-toggle");
+		if (!toggle?.getClientRects().length) return;
+		setView("video");
+		toggle.focus();
+	}, []);
+	useEscToClose(view === "people", closeDrawer);
 	useEndOnRoomClosed(exit);
 
 	useEffect(() => {
@@ -1148,6 +1414,7 @@ export default function Home() {
 				</div>
 				{joined ? (
 					<div className="masthead__tools">
+						<Status />
 						<MicToggle onToggleMute={toggleMute} />
 						<NoiseSuppressionToggle />
 						<HandToggle />
@@ -1206,31 +1473,49 @@ export default function Home() {
 					onBack={() => useMoqtChatStore.getState().setRoomClosed(null)}
 				/>
 			) : joined ? (
-				<div className="room">
-					<aside className="rail">
+				<div className="room" data-view={view}>
+					<RoomHead view={view} onView={setView} />
+					<aside className="rail" id="room-rail">
+						<button
+							type="button"
+							className="sign sign--outline rail__close"
+							onClick={closeDrawer}
+						>
+							<Icon name="x" />
+							Close
+						</button>
 						<Peers />
 						<Volume />
-						<VideoSection
-							connected={connectionState === "connected"}
-							onToggle={toggleVideoSource}
-							onBackground={setVideoBackground}
-							onPickFile={pickVideoFile}
-						/>
-						<ScreenTileWidth />
-						<OutputDevice onSelect={setOutputDevice} />
-						<section>
-							<h2>Status</h2>
-							<Status />
-						</section>
+						<details className="settings" data-testid="settings">
+							<summary>
+								<Icon name="settings" />
+								Settings
+								<Icon name="chevron" />
+							</summary>
+							<VideoSection
+								connected={connectionState === "connected"}
+								onToggle={toggleVideoSource}
+								onBackground={setVideoBackground}
+								onPickFile={pickVideoFile}
+							/>
+							<ScreenTileWidth />
+							<OutputDevice onSelect={setOutputDevice} />
+						</details>
 					</aside>
-					<section className="body">
-						<RoomHead />
+					<section className="stage" aria-label="Video">
+						<Connecting />
 						<ScreenTiles
 							registerScreenCanvas={registerScreenCanvas}
 							setScreenQuality={setScreenQuality}
 						/>
-						<CameraTiles registerCameraCanvas={registerCameraCanvas} />
-						<MessageList />
+						<VideoGrid registerCameraCanvas={registerCameraCanvas} />
+					</section>
+					<section className="chat" aria-label="Chat">
+						<MessageList
+							onRetry={(m) =>
+								retryMessage(m, sendMessage, useMoqtChatStore.getState())
+							}
+						/>
 						<Compose
 							onSend={(text, attachments) =>
 								void sendMessage(text, attachments)
@@ -1238,9 +1523,10 @@ export default function Home() {
 							onAttachmentRejected={(reason) =>
 								useMoqtChatStore.getState().setMessageSendError(reason)
 							}
-							disabled={connectionState !== "connected"}
+							state={connectionState}
 						/>
 					</section>
+					<RoomTabs view={view} onView={setView} />
 				</div>
 			) : (
 				<JoinScreen
@@ -1271,6 +1557,7 @@ export default function Home() {
 					setRoom={setRoom}
 				/>
 			)}
+			<Toast />
 			<footer className="folio">MOQT Chat · wired</footer>
 		</main>
 	);

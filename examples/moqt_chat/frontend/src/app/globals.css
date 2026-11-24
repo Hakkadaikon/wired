@@ -36,7 +36,16 @@
 	--danger: #ef4444;
 	/* Danger as text: #b91c1c on white 6.5:1; dark #f87171 on black 7.6:1. */
 	--danger-text: #b91c1c;
+	/* #F59E0B: the connecting dot (non-text); as text #b45309 on white 5.0:1,
+	   dark #fbbf24 on black 12:1. */
+	--warning: #f59e0b;
+	--warning-text: #b45309;
 	--muted: #6b7280;
+	/* Muted text on a tinted ground (bubbles, skeleton): #4b5563 keeps
+	   >= 4.5:1 on the bubble gray and the purple tint (light). */
+	--muted-strong: #4b5563;
+	/* Bubbles: others faint gray, own the purple tint. */
+	--bubble: rgb(127 127 127 / 0.08);
 	--line: rgb(0 0 0 / 0.08);
 	--ink: #000;
 	--paper: #fff;
@@ -48,7 +57,9 @@
 		--primary-text: #b57cff;
 		--danger-text: #f87171;
 		--success-text: #10b981;
+		--warning-text: #fbbf24;
 		--muted: #9ca3af;
+		--muted-strong: #9ca3af;
 		--line: rgb(255 255 255 / 0.08);
 		--ink: #fff;
 		--paper: #000;
@@ -106,6 +117,7 @@ textarea {
 }
 
 .page--room {
+	max-width: none;
 	height: 100dvh;
 }
 
@@ -410,47 +422,230 @@ textarea {
 	margin-top: var(--s-4);
 }
 
-/* Room: identification rail on the left, body on the right. */
+/* Room. Desktop: rail | video | chat (the chat keeps its width). Tablet
+   (<= 64em): video | chat, the rail a drawer from "People & settings".
+   Phone (<= 40em): one pane at a time, picked by the bottom tabs. */
 .room {
 	display: grid;
-	grid-template-columns: 14em 1fr;
-	gap: 2em;
+	grid-template-columns: 14em minmax(0, 1fr) minmax(20em, 26em);
+	grid-template-rows: auto minmax(0, 1fr);
+	grid-template-areas:
+		"rail head head"
+		"rail stage chat";
+	gap: var(--s-3) var(--s-4);
+	position: relative;
 	flex: 1;
 	min-height: 0;
-	padding: 1em 0;
+	padding: var(--s-3) 0;
 }
 
-/* The room is one viewport tall: a rail taller than that scrolls itself
+.room-head {
+	grid-area: head;
+}
+
+/* The room is one viewport tall: a pane taller than that scrolls itself
    instead of running under the folio. */
 .rail {
+	grid-area: rail;
 	min-height: 0;
 	overflow-y: auto;
 }
 
-.rail h2,
-.body h2 {
+.stage {
+	grid-area: stage;
+	min-height: 0;
+	overflow-y: auto;
+}
+
+.chat {
+	grid-area: chat;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.room-tabs,
+.room-head__drawer,
+.rail__close {
+	display: none;
+}
+
+@media (max-width: 64em) {
+	.room {
+		grid-template-columns: minmax(0, 1fr) minmax(18em, 22em);
+		grid-template-areas:
+			"head head"
+			"stage chat";
+	}
+
+	.room-head__drawer {
+		display: inline-flex;
+		margin-left: auto;
+	}
+
+	/* Inside .room (below the masthead), so the room tools stay reachable. */
+	.rail {
+		position: absolute;
+		inset: 0 auto 0 0;
+		z-index: 3;
+		display: none;
+		width: min(20em, 85vw);
+		padding: var(--s-4);
+		border-right: 1px solid var(--line);
+		background: var(--paper);
+	}
+
+	.room[data-view="people"] .rail {
+		display: block;
+	}
+
+	.rail__close {
+		display: inline-flex;
+		margin-bottom: var(--s-3);
+	}
+}
+
+@media (max-width: 40em) {
+	.room {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto minmax(0, 1fr) auto;
+		grid-template-areas: "head" "pane" "tabs";
+	}
+
+	.room-head__drawer,
+	.rail__close {
+		display: none;
+	}
+
+	/* Compact chrome so the one pane gets the height: icon-only room
+	   buttons (the label stays for assistive tech), no folio. */
+	.page--room .masthead {
+		gap: var(--s-1);
+		padding: var(--s-2) 0;
+	}
+
+	.page--room .masthead__brand {
+		display: none;
+	}
+
+	.masthead__tools .sign {
+		min-width: var(--control-h);
+		padding-inline: var(--s-1);
+		font-size: 0;
+	}
+
+	.masthead__tools .sign .icon {
+		width: 1.2rem;
+		height: 1.2rem;
+	}
+
+	.page--room .folio {
+		display: none;
+	}
+
+	.room {
+		gap: var(--s-2);
+		padding: var(--s-2) 0 0;
+	}
+
+	.room-head {
+		padding-bottom: 0;
+	}
+
+	.room-head__meeting,
+	.room-head > .caption {
+		display: none;
+	}
+
+	.rail,
+	.stage,
+	.chat {
+		position: static;
+		grid-area: pane;
+		display: none;
+		width: auto;
+		padding: 0;
+		border: 0;
+	}
+
+	.room[data-view="video"] .stage,
+	.room[data-view="people"] .rail {
+		display: block;
+	}
+
+	.room[data-view="chat"] .chat {
+		display: flex;
+	}
+
+	.room-tabs {
+		grid-area: tabs;
+		display: flex;
+		border-top: 1px solid var(--line);
+	}
+
+	.room-tabs button {
+		display: inline-flex;
+		flex: 1;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--s-1);
+		min-height: var(--control-h);
+		padding: var(--s-1);
+		border: 0;
+		background: none;
+		cursor: pointer;
+	}
+
+	.room-tabs button[aria-current="true"] {
+		color: var(--primary-text);
+		font-weight: 500;
+	}
+}
+
+.rail h2 {
+	display: flex;
+	align-items: center;
+	gap: var(--s-1);
 	margin-bottom: var(--s-1);
 	font-size: var(--s-3);
 	font-weight: 500;
 }
 
-.rail section + section {
-	margin-top: 1.5em;
+.rail section + section,
+.rail summary + section,
+.rail .settings {
+	margin-top: var(--s-4);
+}
+
+/* Settings drawer inside the rail: video, tiles, output. */
+/* A flex summary loses the native marker: the chevron turns instead. */
+.settings summary {
+	display: flex;
+	align-items: center;
+	gap: var(--s-1);
+	min-height: var(--control-h);
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.settings summary .icon:last-child {
+	transition: transform 0.15s;
+}
+
+.settings[open] summary .icon:last-child {
+	transform: rotate(90deg);
 }
 
 .peers {
 	list-style: none;
 }
 
-/* The status square leads each name; flex lets the empty span take its size. */
+/* Row: connection dot, avatar, name, then the state icons. */
 .peers li {
 	display: flex;
 	align-items: center;
-	gap: 0.5em;
-}
-
-.peers li + li {
-	margin-top: 0.25em;
+	gap: var(--s-1);
+	min-height: var(--control-h);
 }
 
 .you {
@@ -460,8 +655,25 @@ textarea {
 .status {
 	display: flex;
 	align-items: center;
-	gap: 0.5em;
-	margin-top: 0.25em;
+	gap: var(--s-1);
+	min-height: var(--control-h);
+}
+
+/* The connection dot: green / yellow / red, the word beside it. */
+.status__dot {
+	flex: none;
+	width: var(--s-2);
+	height: var(--s-2);
+	border-radius: 50%;
+	background: var(--danger);
+}
+
+.status__dot[data-status="connected"] {
+	background: var(--success);
+}
+
+.status__dot[data-status="connecting"] {
+	background: var(--warning);
 }
 
 .status__block {
@@ -470,16 +682,6 @@ textarea {
 	width: 1.2em;
 	height: 1.2em;
 	border: 1px solid var(--ink);
-}
-
-.status__block[data-status="connected"] {
-	border-color: var(--success);
-	background: var(--success);
-}
-
-.status__block[data-status="connecting"] {
-	border-color: var(--muted);
-	background: var(--muted);
 }
 
 .status__block[data-quality="good"] {
@@ -504,6 +706,16 @@ textarea {
 
 .volume--peer {
 	margin-top: 0.35em;
+}
+
+.volume__head {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--s-2);
+}
+
+.volume__head output {
+	font-variant-numeric: tabular-nums;
 }
 
 .volume__label {
@@ -544,10 +756,79 @@ textarea {
 	color: inherit;
 }
 
-.body {
+/* Video tile: name bar over the bottom-left, avatar while no camera. */
+.vtile {
+	position: relative;
 	display: flex;
-	flex-direction: column;
-	min-height: 0;
+	align-items: flex-start;
+	min-width: 160px;
+	min-height: 90px;
+	background: #000;
+}
+
+.vtile__avatar {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--tile-w, 320px);
+	max-width: 100%;
+	aspect-ratio: 16 / 9;
+}
+
+.vtile__bar {
+	position: absolute;
+	left: 0;
+	bottom: 0;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--s-1);
+	max-width: 100%;
+	padding: var(--s-1) var(--s-2);
+	background: rgb(0 0 0 / 0.6);
+	color: #fff;
+}
+
+.screens__empty {
+	align-self: center;
+}
+
+.badges {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--s-1);
+}
+
+.badge {
+	display: inline-flex;
+}
+
+/* White initial on #4b5563: 7.6:1 in both schemes. */
+.peer-avatar {
+	background: #4b5563;
+}
+
+.skeleton {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--s-2);
+	aspect-ratio: 16 / 9;
+	max-width: 32em;
+	background: var(--bubble);
+	color: var(--muted-strong);
+}
+
+.message .caption {
+	color: var(--muted-strong);
+}
+
+.file-name {
+	display: block;
+	max-width: 100%;
+	margin-top: var(--s-1);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .live {
@@ -623,32 +904,41 @@ textarea {
 	border-bottom: 1px solid var(--muted);
 	background: transparent;
 	color: inherit;
-	font-size: 0.8em;
 }
 
 .screen-tile__bar .sign--small {
 	margin-left: auto;
 }
 
+/* Bubbles, no separators: --s-2 between them. */
 .messages {
+	display: flex;
+	flex-direction: column;
+	gap: var(--s-2);
 	flex: 1;
 	min-height: 0;
-	margin-top: 0.5em;
 	overflow-y: auto;
-	border-top: 1px solid var(--ink);
 }
 
 .message {
 	display: grid;
 	grid-template-columns: 7em 1fr auto;
-	gap: 0.75em;
+	gap: var(--s-2);
 	align-items: baseline;
-	padding: 0.5em 0;
-	border-bottom: 1px solid var(--line);
+	padding: var(--s-2) var(--s-3);
+	background: var(--bubble);
+}
+
+.message--own {
+	background: var(--primary-tint);
 }
 
 .message__sender {
 	grid-area: 1 / 1;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--s-1);
+	min-width: 0;
 	font-weight: 500;
 	overflow-wrap: anywhere;
 }
@@ -716,7 +1006,6 @@ textarea {
 
 .nostr-author__handle {
 	font-weight: 400;
-	font-size: 0.85em;
 	color: var(--muted);
 }
 
@@ -730,8 +1019,8 @@ textarea {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 24px;
-	height: 24px;
+	width: var(--s-4);
+	height: var(--s-4);
 	border-radius: 50%;
 	object-fit: cover;
 }
@@ -744,7 +1033,7 @@ textarea {
 .nostr-avatar--placeholder::before {
 	content: attr(data-initial);
 	color: #fff;
-	font-size: 14px;
+	font-size: var(--s-3);
 }
 
 .message__foot {
@@ -801,9 +1090,15 @@ textarea {
 	color: var(--ink);
 }
 
+/* Keeps the bubble at a text line's height where the text was. */
 .message__deleted {
 	grid-column: 1 / -1;
+	display: flex;
+	align-items: center;
+	gap: var(--s-1);
+	min-height: var(--control-h);
 	margin-top: var(--s-2);
+	font-style: italic;
 }
 
 /* Room head: space name, then the meeting title and a status tag. */
@@ -826,31 +1121,47 @@ textarea {
 }
 
 /* Status and hand tags: signage in --mark (white in dark mode). */
-.room-head__status,
-.hand {
+.room-head__status {
 	padding: 0 var(--s-1);
 	border: 1px solid var(--ink);
-	font-size: 0.8em;
 	font-weight: 500;
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
 }
 
-.room-head__status[data-status="live"],
-.hand {
+.room-head__status[data-status="live"] {
 	border-color: var(--mark);
 	background: var(--mark);
 	color: var(--paper);
 }
 
 .hand {
-	margin-left: auto;
+	display: inline-flex;
+	padding: 0 2px;
+	border: 1px solid var(--primary);
+	background: var(--primary);
+	color: var(--on-primary);
+}
+
+.room-head__invite {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--s-1);
 }
 
 /* Time left until the room ends: figures that do not jitter as they tick. */
 .room-head__countdown {
 	font-variant-numeric: tabular-nums;
 	letter-spacing: 0.04em;
+}
+
+.room-head__countdown[data-level="warn"] {
+	color: var(--warning-text);
+}
+
+.room-head__countdown[data-level="danger"] {
+	color: var(--danger-text);
+	font-weight: 500;
 }
 
 .verified__mark {
@@ -867,7 +1178,6 @@ textarea {
 	overflow: auto;
 	margin: 0.25em 0;
 	font-family: monospace;
-	font-size: 0.85em;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
@@ -901,8 +1211,20 @@ textarea {
 }
 
 .message__failed {
-	grid-area: 3 / 2;
+	grid-column: 1 / -1;
+	display: flex;
+	align-items: center;
+	gap: var(--s-1);
 	color: var(--danger-text);
+}
+
+.message__failed .link {
+	margin-top: 0;
+	color: inherit;
+}
+
+.message[data-failed] {
+	box-shadow: inset 2px 0 0 var(--danger);
 }
 
 .messages > .caption {
@@ -914,8 +1236,7 @@ textarea {
 	display: flex;
 	flex-wrap: wrap;
 	gap: var(--s-2);
-	padding: 0.75em 0;
-	border-top: 1px solid var(--ink);
+	padding: var(--s-2) 0;
 }
 
 .draft-row {
@@ -942,27 +1263,29 @@ textarea {
 	position: absolute;
 	top: -0.4em;
 	right: -0.4em;
+	display: inline-flex;
+	padding: 2px;
 	border: 1px solid var(--ink);
 	background: var(--paper);
 	line-height: 1;
 	cursor: pointer;
 }
 
+/* Composer: 1px box, purple on focus. */
 .compose input {
 	flex: 1;
 	min-width: 0;
 	min-height: var(--control-h);
-	padding: 0.4em 0;
-	border: 0;
-	border-bottom: 1px solid var(--muted);
+	padding: var(--s-1) var(--s-2);
+	border: 1px solid var(--line);
 	background: transparent;
 }
 
-@media (max-width: 40em) {
-	.room {
-		grid-template-columns: 1fr;
-	}
+.compose input:focus {
+	border-color: var(--primary);
+}
 
+@media (max-width: 40em) {
 	.message:not(.message--nostr) {
 		grid-template-columns: 5em 1fr auto;
 	}
@@ -1179,4 +1502,47 @@ fieldset.tiles {
 	padding: 0;
 	border: 0;
 	min-width: 0;
+}
+
+/* Room toggles (mic, noise suppression, hand): on = the primary accent. */
+.masthead__tools .sign[aria-pressed="true"] {
+	border-color: var(--primary);
+	background: var(--primary);
+	color: var(--on-primary);
+}
+
+.masthead__tools .status {
+	margin-right: var(--s-2);
+}
+
+/* The page's toast (toast.tsx): bottom centre, above the composer and the
+   phone's tabs (two control rows plus their padding); clicks pass through. */
+.toast {
+	position: fixed;
+	left: 50%;
+	bottom: calc(var(--control-h) * 2 + var(--s-5));
+	pointer-events: none;
+	z-index: 4;
+	max-width: min(28rem, 90vw);
+	padding: var(--s-2) var(--s-3);
+	transform: translateX(-50%);
+	background: var(--ink);
+	color: var(--paper);
+}
+
+/* Empty: no box, but the live region stays in the tree. */
+.toast:empty {
+	padding: 0;
+	background: none;
+}
+
+.peers .status__block {
+	width: var(--s-2);
+	height: var(--s-2);
+	border-radius: 50%;
+}
+
+.vtile__avatar .nostr-avatar {
+	width: var(--s-5);
+	height: var(--s-5);
 }

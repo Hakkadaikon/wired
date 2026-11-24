@@ -4,45 +4,34 @@ import { useState } from "react";
 import { createRoomBlocker } from "@/lib/joinForm";
 import type { RoomMode } from "@/lib/roomAuth";
 import { enterRoom, newRoomId, type RoomLink, withRoom } from "@/lib/roomLink";
+import { inviteLink } from "@/lib/roomUi";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
+import { CopyButton } from "./copyButton";
 import { Icon } from "./icons";
 import { InfoTip, Tooltip } from "./tooltip";
 
 /** The room being joined and its copyable share link (origin + path only:
  * the page's other parameters, e.g. ?relays=, are the user's own). */
 function ShareLink({ room }: { room: RoomLink }) {
-	const [copyFailed, setCopyFailed] = useState(false);
-	const share = withRoom(`${location.origin}${location.pathname}`, room);
-	// No clipboard (an insecure context) fails like a refused write.
-	const copy = () =>
-		(navigator.clipboard?.writeText(share) ?? Promise.reject()).then(
-			() => setCopyFailed(false),
-			() => setCopyFailed(true),
-		);
+	const share = inviteLink(location, room);
 	return (
 		<div className="field">
 			<span className="field__label" data-testid="room-joining">
 				Joining room {room.id}
 			</span>
-			<input
-				readOnly
-				aria-label="Share link"
-				value={share}
-				data-testid="share-link"
-			/>
-			<button
-				type="button"
-				className="link"
-				data-testid="copy-share-link"
-				onClick={() => void copy()}
-			>
-				Copy share link
-			</button>
-			{copyFailed && (
-				<span className="field__error" role="alert" data-testid="copy-error">
-					Could not copy: select the link and copy it by hand.
-				</span>
-			)}
+			<div className="field__row">
+				<input
+					readOnly
+					aria-label="Share link"
+					value={share}
+					data-testid="share-link"
+				/>
+				<CopyButton
+					value={share}
+					label="Copy share link"
+					testId="copy-share-link"
+				/>
+			</div>
 		</div>
 	);
 }
@@ -127,5 +116,20 @@ export function RoomPicker({
 				</span>
 			)}
 		</div>
+	);
+}
+
+/** The room head's copy buttons: the room id, and the invite link. */
+export function RoomInvite({ room }: { room: RoomLink }) {
+	return (
+		<span className="room-head__invite">
+			<CopyButton value={room.id} label="Copy room id" testId="copy-room-id" />
+			<CopyButton
+				value={inviteLink(location, room)}
+				label="Copy invite link"
+				testId="copy-invite-link"
+				text="Copy invite link"
+			/>
+		</span>
 	);
 }

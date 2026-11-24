@@ -36,7 +36,7 @@ export function NostrName({ pubkey }: { pubkey: string }) {
 
 // Line 1 (display_name, else name, else short npub), the line 2 handle
 // when both names exist, and the placeholder's initial (names only).
-function authorLabels(pubkey: string, p: NostrProfile) {
+export function authorLabels(pubkey: string, p: NostrProfile) {
 	const named = p.displayName ?? p.name ?? "";
 	return {
 		title: named || shortNpub(pubkey),

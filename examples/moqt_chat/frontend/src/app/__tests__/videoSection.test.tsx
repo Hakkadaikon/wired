@@ -85,6 +85,24 @@ describe("VideoSection", () => {
 		expect(v.props.onPickFile).toHaveBeenCalledExactlyOnceWith(file);
 	});
 
+	it("the picked file's name shows (truncated by CSS) with the full name as a tooltip (D-16)", () => {
+		const v = render(true);
+		const name = () =>
+			document.querySelector<HTMLElement>('[data-testid="video-file-name"]');
+		expect(name()).toBeNull();
+		const long = `${"a-very-long-file-name-".repeat(4)}.mp4`;
+		const file = new File(["x"], long, { type: "video/mp4" });
+		Object.defineProperty(v.input, "files", { value: [file] });
+		act(() => {
+			v.input.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+		expect(name()?.textContent).toBe(long);
+		const tip = document.getElementById(
+			name()?.getAttribute("aria-describedby") ?? "",
+		);
+		expect(tip?.textContent).toBe(long);
+	});
+
 	it("an English button opens the hidden native picker (no locale text)", () => {
 		const v = render(true);
 		expect(v.input.hidden).toBe(true);

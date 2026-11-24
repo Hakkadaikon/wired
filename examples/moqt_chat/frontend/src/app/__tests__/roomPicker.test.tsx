@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { activeRoom, isRoomId, type RoomLink } from "@/lib/roomLink";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
-import { RoomPicker } from "../roomPicker";
+import { RoomInvite, RoomPicker } from "../roomPicker";
 
 beforeAll(() => {
 	(
@@ -120,15 +120,36 @@ describe("RoomPicker", () => {
 		const writeText = vi.fn().mockRejectedValue(new Error("denied"));
 		vi.stubGlobal("navigator", { clipboard: { writeText } });
 		const el = render({ room: { id: ID, host: HOST } });
-		expect(q(el, "copy-error")).toBeNull();
+		const live = () => el.querySelector('[aria-live="polite"]')?.textContent;
+		expect(live()).toBe("");
 		await act(async () => q(el, "copy-share-link")?.click());
-		expect(q(el, "copy-error")?.textContent).toBe(
-			"Could not copy: select the link and copy it by hand.",
-		);
+		expect(live()).toBe("Could not copy: select the text and copy it by hand");
 	});
 
 	it("shows an invalid link's error", () => {
 		const el = render({ room: null, error: "Invalid room link: x" });
 		expect(q(el, "room-error")?.textContent).toBe("Invalid room link: x");
+	});
+});
+
+describe("RoomInvite (D-38)", () => {
+	it("copies the room id and the invite link (?room=&host= only)", () => {
+		const writeText = vi.fn().mockResolvedValue(undefined);
+		vi.stubGlobal("navigator", { clipboard: { writeText } });
+		history.replaceState(null, "", `/chat/?relays=x&room=${ID}&host=${HOST}`);
+		const el = document.createElement("div");
+		document.body.append(el);
+		root = createRoot(el);
+		act(() => root?.render(<RoomInvite room={{ id: ID, host: HOST }} />));
+		act(() => q(el, "copy-room-id")?.click());
+		expect(writeText).toHaveBeenLastCalledWith(ID);
+		act(() => q(el, "copy-invite-link")?.click());
+		expect(writeText).toHaveBeenLastCalledWith(
+			`${location.origin}/chat/?room=${ID}&host=${HOST}`,
+		);
+		expect(q(el, "copy-invite-link")?.textContent).toBe("Copy invite link");
+		expect(q(el, "copy-room-id")?.getAttribute("aria-label")).toBe(
+			"Copy room id",
+		);
 	});
 });

@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { BackgroundMode } from "@/lib/videoSourceMachine";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
 import { Icon } from "./icons";
+import { Tooltip } from "./tooltip";
 
 const BACKGROUNDS: { value: BackgroundMode; label: string }[] = [
 	{ value: "none", label: "None" },
@@ -26,6 +27,7 @@ export function VideoSection({
 }) {
 	const video = useMoqtChatStore((s) => s.video);
 	const fileRef = useRef<HTMLInputElement>(null);
+	const [fileName, setFileName] = useState("");
 	const toggle = (source: "camera" | "file", label: string) => (
 		<button
 			type="button"
@@ -41,7 +43,10 @@ export function VideoSection({
 	);
 	return (
 		<section className="video">
-			<h2>Video</h2>
+			<h2>
+				<Icon name="video" />
+				Video
+			</h2>
 			{toggle("camera", "Camera")}
 			<label className="volume">
 				<span className="volume__label">Background</span>
@@ -82,9 +87,23 @@ export function VideoSection({
 					onChange={(e) => {
 						const file = e.target.files?.[0];
 						e.target.value = "";
-						if (file) onPickFile(file);
+						if (!file) return;
+						setFileName(file.name);
+						onPickFile(file);
 					}}
 				/>
+				{fileName && (
+					<Tooltip tip={fileName}>
+						<span
+							className="file-name"
+							// biome-ignore lint/a11y/noNoninteractiveTabindex: focusable so a keyboard user can read the full name's tooltip
+							tabIndex={0}
+							data-testid="video-file-name"
+						>
+							{fileName}
+						</span>
+					</Tooltip>
+				)}
 			</div>
 			{video.error && (
 				<p className="caption" role="alert" data-testid="video-error">
