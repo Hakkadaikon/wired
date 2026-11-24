@@ -76,6 +76,8 @@ Nostr でログインしたクライアントは、接続のたびに NIP-98 の
 | ルームの空きがない | UNAUTHORIZED 0x2 | `no-room-slots` | 終わりの画面 |
 | ルームがない | UNAUTHORIZED 0x2 | `no-such-room` | 終わりの画面 |
 | ルームが終わった | NO_ERROR 0x0 | `room-ended` | 終わりの画面 |
+| `?room=&host=` のない接続、混雑(照合の上限・リプレイ表が満杯) | UNAUTHORIZED 0x2 | `no-such-room` / `server-busy` | 終わりの画面 / しばらく待って再参加 |
+| SETUP を 5 秒以内に送らない | UNAUTHORIZED 0x2 | (空) | 自動で再参加 |
 
 クライアントはコードを見ず、理由のトークンだけで分ける。表にない理由と、`closed` が拒否で終わったとき(ネットワーク)は、これまでどおり自動で再参加する。
 
