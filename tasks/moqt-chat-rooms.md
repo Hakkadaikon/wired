@@ -294,6 +294,10 @@ name before any check (low value: room ids are random).
       --goaway-uri keeps room/host
 - [ ] Flags (durations, allowlist, public URL); WIRED_MOQT_CHAT_MAX_ROOMS
 - [ ] Logging without tokens; unit tests per rule
+- [ ] Test first: host end ignores an `ended` older than the newest recorded
+      `open` (the newest `open` created_at is stored); P5 survivor
+- [ ] Test list from tasks/loopeng/MoqtChatRooms.feature transferred to
+      tasks/test-design/ before the P6 tests are written
 
 ### P7 frontend — est. 1 day
 - [~] Create room UI (NIP-07 + nip05 + mode), share link (2afd44193; client side + unit tests done, server side and e2e pending P6/P8)
