@@ -91,6 +91,7 @@ same line). Related: #340 (per-room containers, deferred).
 | No free room slot / creator limit | UNAUTHORIZED 0x2 | `no-room-slots` |
 | No such room (stale link, restart) | UNAUTHORIZED 0x2 | `no-such-room` |
 | Room ended | NO_ERROR 0x0 | `room-ended` |
+| Replay cache full / per-tick verify cap hit | UNAUTHORIZED 0x2 | `server-busy` (client retries with back-off) [P5 Q2] |
 
 ### Admission (async NIP-05)
 - The hub accepts SETUP synchronously and the browser sends ~40 requests
@@ -98,7 +99,13 @@ same line). Related: #340 (per-room containers, deferred).
   peer overflows. So NIP-05 must not block admission: optimistic create.
   The room starts `verifying`: only the creator is admitted, joiners get
   `no-such-room`-style refusal until verified; a failed or timed-out lookup
-  (3 s) ends the room with `nip05-unverified`. NIP-98 itself is verified
+  (3 s) ends the room with `nip05-unverified`. The NIP-05 request and its
+  verdict carry the room's slot and a per-room-instance nonce set at create
+  (never reused) and echo the (domain, pubkey) checked; the hub applies a
+  verdict only while that slot is `verifying` with the same nonce and drops
+  every other verdict (late, after timeout, after end, slot reused, same room
+  id re-created) [P5: G21/G22]. The creator may re-enter a `verifying` room
+  on reconnect with a fresh token. NIP-98 itself is verified
   synchronously at SETUP (local CPU only), with a per-tick cap on BIP-340
   verifications (CPU DoS on the single-threaded loop).
 - The SETUP token value is copied into fixed per-session storage (1 KiB)
@@ -115,6 +122,13 @@ same line). Related: #340 (per-room containers, deferred).
 | PUBLISH | authorize_publish | namespace = `wired/moqt_chat/<room>/<claimed id>` |
 | SUBSCRIBE / FETCH / TRACK_STATUS | authorize_subscribe | namespace under `wired/moqt_chat/<room>/` |
 
+Every authorize hook first checks that the session is a current member (not
+left/closing) of a `verifying`/`live` room and takes the room id from that
+membership; a detached session keeps a stale slot index that must grant
+nothing after slot reuse [P5: G28/G31]. One session claims at most one id
+[G18]; in an auth room the claim is held only for the session's lifetime (no
+reservation across reconnects) [P5 Q3].
+
 REQUEST_UPDATE cannot change names; a joining FETCH inherits its
 subscription's grant. Known minor oracle: TRACK_STATUS answers an unknown
 name before any check (low value: room ids are random).
@@ -123,17 +137,31 @@ name before any check (low value: room ids are random).
 - Room table `[WIRED_MOQT_CHAT_MAX_ROOMS]`: id, host pubkey, mode,
   state (verifying/live/ending), created_ms, members, id claims[4],
   alone_since_ms, empty_since_ms.
-- Anti-squatting: one live room per creator pubkey AND per NIP-05 domain
+- Anti-squatting: one verifying-or-live room per creator pubkey AND per
+  NIP-05 domain [P5: G04]
   (one domain can mint unlimited names); optional operator allowlist of
   domains/pubkeys (flag). Limitations section states that a determined
-  attacker with several domains can still hold the 3 slots for 5 h.
-- Lifecycle tick: lifetime >= 5 h; alone >= 30 min (a join resets it);
-  empty >= 60 s; host end = a kind 30313 with `status=ended`, `a` = this
+  attacker with several domains can still hold the 3 slots for 5 h, and that
+  a create naming someone else's domain blocks that domain for up to the 3 s
+  lookup.
+- Lifecycle tick: lifetime >= 5 h from create (clock never rewinds);
+  alone >= 30 min, started when the member count becomes 1 and stopped at
+  any other count; empty >= 60 s, likewise for 0 members [P5: G20]; host end = a kind 30313 with `status=ended`, `a` = this
   room's space, `pubkey` = host, newest by `created_at` and created after
   the room, from any track of the room (the hub need not know which
-  participant is the host) -> end.
-- End: close every member's WT session directly with code + reason token;
-  free the slot exactly once. Durations by flags (`--room-lifetime`,
+  participant is the host) -> end. "Created after the room" compares
+  seconds: `created_at >= floor(created_ms / 1000)` [P5 Q5]. Equal
+  `created_at` ties go to `ended`. The newest `open` created_at must be
+  recorded (P5 survivor: first item in the P6 test list).
+- End = set `ending` (refuse joins; authorize nothing in the room), then
+  close each member directly with code + reason token and detach it in the
+  same step (remove from members, release its id claim); free the slot when
+  the member set is empty, exactly once, only from `ending`. An on-close
+  callback for an already-detached session is a no-op. Reason:
+  `nip05-unverified` when the end reason is NIP-05, else `room-ended`
+  [P5: G25/G26/G27/G32].
+- A token rejected for any reason is NOT recorded as used (the replay cache
+  admits only after authorisation, P2) [P5 Q6]. Durations by flags (`--room-lifetime`,
   `--room-alone-timeout`, `--room-empty-grace`) for e2e.
 - `--goaway-uri` keeps `?room=&host=` when redirecting on restart; a restart
   still ends all rooms (in-memory), documented.
@@ -163,7 +191,11 @@ name before any check (low value: room ids are random).
 - Admission hook: session + token -> accept / reject (sync); `:path`
   already reaches the app via chat_on_session.
 - Hub close with a reason: today `moqtrun_setup.c` closes with an empty
-  reason; add a reason argument.
+  reason; add a reason argument, callable from the app for any session.
+- Per-session on-close callback, safe for an already-detached session.
+- An on_step entry that delivers a NIP-05 verdict (slot, nonce, ok), and a
+  tick for room timers. No PENDING session state: admission stays sync, the
+  pending state is the room's `verifying` [P5].
 - Object tap: read-only hook on Objects under a namespace prefix, size cap
   (host's 30313).
 - Room-profile capacities as formulas of rooms x 4 with `_Static_assert`s:
@@ -222,8 +254,8 @@ name before any check (low value: room ids are random).
       feature-gaps
 
 ### P5 TLA+ room lifecycle — est. 1 day
-- [ ] Requirements (D1-D6, admission, claims) into the loop-engineering ledger
-- [ ] Spec + TLC + mutation oracle; Gherkin from counterexamples
+- [x] Requirements (D1-D6, admission, claims) into the loop-engineering ledger (tasks/loopeng/MoqtChatRooms.extract.md, S-001..S-047)
+- [~] Spec + TLC + mutation oracle; Gherkin from counterexamples (10 cfgs No error, guard mutants 34/34; remaining: readback, reviewer, one true survivor -> P6 test)
 
 ### P3 hub / SDK hooks — est. 2-3 days
 - [ ] `moqctl_setup` keeps the auth token value (view)
