@@ -35,8 +35,8 @@ after it, and one the server's policy refuses. Then one publisher leaves.
   then one more each time a matching namespace is published. Each carries
   only the suffix: the fields after the prefix.
 - `hub.authorize_namespace` sees every PUBLISH_NAMESPACE and
-  SUBSCRIBE_NAMESPACE (its `msg_type` says which) with the namespace and
-  the presented AUTHORIZATION TOKEN. This sample refuses any namespace
+  SUBSCRIBE_NAMESPACE (its `msg_type` says which) with the requesting
+  session, the namespace and the presented AUTHORIZATION TOKEN. This sample refuses any namespace
   ending in `secret`: the publisher gets REQUEST_ERROR UNAUTHORIZED (1)
   and the watcher is never told about it.
 - When room-a closes its session, `wired_moqt_on_session_close`

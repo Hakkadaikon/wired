@@ -27,7 +27,7 @@ import Example from '../../../../components/Example.astro';
   REQUEST_OK の後、ハブはプレフィックスの下で公開済みの名前空間ごとに NAMESPACE（9.16）を 1 つ送ります（初期集合で、ここでは `lobby`）。
   その後も、一致する名前空間が公開されるたびに NAMESPACE を送ります。
   どの NAMESPACE も、プレフィックスより後ろのフィールドであるサフィックスだけを運びます。
-- `hub.authorize_namespace` は、すべての PUBLISH_NAMESPACE と SUBSCRIBE_NAMESPACE を、名前空間と提示された AUTHORIZATION TOKEN とともに受け取ります。
+- `hub.authorize_namespace` は、すべての PUBLISH_NAMESPACE と SUBSCRIBE_NAMESPACE を、要求したセッション、名前空間、提示された AUTHORIZATION TOKEN とともに受け取ります。
   どちらのメッセージかは `msg_type` でわかります。
   このサンプルは、最後のフィールドが `secret` の名前空間を拒否します。
   パブリッシャーには REQUEST_ERROR UNAUTHORIZED（1）が返り、ウォッチャーにはその名前空間が知らされません。

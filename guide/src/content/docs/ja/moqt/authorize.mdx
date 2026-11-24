@@ -18,7 +18,7 @@ import Example from '../../../../components/Example.astro';
 - `hub.authorize_subscribe = authorize` でフックを登録します。
   `authorize_ctx` はフックの第一引数としてそのまま渡される値で、SDK は中身を解釈しません。
   0（`wired_moqt_init` のデフォルト）のままなら、ハブは誰にでも開かれたままです。
-- フックには、要求された Full Track Name（名前空間と名前の組）と、提示された
+- フックには、要求したセッション、要求された Full Track Name（名前空間と名前の組）と、提示された
   AUTHORIZATION TOKEN パラメータ（リクエストが何も持たなければ 0）が渡されます。
   実際のトークン方式（CAT、Privacy Pass）を検証するのは、デプロイする側の仕事です。
   SDK はバイト列を運び、フックを呼ぶだけです。
@@ -31,3 +31,46 @@ import Example from '../../../../components/Example.astro';
 - ポリシーが許可した名前は、前のページまでと同じ経路を進みます。
   ハブ自身のトラック（およびピアのトラック）と照合され、SUBSCRIBE_OK が返り、
   いつもの配信が始まります。
+
+## セッションの受け入れ、クローズ、Object の傍受
+
+認可関数のほかに、フックが 3 つあります。
+どのフックも対象のセッションを受け取るので、セッションごとのポリシー（たとえば部屋のメンバーかどうか）を書けます。
+
+```c
+/* SETUP: 0 で受け入れ、それ以外はクローズコードで、*reason を添えて送る。 */
+static u32 admit(void* ctx, wired_wt_session* s, const moqctl_token* token,
+                 wired_span* reason) {
+  (void)ctx, (void)s;
+  if (!token) {
+    *reason = wired_span_cstr("unauthorized");
+    return 0x2; /* UNAUTHORIZED */
+  }
+  return 0;
+}
+
+/* tap_prefix の下の Object を、tap_max バイトまで、読み取り専用で。 */
+static void tap(void* ctx, wired_wt_session* s, wired_span ns,
+                wired_span name, wired_span payload) {
+  (void)ns, (void)name, (void)payload;
+  wired_moqt_close(ctx, s, 0x0, wired_span_cstr("room-ended"));
+}
+
+  g_hub.admit      = admit;
+  g_hub.tap        = tap;
+  g_hub.tap_ctx    = &g_hub;
+  g_hub.tap_prefix = prefix; /* エンコード済みの名前空間。空ならすべて */
+  g_hub.tap_max    = 4096;
+```
+
+- `admit` は、クライアントの SETUP をデコードしたときに、セッションごとに 1 回、同期的に呼ばれます。
+  値を持つ最初の AUTHORIZATION TOKEN オプションを受け取ります（なければ 0）。
+  受け入れるまで、そのセッションのリクエストは処理しません。
+  レガシーのセッション（`moqt-NN` のサブプロトコルなし）は SETUP を送らないこともあるので、`admit` を設定していると、すぐに UNAUTHORIZED で閉じます。
+- `wired_moqt_close(hub, s, code, reason)` は、タイマーからでもフックの中からでも、どのセッションでも閉じられます。
+  閉じた後は、そのセッションが送るものを一切読みません。リクエストも処理せず、Object の中継・キャッシュ・傍受もしません。
+  理由の文字列は、トランスポートが WebTransport では 1024 バイト、生の QUIC では 48 バイトに切り詰めます。
+- `tap` は、トラックの名前空間が `tap_prefix` で始まる（フィールド単位。空ならすべての名前空間）Subgroup ストリームで、セッションが公開した完全な Object を、ペイロード `tap_max` バイトまで読み取り専用で受け取ります。
+  データグラムは対象外です。
+  中継は Object を届いた順にそのまま流すので、複数の配信にまたがる Object は、全体が `tap` に届く前に先頭のバイトが購読者へ送られていることがあります。
+  `tap` の中で公開者を閉じると、それ以降はすべて止まりますが、すでに送ったバイトは取り消せません。

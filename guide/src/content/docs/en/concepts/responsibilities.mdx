@@ -23,9 +23,14 @@ over several machines. Those are the application's decisions.
   WebTransport sessions per second (`SRVRUN_MAX_WT_SESSIONS_PER_WINDOW`).
 - **A self-signed certificate** built from the identity the app passes in
   (see [Browser requirements](../browser-requirements/)).
-- **Hooks where policy goes**: the hub calls `authorize_subscribe` and
-  `authorize_namespace`, and the server calls `wt_resource_check` and
-  `wt_origin_check`, before granting anything.
+- **Hooks where policy goes**: the hub calls `admit` (the client's SETUP
+  and its AUTHORIZATION TOKEN), `authorize_subscribe` (SUBSCRIBE,
+  TRACK_STATUS, FETCH), `authorize_publish` (PUBLISH) and
+  `authorize_namespace` (PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE,
+  SUBSCRIBE_TRACKS), each with the requesting session, and the server
+  calls `wt_resource_check` and `wt_origin_check`, before granting
+  anything. `tap` shows the app Objects under a namespace prefix, and
+  `wired_moqt_close` lets it close any session with a code and reason.
 
 ## What the application does
 

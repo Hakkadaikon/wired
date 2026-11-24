@@ -168,9 +168,12 @@ MoQT はそのセッションの TLS 1.3 による機密性、完全性、エン
 
 | リクエスト | フック |
 |---|---|
-| SUBSCRIBE、TRACK_STATUS | `authorize_subscribe` |
+| クライアントの SETUP(AUTHORIZATION TOKEN オプション) | `admit`(0 以外の戻り値がクローズコード、理由文字列つき) |
+| SUBSCRIBE、TRACK_STATUS、FETCH | `authorize_subscribe` |
 | PUBLISH | `authorize_publish` |
-| PUBLISH_NAMESPACE、SUBSCRIBE_NAMESPACE | `authorize_namespace` |
+| PUBLISH_NAMESPACE、SUBSCRIBE_NAMESPACE、SUBSCRIBE_TRACKS | `authorize_namespace` |
+
+どのフックも要求したセッション(`wired_wt_session*`)を受け取るので、セッションごとの許可(部屋のメンバーかどうか)を判定できる。アプリは `wired_moqt_close` でどのセッションでもコードと理由つきで閉じられる。テスト: `test_mthk_admit_refuses_with_reason`、`test_moqtrun_subscribe_requires_authorization`、`test_mthk_close_any_session`。
 
 `authorize_publish` は draft-22 16.3.4 "Preventing Impersonation" に従う。テスト: `test_moqtrun_publish_requires_authorization`。
 

@@ -18,8 +18,9 @@ runs.
 - `hub.authorize_subscribe = authorize` registers the hook; `authorize_ctx`
   is its opaque first argument. 0 (the `wired_moqt_init` default) keeps the
   hub open.
-- The hook receives the requested Full Track Name and the presented
-  AUTHORIZATION TOKEN parameter (0 when the request carried none) --
+- The hook receives the requesting session, the requested Full Track
+  Name and the presented AUTHORIZATION TOKEN parameter (0 when the
+  request carried none) --
   verifying a real token scheme (CAT, Privacy Pass) is the deployment's
   job; the SDK only carries the bytes and calls the hook.
 - draft-ietf-moq-transport-22 15.3: every SUBSCRIBE passes the check
@@ -30,3 +31,53 @@ runs.
 - A name the policy grants proceeds exactly as the previous pages: matched
   against the hub's own tracks (and peer tracks), then SUBSCRIBE_OK and the
   usual delivery.
+
+## Admitting sessions, closing them, tapping Objects
+
+Three more hooks sit beside the authorizers. Every hook receives the
+session it acts for, so a policy can be per session (room membership, for
+example).
+
+```c
+/* SETUP: 0 admits; anything else is the close code, sent with *reason. */
+static u32 admit(void* ctx, wired_wt_session* s, const moqctl_token* token,
+                 wired_span* reason) {
+  (void)ctx, (void)s;
+  if (!token) {
+    *reason = wired_span_cstr("unauthorized");
+    return 0x2; /* UNAUTHORIZED */
+  }
+  return 0;
+}
+
+/* Every Object under tap_prefix, at most tap_max bytes, read-only. */
+static void tap(void* ctx, wired_wt_session* s, wired_span ns,
+                wired_span name, wired_span payload) {
+  (void)ns, (void)name, (void)payload;
+  wired_moqt_close(ctx, s, 0x0, wired_span_cstr("room-ended"));
+}
+
+  g_hub.admit      = admit;
+  g_hub.tap        = tap;
+  g_hub.tap_ctx    = &g_hub;
+  g_hub.tap_prefix = prefix; /* encoded namespace, empty = every one */
+  g_hub.tap_max    = 4096;
+```
+
+- `admit` runs once per session, synchronously, when the client's SETUP
+  decodes. It sees the first AUTHORIZATION TOKEN option that carries a
+  value (0 when none). Until it admits, no request of the session is
+  handled. A legacy session (no `moqt-NN` subprotocol) need never send a
+  SETUP, so with `admit` set it is closed UNAUTHORIZED at once.
+- `wired_moqt_close(hub, s, code, reason)` closes any session, from a
+  timer or from inside a hook. After it nothing the session sends is read:
+  no request, no Object relayed, cached or tapped. The transport truncates
+  the reason to 1024 bytes on WebTransport and to 48 bytes on raw QUIC.
+- `tap` sees, read-only, every whole Object a session publishes on a
+  Subgroup stream whose track namespace starts with `tap_prefix`
+  (field-wise; empty matches every namespace), up to `tap_max` bytes of
+  payload. Datagrams are not tapped. The relay cuts Objects through as
+  they arrive, so the leading bytes of an Object that spans deliveries may
+  already have reached subscribers before the whole Object reaches `tap`.
+  Closing the publisher inside `tap` stops everything that follows, but
+  cannot recall bytes already forwarded.

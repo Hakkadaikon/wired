@@ -1200,8 +1200,8 @@ draft-19 のリレーの範囲内ですが、まだ実装していないもの�
 - (SS10.2.15) EXPIRES。レジストリでデコードしますが、それに従って動作はしません。NEW_GROUP_REQUEST (SS10.2.18) は draft-18 と同じく上流へ中継します(MQ18-229、コードは共通)。(FILL_TIMEOUT と RENDEZVOUS_TIMEOUT には従って動作します。MOQT-231、MOQT-232。)
 - (SS6.3.1) フィルターを集約して上流へ伝えること。ハブは Track ごとにパラメーターなしの上流の SUBSCRIBE を 1 つ送ります(MOQT-224)。
 - (SS8, SS11.4.3) 再送前の配信タイムアウトの確認と RESET_STREAM_AT。再送とリセットは MOQT 層より下で起き、MOQT 層は RESET_STREAM でしかリセットしません。
-- (SS10.2.2) トークンの有効性(MALFORMED_AUTH_TOKEN、有効期限)。アプリケーションの認可関数に任せており、認可関数は UNAUTHORIZED で拒否することしかできません。
-- (SS10.3.1.3, SS10.3.1.4) MAX_AUTH_TOKEN_CACHE_SIZE と、Setup Option としての AUTHORIZATION TOKEN。告知しません。ハブはトークンのキャッシュを持たないので、Alias を使うトークンではセッションを閉じます(MOQT-188)。(MAX_FILTER_RANGES と MAX_REQUEST_UPDATES は告知します。MOQT-206。)
+- (SS10.2.2) トークンの有効性(MALFORMED_AUTH_TOKEN、有効期限)。アプリケーションに任せています。リクエストの認可関数は UNAUTHORIZED で拒否することしかできません。SETUP の受け入れフック(`wired_moqt_hub.admit`)は任意のクローズコードと理由文字列でセッションを閉じられます。
+- (SS10.3.1.3) MAX_AUTH_TOKEN_CACHE_SIZE。告知しません。ハブはトークンのキャッシュを持たないので、Alias を使うトークンではセッションを閉じます(MOQT-188)。Setup Option としての AUTHORIZATION TOKEN(SS10.3.1.4)は、値を持つ最初のもの(USE_VALUE、または USE_VALUE として扱う REGISTER)を `moqctl_setup.auth_token` に残し、受け入れフック `wired_moqt_hub.admit` に渡します(`test_mthk_admit_refuses_with_reason`)。(MAX_FILTER_RANGES と MAX_REQUEST_UPDATES は告知します。MOQT-206。)
 - (SS11.5, SS11.5.2) パディングのストリームとデータグラム。送信しません。
 - (SS12, SS12.1--12.9) Track/Object の Property としての MOQT の Property(MAX_CACHE_DURATION、DEFAULT_PUBLISHER_GROUP_ORDER、DYNAMIC_GROUPS、Immutable Properties、Prior Group/Object ID Gap)。Properties のワイヤー上の枠は汎用的にデコードし、そのまま中継します。ハブが読むのは DEFAULT_PUBLISHER_PRIORITY(Publisher Priority を省いたヘッダーのストリームの urgency)、SUBGROUP_DELIVERY_TIMEOUT、MAX_CACHE_DURATION で、Immutable Properties の中にあるものも読みます。範囲外の DEFAULT_PUBLISHER_GROUP_ORDER / DYNAMIC_GROUPS ではセッションを閉じ、Mandatory Track Property は拒否します(MOQT-212〜MOQT-214)。group order と dynamic groups のスケジューリング上の意味は適用しません。
 - (SS13) セキュリティに関する考慮事項(購読による増幅、通信のセキュリティ、認可、メディアのセキュリティ、リソースの枯渇、タイムアウト、リレーのセキュリティ、実装のフィンガープリンティング)。運用・配備の指針で、この台帳がテストするワイヤー上の振る舞いではありません。
