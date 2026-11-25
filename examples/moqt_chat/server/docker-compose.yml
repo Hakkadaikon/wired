@@ -26,5 +26,21 @@ services:
       dockerfile: examples/moqt_chat/server/Dockerfile
     network_mode: host
     # The self-signed cert's IP SAN: `just up` fills in this host's address;
-    # a bare `docker compose up` keeps the demo's 127.0.0.1.
-    command: ["--san-ipv4", "${WIRED_SAN_IPV4:-127.0.0.1}"]
+    # a bare `docker compose up` keeps the demo's 127.0.0.1. --public-url is
+    # the URL browsers connect to (the NIP-98 "u"); `just up` derives it
+    # from the SAN unless WIRED_PUBLIC_URL is set.
+    command:
+      - --san-ipv4
+      - ${WIRED_SAN_IPV4:-127.0.0.1}
+      - --public-url
+      - ${WIRED_PUBLIC_URL:-https://127.0.0.1:4433}
+      - --nip05
+      - 127.0.0.1:4480
+    depends_on: [nip05d]
+  # The NIP-05 resolver the hub asks over loopback TCP (nip05d/README.md).
+  nip05d:
+    image: moqt-chat-nip05d
+    build:
+      context: ../../..
+      dockerfile: examples/moqt_chat/nip05d/Dockerfile
+    network_mode: host

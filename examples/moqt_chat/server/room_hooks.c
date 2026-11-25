@@ -26,29 +26,75 @@ static u8 chatroom_id_index(wired_span id) {
              : 0;
 }
 
-static int chatroom_id_owned(const chatroom* r, u8 k) {
+static chatroom_member* chatroom_holder(chatroom* r, u8 k) {
   for (usz i = 0; i < r->n; i++) {
     if (r->m[i].claim == k) {
-      return 1;
+      return &r->m[i];
     }
   }
   return 0;
 }
 
+static int chatroom_key_is(const chatroom_member* m, wired_span pk) {
+  return m->has_pk &&
+         bytes_span_eq(wired_span_of(m->pk, CHATROOM_HOST_LEN), pk);
+}
+
+usz chatroom_key_index(const chatroom* r, wired_span pk) {
+  for (usz i = 0; i < r->n; i++) {
+    if (chatroom_key_is(&r->m[i], pk)) {
+      return i;
+    }
+  }
+  return CHATROOM_PEOPLE;
+}
+
+static int chatroom_keyed(const chatroom_member* a, const chatroom_member* b) {
+  return a->has_pk && b->has_pk;
+}
+
+/* M2a: only an auth room ties an id to a key; in an open room a stranger
+ * must not kick a member out. */
+static int chatroom_same_key(
+    const chatroom* r, const chatroom_member* a, const chatroom_member* b) {
+  return r->auth && chatroom_keyed(a, b) &&
+         bytes_span_eq(
+             wired_span_of(a->pk, CHATROOM_HOST_LEN),
+             wired_span_of(b->pk, CHATROOM_HOST_LEN));
+}
+
+/* 1 when k is free for m. A holder with m's key (a crashed session that
+ * still holds the id until the idle timeout) is closed "replaced" and
+ * detached, which may move m within r. */
+static int chatroom_free_for(
+    chatroom_table* t, chatroom* r, const chatroom_member* m, u8 k) {
+  chatroom_member*  h = chatroom_holder(r, k);
+  wired_wt_session* hs;
+  if (!h) {
+    return 1;
+  }
+  if (!chatroom_same_key(r, h, m)) {
+    return 0;
+  }
+  hs = h->s;
+  chatroom_replace(t, hs);
+  return 1;
+}
+
 /* P5 G18: one id per session; a second session asking a held id is
  * closed id-taken (and detached). */
 static int chatroom_take_id(
-    chatroom_table* t, const chatroom* r, chatroom_member* m, u8 k) {
+    chatroom_table* t, chatroom* r, chatroom_member* m, u8 k) {
   wired_wt_session* s = m->s;
   if (m->claim) {
     return m->claim == k;
   }
-  if (chatroom_id_owned(r, k)) {
+  if (!chatroom_free_for(t, r, m, k)) {
     chatroom_detach(t, s);
     chatroom_refuse(t, s, CHATROOM_R_ID_TAKEN);
     return 0;
   }
-  m->claim = k;
+  chatroom_member_of(t, s, &r)->claim = k;
   return 1;
 }
 

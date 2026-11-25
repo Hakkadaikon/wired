@@ -132,3 +132,24 @@ usz chatroom_goaway_uri(
   chatroom_member_of(t, s, &r);
   return r ? chatroom_append_room(r, uri, out, cap, n) : n;
 }
+
+static usz chatroom_slashes(wired_span s) {
+  usz n = 0;
+  for (usz i = 0; i < s.n; i++) {
+    n += s.p[i] == '/';
+  }
+  return n;
+}
+
+static int chatroom_url_clean(wired_span s) {
+  return chatroom_slashes(s) == 2 && bytes_find(s, 0, '?') == s.n &&
+         bytes_find(s, 0, '#') == s.n;
+}
+
+int chatroom_public_url(char* url) {
+  usz n = wired_cstr_len(url);
+  if (n && url[n - 1] == '/') {
+    url[n - 1] = 0;
+  }
+  return chatroom_url_clean(wired_span_cstr(url));
+}

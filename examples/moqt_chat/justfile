@@ -10,8 +10,8 @@ set ignore-comments
 
 # Build the server after the SDK's own fmt+ninja+lint gate.
 build:
-    # Connection cap defaults to 4 (one per participant id); raise it with
-    # `CONNTABLE_CAP=<n> just build`.
+    # The hub's connection cap is 16 (3 rooms x 4 people + 4 spare), set by
+    # the room profile flag in scripts/just/flags.sh.
     cd ../.. && just build && just ninja examples/moqt_chat/server/wired_server
 
 # Build the image and run the server (docker compose up).
@@ -20,10 +20,12 @@ up *flags: build
     # bridge + port mapping. `just up -d` detaches (`docker compose logs -f` in server/).
     # The cert's IP SAN is this host's default-route source address (override
     # with WIRED_SAN_IPV4=a.b.c.d), so dialing https://<that IP>:4433/ is not
-    # answered 421 (RFC 9110 7.4).
+    # answered 421 (RFC 9110 7.4). The hub's --public-url is https://<SAN>:4433
+    # unless WIRED_PUBLIC_URL names the URL browsers use; nip05d runs beside it.
     san="${WIRED_SAN_IPV4:-$(ip -4 route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')}"; \
-    echo "cert IP SAN: ${san:-127.0.0.1}"; \
-    cd server && WIRED_SAN_IPV4="$san" docker compose up --build {{flags}}
+    url="${WIRED_PUBLIC_URL:-https://${san:-127.0.0.1}:4433}"; \
+    echo "cert IP SAN: ${san:-127.0.0.1}, public URL: $url"; \
+    cd server && WIRED_SAN_IPV4="$san" WIRED_PUBLIC_URL="$url" docker compose up --build {{flags}}
 
 # Stop and remove the container.
 down:

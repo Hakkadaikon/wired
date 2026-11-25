@@ -44,6 +44,16 @@ static chatroom_reason chatroom_seat(const chatroom* r) {
   return r->n >= CHATROOM_PEOPLE ? CHATROOM_R_ROOM_FULL : CHATROOM_R_NONE;
 }
 
+/* A Login-required room lets a member's own key past the full check: its
+ * crashed session holds the seat until the idle timeout, and the enter
+ * replaces that session, so the room stays at most full. */
+static chatroom_reason chatroom_seat_for(
+    const chatroom* r, const chatroom_who* w) {
+  return r->auth && chatroom_key_index(r, w->pubkey) < CHATROOM_PEOPLE
+             ? CHATROOM_R_NONE
+             : chatroom_seat(r);
+}
+
 /* Verifying: only the creator, on reconnect; ending: nobody. */
 static chatroom_reason chatroom_pre_live(
     const chatroom* r, const chatroom_who* w) {
@@ -55,7 +65,8 @@ static chatroom_reason chatroom_pre_live(
 
 static chatroom_reason chatroom_live_rule(
     const chatroom* r, const chatroom_who* w) {
-  return r->auth && !w->pubkey.n ? CHATROOM_R_UNAUTHORIZED : chatroom_seat(r);
+  return r->auth && !w->pubkey.n ? CHATROOM_R_UNAUTHORIZED
+                                 : chatroom_seat_for(r, w);
 }
 
 static chatroom_reason chatroom_join_rule(
@@ -160,12 +171,20 @@ static chatroom_reason chatroom_slot_rule(
              : CHATROOM_R_NO_SLOTS;
 }
 
+/* An id that just ended: a reconnecting host page must not resurrect it.
+ * Checked after the creator rules, so a wrong signer learns nothing. */
+static chatroom_reason chatroom_fresh_rule(
+    const chatroom_table* t, const chatroom_who* w, usz* slot) {
+  return chatroom_recently_gone(t, w->room) ? CHATROOM_R_ENDED
+                                            : chatroom_slot_rule(t, w, slot);
+}
+
 static chatroom_reason chatroom_create_rule(
     const chatroom_table* t, const chatroom_who* w, usz* slot) {
   if (!w->create) {
     return CHATROOM_R_NO_SUCH_ROOM;
   }
-  return chatroom_creator_ok(t, w) ? chatroom_slot_rule(t, w, slot)
+  return chatroom_creator_ok(t, w) ? chatroom_fresh_rule(t, w, slot)
                                    : CHATROOM_R_UNAUTHORIZED;
 }
 

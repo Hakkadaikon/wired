@@ -7,8 +7,7 @@
 static const char* const chatroom_whys[CHATROOM_END_N] = {
     "", "nip05", "host", "lifetime", "alone", "empty"};
 
-/* "moqt room: <what> <first 6 id chars> slot=<i> <tail>" when logging. */
-static void chatroom_log(
+void chatroom_log(
     const chatroom_table* t,
     const chatroom*       r,
     const char*           what,
@@ -62,15 +61,43 @@ static usz chatroom_create(chatroom_table* t, const chatroom_who* w) {
   return slot;
 }
 
+static void chatroom_seat_in(
+    chatroom_member* m, wired_wt_session* s, wired_span pk) {
+  m->s      = s;
+  m->claim  = 0;
+  m->has_pk = pk.n == CHATROOM_HOST_LEN;
+  if (m->has_pk) {
+    bytes_memcpy(m->pk, pk.p, CHATROOM_HOST_LEN);
+  }
+}
+
+void chatroom_replace(chatroom_table* t, wired_wt_session* s) {
+  chatroom_detach(t, s);
+  chatroom_refuse(t, s, CHATROOM_R_REPLACED);
+}
+
+/* A full room admitted w only for its key's own stale session
+ * (chatroom_seat_for): that session goes first. */
+static void chatroom_make_seat(chatroom_table* t, chatroom* r, wired_span pk) {
+  usz i = chatroom_key_index(r, pk);
+  if (r->n < CHATROOM_PEOPLE || i >= CHATROOM_PEOPLE) {
+    return;
+  }
+  chatroom_replace(t, r->m[i].s);
+}
+
 void chatroom_enter(
     chatroom_table* t, wired_wt_session* s, const chatroom_who* w, usz slot) {
   chatroom* r;
   if (slot >= WIRED_MOQT_CHAT_MAX_ROOMS) {
     slot = chatroom_create(t, w);
   }
-  r                = &t->room[slot];
-  r->m[r->n].s     = s;
-  r->m[r->n].claim = 0;
+  r = &t->room[slot];
+  chatroom_make_seat(t, r, w->pubkey);
+  if (r->n >= CHATROOM_PEOPLE) {
+    return; /* decide admits a full room only with a seat to free */
+  }
+  chatroom_seat_in(&r->m[r->n], s, w->pubkey);
   r->n++;
   r->since_ms = t->now_ms;
 }
@@ -121,11 +148,17 @@ chatroom_member* chatroom_member_of(
 /* m leaves r: the last member fills its seat, its id is free again. */
 static void chatroom_remove(
     chatroom_table* t, chatroom* r, chatroom_member* m) {
-  *m                   = r->m[r->n - 1];
-  r->m[r->n - 1].s     = 0;
-  r->m[r->n - 1].claim = 0;
+  *m = r->m[r->n - 1];
+  bytes_memset(&r->m[r->n - 1], 0, sizeof r->m[0]);
   r->n--;
   r->since_ms = t->now_ms;
+}
+
+/* "leave ... n=<members left>": the e2e waits on it (s28). */
+static void chatroom_log_leave(const chatroom_table* t, const chatroom* r) {
+  char n[16];
+  wired_snprintf(n, sizeof n, "n=%llu", (u64)r->n);
+  chatroom_log(t, r, "leave", n);
 }
 
 void chatroom_detach(chatroom_table* t, const wired_wt_session* s) {
@@ -133,6 +166,7 @@ void chatroom_detach(chatroom_table* t, const wired_wt_session* s) {
   chatroom_member* m = chatroom_locate(t, s, &r);
   if (m) {
     chatroom_remove(t, r, m);
+    chatroom_log_leave(t, r);
   }
 }
 
@@ -157,6 +191,7 @@ void chatroom_end(chatroom_table* t, chatroom* r, chatroom_end_why why) {
   if (!chatroom_open(r)) {
     return;
   }
+  chatroom_note_gone(t, r);
   r->state = CHATROOM_ENDING;
   chatroom_log(t, r, "end", chatroom_whys[why]);
   while (r->n) {

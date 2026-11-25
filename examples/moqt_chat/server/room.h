@@ -43,6 +43,13 @@
 /* A host "open" may be dated at most this far ahead of the hub's clock, so
  * a future-dated one cannot outrank every later "ended". */
 #define CHATROOM_OPEN_SKEW_S 60
+/* An ended room's id is not created again for this long: a host page that
+ * lost the close auto-rejoins with its create tags and would resurrect it. */
+#define CHATROOM_GONE_MS 60000
+/* Tombstones kept, the oldest evicted first. Only a NIP-05-verified creator
+ * (a room that reached live) leaves one, at most one live room per key and
+ * per domain, so churning the ring takes that many verified creates. */
+#define CHATROOM_GONE_N ((usz)2 * WIRED_MOQT_CHAT_MAX_ROOMS)
 /* What chatroom_goaway_uri adds to --goaway-uri: ?room=<22>&host=<64>. */
 #define CHATROOM_GOAWAY_EXTRA (6 + CHATROOM_ID_LEN + 6 + CHATROOM_HOST_LEN)
 
@@ -65,6 +72,7 @@ typedef enum {
   CHATROOM_R_NO_SUCH_ROOM,
   CHATROOM_R_ENDED,
   CHATROOM_R_BUSY,
+  CHATROOM_R_REPLACED,      /* its id taken over by a new session, same key */
   CHATROOM_R_SETUP_TIMEOUT, /* no SETUP in time: empty reason */
   CHATROOM_R_N
 } chatroom_reason;
@@ -87,11 +95,14 @@ typedef enum {
   CHATROOM_END_N
 } chatroom_end_why;
 
-/* One member: its session and the participant id it claimed (k for
- * user<k>, 0 for none). */
+/* One member: its session, the participant id it claimed (k for
+ * user<k>, 0 for none) and its token's pubkey (hex; has_pk 0 without a
+ * token), so a crash-rejoin of the same key can take its id over. */
 typedef struct {
   wired_wt_session* s;
   u8                claim;
+  u8                has_pk;
+  u8                pk[CHATROOM_HOST_LEN];
 } chatroom_member;
 
 /* One room slot. The NIP-05 identifier is a copy (lowercased), not the
@@ -110,6 +121,13 @@ typedef struct {
   u64             open_at;       /* newest host 30313 non-ended created_at */
   chatroom_member m[CHATROOM_PEOPLE];
 } chatroom;
+
+/* A room id that ended at ended_ms. */
+typedef struct {
+  u8  used;
+  u8  id[CHATROOM_ID_LEN];
+  u64 ended_ms;
+} chatroom_gone;
 
 /* Who asks to enter: the CONNECT query and the verified token's claims.
  * views: room=caller, host=caller, pubkey=caller, nip05=caller */
@@ -140,6 +158,8 @@ typedef struct {
  * views: public_url=caller, allow=caller */
 typedef struct {
   chatroom          room[WIRED_MOQT_CHAT_MAX_ROOMS];
+  chatroom_gone     gone[CHATROOM_GONE_N]; /* ring, gone_next */
+  usz               gone_next;
   chatroom_pending  pend[WIRED_MOQTRUN_MAX_SESSIONS];
   nip98_replay      replay;
   nostrev           ev;
@@ -148,6 +168,7 @@ typedef struct {
   const char*       public_url; /* scheme://authority the CONNECT went to */
   const char*       allow;      /* comma list of creator domains/keys, or 0 */
   u64               now_ms, now_s, nonce_next;
+  u64               clock_ms; /* the latest tick's now, set before its ends */
   u64               lifetime_ms, alone_ms, empty_ms;
   u32               verifies; /* this tick */
   int               log;
@@ -186,6 +207,20 @@ chatroom_member* chatroom_member_of(
     chatroom_table* t, const wired_wt_session* s, chatroom** room);
 /* Removes s from its room, releasing its id; a no-op when not a member. */
 void chatroom_detach(chatroom_table* t, const wired_wt_session* s);
+/* "moqt room: <what> <first 6 id chars> slot=<i> <tail>" when t->log. */
+void chatroom_log(
+    const chatroom_table* t,
+    const chatroom*       r,
+    const char*           what,
+    const char*           tail);
+/* The index of r's member whose token key is pk, CHATROOM_PEOPLE if none. */
+usz chatroom_key_index(const chatroom* r, wired_span pk);
+/* Detaches s and closes it "replaced" (its key's newer session took over). */
+void chatroom_replace(chatroom_table* t, wired_wt_session* s);
+/* Notes r's id as just ended, if r reached live. */
+void chatroom_note_gone(chatroom_table* t, const chatroom* r);
+/* 1 when id ended less than CHATROOM_GONE_MS ago. */
+int chatroom_recently_gone(const chatroom_table* t, wired_span id);
 /* Closes every member with why's reason, then frees the slot. */
 void chatroom_end(chatroom_table* t, chatroom* r, chatroom_end_why why);
 
@@ -223,6 +258,10 @@ void chatroom_tap(
     wired_span        payload);
 
 /* --- room_pend.c, room_admit.c --- */
+/* --public-url as scheme://authority: one trailing '/' is dropped in place
+ * (the CONNECT :path brings its own); 0 when a path, query or fragment is
+ * left. */
+int chatroom_public_url(char* url);
 /* The value of key in path's query (p 0 when absent). */
 wired_span        chatroom_query(wired_span path, const char* key);
 chatroom_pending* chatroom_pend_of(

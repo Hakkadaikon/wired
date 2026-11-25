@@ -49,7 +49,7 @@ Nostr でログインしたクライアントは、接続のたびに NIP-98 の
 | Option | Type 0x03(奇数なので Length + bytes)。Type の小さい順に並べるので、SSTS_ALGORITHMS(0x3F01、差分 0x3EFE)より前に置く |
 | Token | Alias Type USE_VALUE(0x3)、Token Type 0(帯域外で決めた型)、Token Value はイベントの JSON(UTF-8)を Option の終わりまで |
 | 例 | Value が `ab` なら `03 04 03 00 61 62`。600 バイトのイベントなら Length は 602 = `82 5a` |
-| `u` タグ | WebTransport に渡した URL そのもの。"Server URL" に `?room=<id>&host=<hex>` を足したもので、CONNECT の `:path` にルームとホストが入る。ハブは `--public-url` に `:path` をつないだ文字列と 1 バイトずつ比べる(P6)。`--public-url` はブラウザーの URL の形に合わせる。末尾の `/` を付けず(`:path` が `/` で始まる)、既定のポート(`:443`)を書かず、ホスト名は小文字にする。例は `https://chat.example:4433` |
+| `u` タグ | WebTransport に渡した URL そのもの。"Server URL" に `?room=<id>&host=<hex>` を足したもので、CONNECT の `:path` にルームとホストが入る。ハブは `--public-url` に `:path` をつないだ文字列と 1 バイトずつ比べる。`--public-url` はブラウザーの URL の形に合わせる。末尾の `/` を付けず(`:path` が `/` で始まる)、既定のポート(`:443`)を書かず、ホスト名は小文字にする。例は `https://chat.example:4433` |
 | `method` タグ | `CONNECT` |
 | 作成のタグ | ルームを作ったページだけが、ログインした鍵がルームの `host` と同じときに `["nip05", "<name@domain>"]` と `["wired-room", <id>, "open" か "auth"]` を足す |
 | JSON | `id`、`pubkey`、`created_at`、`kind`、`tags`、`content`、`sig` の 7 つだけを、この順で |
@@ -76,10 +76,30 @@ Nostr でログインしたクライアントは、接続のたびに NIP-98 の
 | ルームの空きがない | UNAUTHORIZED 0x2 | `no-room-slots` | 終わりの画面 |
 | ルームがない | UNAUTHORIZED 0x2 | `no-such-room` | 終わりの画面 |
 | ルームが終わった | NO_ERROR 0x0 | `room-ended` | 終わりの画面 |
+| 同じ鍵の新しいセッションが参加者 ID を引き継いだ(Login required のルーム) | NO_ERROR 0x0 | `replaced` | 終わりの画面 |
 | `?room=&host=` のない接続、混雑(照合の上限・リプレイ表が満杯) | UNAUTHORIZED 0x2 | `no-such-room` / `server-busy` | 終わりの画面 / しばらく待って再参加 |
 | SETUP を 5 秒以内に送らない | UNAUTHORIZED 0x2 | (空) | 自動で再参加 |
 
 クライアントはコードを見ず、理由のトークンだけで分ける。表にない理由と、`closed` が拒否で終わったとき(ネットワーク)は、これまでどおり自動で再参加する。
+
+ルームの終わりは GOAWAY でもドレインでもなく、この直接の close で伝える。GOAWAY やドレインを受けたクライアントは再接続するからである。
+
+### 2.3 ルームへの閉じ込め
+
+ハブはセッションを、入ったルームの名前空間 `wired/moqt_chat/<room>/...` の中に閉じ込める(`server/room_hooks.c`)。どの許可の判定も、まずそのセッションが作成中か開いているルームの今のメンバーかを確かめ、ルーム ID はそのメンバーの記録から取る。
+
+| リクエスト | 許す名前 |
+|---|---|
+| PUBLISH_NAMESPACE | 4 つ以上のフィールドで `wired/moqt_chat/<room>/<id>[/...]`。`<id>` はそのセッションの参加者 ID か、まだだれも使っていない ID(使うと決まる) |
+| SUBSCRIBE_NAMESPACE | 3 つ以上のフィールドで、3 つ目がそのセッションのルーム |
+| PUBLISH | 名前空間がちょうど `wired/moqt_chat/<room>`(3 フィールド)で、Track の名前が `<id>` か `<id>/<種類>`。`<id>` は PUBLISH_NAMESPACE と同じ |
+| SUBSCRIBE、FETCH、TRACK_STATUS | 名前空間が `wired/moqt_chat/<room>/` の下 |
+
+参加者 ID は、そのセッションが最初に PUBLISH か PUBLISH_NAMESPACE で使ったときに決まる。1 つのセッションが使える ID は 1 つで、閉じると空く。ほかのセッションがルームで使っている ID を名乗ると、ハブはそのセッションを `id-taken` で閉じる。ただし Login required のルームでは、ID を持つセッションと NIP-98 の公開鍵が同じなら、新しいセッションが ID を引き継ぎ、古いセッションを `replaced` で閉じる。強制終了したブラウザーの古いセッションは、アイドルタイムアウト(30 秒)まで ID を持ち続けるためである。Open のルームでは引き継がない。だれでも入れるので、他人を追い出せてしまう。クライアントは `id-taken` を受けると、空いている次の ID で自動で参加し直す([フロントエンド](frontend.md) 2.1 節)。
+
+ホストが送る 30313(`nostr-30313` の Track)はハブも読む。署名がホストのもので、`a` がそのルームの space、`status` が `ended` で、ルームを作ったあとの最新の 30313 なら、ハブはルームを終える(`room-ended`)。読むのは Subgroup のストリームの Object だけで、データグラムは読まない。
+
+**計画との違い:** 計画(tasks/moqt-chat-rooms.md)の表では、PUBLISH の名前空間を `wired/moqt_chat/<room>/<id>` としていた。フロントエンドは名前空間 `wired/moqt_chat/<room>` と Track の名前 `<id>[/<種類>]` で PUBLISH するので、ハブはこの形を許す。また、PUBLISH_NAMESPACE だけでなく PUBLISH でも参加者 ID が決まる。
 
 ## 3. 名前空間の発見(4.1〜4.2)
 
@@ -91,7 +111,7 @@ Nostr でログインしたクライアントは、接続のたびに NIP-98 の
 | `wired/moqt_chat/<room>/<id>` | 参加者の告知(PUBLISH_NAMESPACE) |
 | `wired/moqt_chat/<room>/<id>/screen`、`.../<id>/camera` | 画面共有とカメラの告知 |
 
-NAMESPACE と NAMESPACE_DONE が運ぶ接尾辞は接頭辞 `wired/moqt_chat/<room>` のあとの部分で、`["user2"]` や `["user2", "screen"]` になる。ルームが違えば名前空間も違うので、別のルームの参加者、Track、履歴は届かない。ただし、いまのハブはルームを確かめない。`wired/moqt_chat` の下ならどの名前空間でも許すので、ルームを分けているのはクライアントである(サーバーでの強制は tasks/moqt-chat-rooms.md の P6)。
+NAMESPACE と NAMESPACE_DONE が運ぶ接尾辞は接頭辞 `wired/moqt_chat/<room>` のあとの部分で、`["user2"]` や `["user2", "screen"]` になる。ルームが違えば名前空間も違うので、別のルームの参加者、Track、履歴は届かない。ハブもセッションをそのルームの名前空間に閉じ込める(2.3 節)。
 
 | 受け取るもの | クライアントの動作 |
 |---|---|

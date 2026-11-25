@@ -15,6 +15,7 @@ static const char* const chatroom_tokens[CHATROOM_R_N] = {
     "no-such-room",
     "room-ended",
     "server-busy",
+    "replaced",
     ""};
 
 static const u8 chatroom_codes[CHATROOM_R_N] = {
@@ -29,6 +30,7 @@ static const u8 chatroom_codes[CHATROOM_R_N] = {
     CHATROOM_UNAUTHORIZED,
     CHATROOM_NO_ERROR,
     CHATROOM_UNAUTHORIZED,
+    CHATROOM_NO_ERROR,
     CHATROOM_UNAUTHORIZED};
 
 wired_span chatroom_reason_token(chatroom_reason r) {

@@ -154,7 +154,7 @@ static void cert_setup(
 }
 
 /* The hub: io with the staged send_uni2, the chat relay policy, the
- * history cache and the room's namespace check. */
+ * history cache (room checks: chat_rooms_setup). */
 static void hub_setup(void) {
   /* Experimental moqtail-compatible track switching (draft-22 only):
    * SWITCH_FROM for the screen-quality selector, and SSTS so the hub
@@ -169,10 +169,9 @@ static void hub_setup(void) {
   /* Live voice/video: a newer Group outranks the rest of an older one. */
   g_hub.newest_group_only = 1;
   wired_moqt_cache_attach(&g_hub, g_cache_arena, sizeof g_cache_arena);
-  g_hub.authorize_namespace = chat_authorize_room_ns;
-  g_hub.switch_track        = 1;
-  g_hub.ssts_algs           = chat_ssts_algs;
-  g_hub.ssts_alg_n          = sizeof chat_ssts_algs / sizeof chat_ssts_algs[0];
+  g_hub.switch_track = 1;
+  g_hub.ssts_algs    = chat_ssts_algs;
+  g_hub.ssts_alg_n   = sizeof chat_ssts_algs / sizeof chat_ssts_algs[0];
 }
 
 /* Routes the WebTransport session callbacks to the hub (via relay.c's

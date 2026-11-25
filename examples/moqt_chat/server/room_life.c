@@ -51,6 +51,7 @@ static chatroom_end_why chatroom_due(
 /* P5 TimeWaitsForDueEnds: every room due at now ends before time moves
  * on to now (and before any join or verdict handled after this tick). */
 void chatroom_tick(chatroom_table* t, u64 now_ms, u64 now_s) {
+  t->clock_ms = now_ms;
   for (usz i = 0; i < WIRED_MOQT_CHAT_MAX_ROOMS; i++) {
     chatroom_end_why why = chatroom_due(t, &t->room[i], now_ms);
     t->room[i].taps      = 0;
@@ -79,6 +80,7 @@ void chatroom_verdict(chatroom_table* t, usz slot, u64 nonce, int ok) {
   }
   if (ok) {
     t->room[slot].state = CHATROOM_LIVE;
+    chatroom_log(t, &t->room[slot], "live", "nip05=ok");
     return;
   }
   chatroom_end(t, &t->room[slot], CHATROOM_END_NIP05);
@@ -102,4 +104,35 @@ void chatroom_host(chatroom_table* t, chatroom* r, int ended, u64 created_at) {
     return;
   }
   r->open_at = u64_min(created_at, t->now_s + CHATROOM_OPEN_SKEW_S);
+}
+
+/* ----- recently ended ids (no resurrection) ----- */
+
+/* An ended id, not re-created for CHATROOM_GONE_MS. Only a room that
+ * reached live (so not a NIP-05 failure, nor a verifying room's own end)
+ * leaves one, stamped with the time of the end. */
+void chatroom_note_gone(chatroom_table* t, const chatroom* r) {
+  chatroom_gone* g = &t->gone[t->gone_next];
+  if (r->state != CHATROOM_LIVE) {
+    return;
+  }
+  g->used = 1;
+  bytes_memcpy(g->id, r->id, CHATROOM_ID_LEN);
+  g->ended_ms  = t->clock_ms;
+  t->gone_next = (t->gone_next + 1) % CHATROOM_GONE_N;
+}
+
+static int chatroom_gone_is(
+    const chatroom_table* t, const chatroom_gone* g, wired_span id) {
+  return g->used && t->clock_ms - g->ended_ms < CHATROOM_GONE_MS &&
+         bytes_span_eq(wired_span_of(g->id, CHATROOM_ID_LEN), id);
+}
+
+int chatroom_recently_gone(const chatroom_table* t, wired_span id) {
+  for (usz i = 0; i < CHATROOM_GONE_N; i++) {
+    if (chatroom_gone_is(t, &t->gone[i], id)) {
+      return 1;
+    }
+  }
+  return 0;
 }
