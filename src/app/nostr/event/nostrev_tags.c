@@ -64,3 +64,11 @@ wired_span nostrev_tag_value(const nostrev* ev, const char* name, u32 k) {
   }
   return wired_span_of(0, 0);
 }
+
+usz nostrev_tag_count(const nostrev* ev, const char* name) {
+  usz hits = 0;
+  for (u32 i = 0; i < ev->ntags; i++) {
+    hits += (usz)nostrev_tag_named(ev, &ev->tag[i], name, 0);
+  }
+  return hits;
+}

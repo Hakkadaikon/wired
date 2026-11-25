@@ -176,6 +176,7 @@ static void test_nostrev_tag_value(void) {
   CHECK(wired_span_eq_cstr(nostrev_tag_value(ev, "p", 0), "p"));
   CHECK(nostrev_tag_value(ev, "p", 2).p == 0);
   CHECK(nostrev_tag_value(ev, "q", 1).p == 0);
+  CHECK(nostrev_tag_count(ev, "p") == 1 && nostrev_tag_count(ev, "q") == 0);
 }
 
 /* Tags: shape and caps (64 tags, 16 strings per tag, 4096 bytes). */

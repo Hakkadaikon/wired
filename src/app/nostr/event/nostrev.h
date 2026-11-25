@@ -56,6 +56,9 @@ int nostrev_parse(nostrev* ev, const u8* json, usz len, u8* buf, usz cap);
  * into ev->buf; empty with p 0 when no such tag has k + 1 strings. */
 wired_span nostrev_tag_value(const nostrev* ev, const char* name, u32 k);
 
+/* Number of ev's tags named name. */
+usz nostrev_tag_count(const nostrev* ev, const char* name);
+
 /* Byte sink for the canonical serialisation. */
 typedef struct {
   void (*put)(void* ctx, const u8* p, usz n);
