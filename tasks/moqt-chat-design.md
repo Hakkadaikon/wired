@@ -55,7 +55,7 @@ Standing constraints (decided earlier, they override the review text):
 ## Left sidebar
 - [x] D-14 Always visible: participant list + own volume. Video / Background / (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       Video file / Tile width / Output move to a settings drawer
-- [~] D-15 Participant rows: avatar + name + mic / screen / hand icons, (e09dffec4; remote mute: 24a01413b, presence tag; left: an e2e of the tag (wire) ["muted","1"] republished on toggle; tests: nostrRoom "adds muted only when the mic is muted, and reads it back (D-15)", nostrRoomSession "a mute toggle republishes presence with the muted tag (D-15)", "toggleMute flips the store and republishes presence", "a burst of republishes goes out in order: the last one is current", peerBadges.test.tsx "PeerBadges remote mute (D-15 / D-21)" incl. "speech we hear beats a peer's declared mute")
+- [x] D-15 Participant rows: avatar + name + mic / screen / hand icons, (e09dffec4; remote mute: 24a01413b, presence tag; e2e (wire, d80a45cfd): s25-nostr-room checkMute -- the guest's mic toggle shows its Muted badge at the host (a muted guest sends no audio, so only the tag can show it); after unmute the host's row must reach a moment with neither Muted nor speech, which a stale tag would fail. PASS 4 runs 2026-11-25 (2 before and 2 after the unmasked unmute check); only the last run's report.json is kept (tasks/voice-stability/s25-nostr-room/, mutedAtHost/unmutedAtHost true); tests: nostrRoom "adds muted only when the mic is muted, and reads it back (D-15)", nostrRoomSession "a mute toggle republishes presence with the muted tag (D-15)", "toggleMute flips the store and republishes presence", "a burst of republishes goes out in order: the last one is current", peerBadges.test.tsx "PeerBadges remote mute (D-15 / D-21)" incl. "speech we hear beats a peer's declared mute")
       "You" marker, connection dot
 - [x] D-16 File picker: custom "Choose video file" button (no browser-locale (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       text), truncated name with full-name tooltip
@@ -68,7 +68,7 @@ Standing constraints (decided earlier, they override the review text):
 - [x] D-19 Message separators: none or 1px rgba(255,255,255,.06); gap on φ scale (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
 - [x] D-20 Composer: 1px border, purple on focus, filled purple Send, (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       attach icon always visible
-- [~] D-21 Video tile overlay: name bar bottom-left, mic / screen icons, (e09dffec4; remote mute: 24a01413b + 6513c94ff, same PeerBadges; left: e2e (wire) as D-15, heard speech beats a declared mute; tests: peerBadges.test.tsx "PeerBadges remote mute (D-15 / D-21)")
+- [x] D-21 Video tile overlay: name bar bottom-left, mic / screen icons, (e09dffec4; remote mute: 24a01413b + 6513c94ff, same PeerBadges; e2e (wire, d80a45cfd): s25-nostr-room checkMute as D-15 (Room list row, same PeerBadges as the tile); heard speech beats a declared mute; tests: peerBadges.test.tsx "PeerBadges remote mute (D-15 / D-21)")
       "You" on own tile
 - [x] D-22 Camera off → avatar + name placeholder; "Sharing screen" label; (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       play icon while a video file plays

@@ -318,7 +318,7 @@ BIP-340 spent only after nip98_precheck, `open` clamped to now+60 s, --nip05 127
 ### P7 frontend — est. 1 day
 - [x] Create room UI (NIP-07 + nip05 + mode), share link (2afd44193) -- e2e (32f4e4efd): open and auth create -> live in s24-s29; reload: 2f3008081 + 24a01413b, {created, mode} per room id in sessionStorage (same-tab reload only; another device needs a hub-sent field); tests: roomLink "P7: a create is kept per room id for a reload of this tab", "P7: works when storage is unavailable", "P7: ignores a stored value with %s", nostrRoomSession "the live meeting ends ROOM_LIFETIME_S after the room was created" (reload step)
 - [~] NIP-98 signing for create and auth joins; re-sign on reconnect (2afd44193) -- e2e (32f4e4efd): every logged-in connect signs (s24/s25/s27); left: no e2e of a reconnect re-sign
-- [~] Close-info handling in both paths; final screens per reason token (2afd44193) -- e2e (32f4e4efd): room-full, unauthorized, no-room-slots (s27), room-ended (s25/s28), no-such-room (s28), nip05-unverified (s29); id-taken now retries the next free id (useIdTakenRetry), new token `replaced`; left: malformed-auth / expired-auth / server-busy only in unit tests (the page refuses an event whose created_at differs, so no e2e for expired-auth); after an id-taken retry s4's voice does not decode again -- open
+- [~] Close-info handling in both paths; final screens per reason token (2afd44193) -- e2e (32f4e4efd): room-full, unauthorized, no-room-slots (s27), room-ended (s25/s28, incl. s28's late joiner since the guest tombstone rule), no-such-room (unit tests only now), nip05-unverified (s29); id-taken now retries the next free id (useIdTakenRetry), new token `replaced`; left: malformed-auth / expired-auth / server-busy only in unit tests (the page refuses an event whose created_at differs, so no e2e for expired-auth); after an id-taken retry s4's voice does not decode again -- open
 - [~] Countdown from 30313 `ends` (2afd44193; unit tests) -- not in the e2e; the lifetime end itself is (s28)
 
 ### P8 e2e and docs — est. 1 day
@@ -410,11 +410,35 @@ BIP-340 spent only after nip98_precheck, `open` clamped to now+60 s, --nip05 127
   (srvrun_wt_closed_connect_id, test_srvrun_rx_datagram_dropped_after_own_close;
   a free slot that is not CLOSED is reused first, so the record lasts,
   test_srvrun_wt_free_slot_keeps_closed_record). Not the cause of s4.
-- Open: after the datagram fix, 1 of 9 s28 runs still showed "Connection
-  lost" on the alone end (the single host); 4 runs with Chrome net-log did
-  not reproduce it. The tombstone stops that page from resurrecting the
-  room, so the run fails only on the missing final screen. Left: catch it
-  with net-log and read what reached stream 0.
+- Fixed (s28, 2026-11-25): 2 of 11 s28 runs with Chrome net-log failed,
+  both on the lifetime end (screens `,room-ended`); the alone end passed
+  every time.
+  - External cause (Chrome 146, not ours): the failing page's net-log
+    shows a clean close -- STOP_SENDING on its WT streams, then stream 0
+    FIN carrying the 19-byte WT_CLOSE_SESSION ("room-ended"), Chrome's own
+    FIN, QUIC_SESSION_CLOSED "WebTransport client terminated" quic_error
+    0 -- byte for byte what the other member received, whose `closed`
+    resolved. The page's `closed` still rejected with "Connection lost.":
+    the renderer dropped the close info. The page then auto-rejoins.
+  - Ours, fixed: that rejoin was refused room-ended (tombstone; hub
+    counter room-ended=1) but the session stayed open: the server qlog
+    shows the hub SETUP (stream 15, 26 bytes), answers on every request
+    stream and no WT_CLOSE_SESSION until shutdown. room-ended's close
+    code is NO_ERROR (0), and wired_moqt_admit_fn's 0 means "admit".
+    chatroom_admit now closes the session itself on every refusal (the
+    hook's documented way, moqtrun_admit_close);
+    test_chatroom_admit_ended_closes (RED: no close).
+  - Decision (coordinator): during the 60 s tombstone every join and
+    create of the id gets room-ended, checked first in chatroom_decide
+    (before the creator rules, ignoring ?host=): a guest without create
+    tags, the empty-grace late joiner and a wrong signer included (ids are
+    16 random bytes known only to invite holders). T-04 and T-49
+    (test_chatroom_tombstone_all) updated, each RED first (no-such-room,
+    then unauthorized); server.md 5.2, e2e.md and s28's emptyLate
+    expectation follow; no-such-room's text no longer says "It may have
+    ended". So a guest whose close Chrome dropped lands on room-ended
+    after its rejoin too.
+  Evidence: scratchpad run4/run11 (net-log + qlog), not kept in the repo.
 - No resurrection: an ended room's id cannot be created again for
   CHATROOM_GONE_MS (60 s from the end; refused room-ended, checked after
   the creator rules); only rooms that reached live leave a tombstone, in a
