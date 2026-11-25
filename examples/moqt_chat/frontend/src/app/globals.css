@@ -1280,6 +1280,16 @@ textarea {
 	box-shadow: inset 2px 0 0 var(--danger);
 }
 
+/* D-24: gray until its send is done */
+.message[data-pending] {
+	color: var(--muted);
+}
+
+.message__pending {
+	grid-column: 1 / -1;
+	display: flex;
+}
+
 .messages > .caption {
 	display: block;
 	padding: 0.5em 0;

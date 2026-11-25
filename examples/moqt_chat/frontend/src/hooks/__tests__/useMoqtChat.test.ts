@@ -11,9 +11,11 @@ import {
 } from "@/lib/__tests__/fakeWebTransport";
 import { MoqtChatClient } from "@/lib/moqtClient";
 import { activeRoom } from "@/lib/roomLink";
+import { retryMessage } from "@/lib/roomUi";
 import { createQualityWindow, qualityLevel } from "@/lib/voiceQuality";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
 import {
+	addNostrMessage,
 	applyVoiceTapEvent,
 	authSession,
 	cancelReconnect,
@@ -457,9 +459,18 @@ describe("handleRoomNamespace", () => {
 });
 
 describe("sendChatMessage", () => {
+	// The real store's messages, so pending/sent/failed updates are seen.
 	function fakeStore(nostrPubkey: string | null = null) {
-		return { addMessage: vi.fn(), setMessageSendError: vi.fn(), nostrPubkey };
+		const s = useMoqtChatStore.getState();
+		s.clearMessages();
+		return {
+			addMessage: vi.fn(s.addMessage),
+			updateMessage: s.updateMessage,
+			setMessageSendError: vi.fn(),
+			nostrPubkey,
+		};
 	}
+	const msgs = () => useMoqtChatStore.getState().messages;
 
 	it("does nothing when there is no client", async () => {
 		const store = fakeStore();
@@ -479,7 +490,7 @@ describe("sendChatMessage", () => {
 		expect(client.sendMessage).toHaveBeenCalledWith("hi", []);
 		expect(store.setMessageSendError).not.toHaveBeenCalled();
 		expect(store.addMessage).toHaveBeenCalledTimes(1);
-		const arg = store.addMessage.mock.calls[0][0];
+		const arg = msgs()[0];
 		expect(arg.senderId).toBe("user1");
 		expect(arg.text).toBe("hi");
 		expect(arg.own).toBe(true);
@@ -501,7 +512,7 @@ describe("sendChatMessage", () => {
 			"message send failed",
 		);
 		expect(store.addMessage).toHaveBeenCalledTimes(1);
-		const arg = store.addMessage.mock.calls[0][0];
+		const arg = msgs()[0];
 		expect(arg.senderId).toBe("user1");
 		expect(arg.text).toBe("hi");
 		expect(arg.own).toBe(true);
@@ -541,7 +552,7 @@ describe("sendChatMessage", () => {
 		expect(sign).toHaveBeenCalledWith("hi");
 		expect(nostr.publish).toHaveBeenCalledWith(ev);
 		expect(client.sendMessage).not.toHaveBeenCalled();
-		const arg = store.addMessage.mock.calls[0][0];
+		const arg = msgs()[0];
 		expect(arg).toMatchObject({
 			own: true,
 			text: "hi",
@@ -562,7 +573,7 @@ describe("sendChatMessage", () => {
 		await sendChatMessage(okClient(), store, "user1", "hi", [], nostr, sign);
 		expect(nostr.publish).not.toHaveBeenCalled();
 		expect(store.setMessageSendError).toHaveBeenCalled();
-		expect(store.addMessage.mock.calls[0][0].failed).toBe(true);
+		expect(msgs()[0].failed).toBe(true);
 	});
 
 	it("logged out, the message keeps the extension-less format", async () => {
@@ -587,7 +598,99 @@ describe("sendChatMessage", () => {
 		const nostr = { publish: vi.fn().mockRejectedValue(new Error("reset")) };
 		const sign = vi.fn().mockResolvedValue(ev);
 		await sendChatMessage(okClient(), store, "user1", "hi", [], nostr, sign);
-		expect(store.addMessage.mock.calls[0][0].failed).toBe(true);
+		expect(msgs()[0].failed).toBe(true);
+	});
+
+	// D-24: shown at once as pending, sent when publish resolves.
+	function held() {
+		let release: (e: NostrEvent) => void = () => {};
+		const sign = vi.fn(
+			() => new Promise<NostrEvent>((r) => (release = (e) => r(e))),
+		);
+		return { sign, release: (e: NostrEvent) => release(e) };
+	}
+
+	it("D-24: pending before signing, sent after publish", async () => {
+		const store = fakeStore(PK);
+		const { sign, release } = held();
+		const sending = sendChatMessage(
+			okClient(),
+			store,
+			"user1",
+			"hi",
+			[],
+			fakeNostr(),
+			sign,
+		);
+		expect(msgs()).toMatchObject([{ text: "hi", own: true, pending: true }]);
+		release(ev);
+		await sending;
+		expect(msgs()).toHaveLength(1);
+		expect(msgs()[0]).toMatchObject({ pending: false, key: `nostr:${ev.id}` });
+		expect(msgs()[0].failed).toBeUndefined();
+	});
+
+	it("D-24: pending -> failed, and Retry sends anew", async () => {
+		const store = fakeStore(PK);
+		const nostr = { publish: vi.fn().mockRejectedValueOnce(new Error("x")) };
+		const sign = vi.fn().mockResolvedValue(ev);
+		await sendChatMessage(okClient(), store, "user1", "hi", [], nostr, sign);
+		expect(msgs()).toMatchObject([{ pending: false, failed: true }]);
+		const { removeMessage } = useMoqtChatStore.getState();
+		const again = held();
+		const retrying = retryMessage(
+			msgs()[0],
+			(text, att) =>
+				sendChatMessage(
+					okClient(),
+					store,
+					"user1",
+					text,
+					att,
+					nostr,
+					again.sign,
+				),
+			{ setMessageSendError: vi.fn(), removeMessage },
+		);
+		// While NIP-07 signs: one bubble, the new pending one.
+		expect(msgs()).toMatchObject([{ pending: true }]);
+		again.release(ev);
+		await retrying;
+		expect(msgs()).toHaveLength(1);
+		expect(msgs()[0]).toMatchObject({ pending: false });
+		expect(msgs()[0].failed).toBeUndefined();
+	});
+
+	it("D-24: its echo confirms the pending entry, no duplicate", async () => {
+		const store = fakeStore(PK);
+		const { sign, release } = held();
+		let echo = () => {};
+		const nostr = {
+			publish: vi.fn(() => {
+				echo(); // arrives while publish is still in flight
+				return new Promise<void>(() => {});
+			}),
+		};
+		echo = () => addNostrMessage(store, ev, JSON.stringify(ev));
+		void sendChatMessage(okClient(), store, "user1", "hi", [], nostr, sign);
+		release(ev);
+		await vi.waitFor(() => expect(nostr.publish).toHaveBeenCalled());
+		expect(msgs()).toHaveLength(1);
+		expect(msgs()[0]).toMatchObject({ own: true, pending: false });
+	});
+
+	it("D-24: an echo of a send whose publish rejected clears failed", async () => {
+		const store = fakeStore(PK);
+		const nostr = { publish: vi.fn().mockRejectedValue(new Error("reset")) };
+		const sign = vi.fn().mockResolvedValue(ev);
+		await sendChatMessage(okClient(), store, "user1", "hi", [], nostr, sign);
+		addNostrMessage(store, ev, JSON.stringify(ev)); // the rejoin's history
+		expect(msgs()).toHaveLength(1);
+		expect(msgs()[0]).toMatchObject({
+			own: true,
+			pending: false,
+			failed: false,
+		});
 	});
 });
 

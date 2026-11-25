@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { presenceTemplate } from "@/lib/nostrRoom";
 import {
 	inviteLink,
+	isNostrPost,
 	newlyRaised,
 	retryMessage,
 	timerLevel,
@@ -77,25 +78,28 @@ describe("retryMessage", () => {
 		attachments: [{ bytes, mimeType: "image/png", url: "blob:x" }],
 	};
 
-	it("clears the error, re-sends text and attachments, and drops the failed bubble only once the send is done", async () => {
+	it("clears the error, drops the failed bubble before the re-send adds its pending one, then re-sends text and attachments", async () => {
 		const order: string[] = [];
-		let done: () => void = () => {};
-		const send = vi.fn(
-			() =>
-				new Promise<void>((r) => {
-					done = r;
-				}),
-		);
+		const send = vi.fn(async () => {
+			order.push("send");
+		});
 		const store = {
 			setMessageSendError: vi.fn((e: string | null) => order.push(`err:${e}`)),
 			removeMessage: vi.fn((id: number) => order.push(`rm:${id}`)),
 		};
-		const p = retryMessage(failed, send, store);
+		await retryMessage(failed, send, store);
 		expect(send).toHaveBeenCalledWith("hi", [{ bytes, mimeType: "image/png" }]);
-		expect(store.removeMessage).not.toHaveBeenCalled(); // still visible
-		done();
-		await p;
-		expect(order).toEqual(["err:null", "rm:7"]);
+		expect(order).toEqual(["err:null", "rm:7", "send"]);
+	});
+
+	it.each([
+		["a sent post", {}, true],
+		["a pending one", { pending: true }, false],
+		["a failed one", { failed: true }, false],
+		["no key", { key: undefined }, false],
+	])("isNostrPost: %s", (_, patch, want) => {
+		const m = { author: "a", key: "nostr:x", ...patch };
+		expect(isNostrPost(m)).toBe(want);
 	});
 
 	it("a text-only message re-sends with no attachments", async () => {

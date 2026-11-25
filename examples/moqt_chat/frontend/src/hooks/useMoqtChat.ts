@@ -87,7 +87,12 @@ import {
 	type MoqtChatState,
 	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
-import { endNostrRoom, NostrRoomSession, nostrRoom } from "./nostrRoomSession";
+import {
+	endNostrRoom,
+	NostrRoomSession,
+	nostrRoom,
+	toggleMute,
+} from "./nostrRoomSession";
 import { useCameraVideo } from "./useCameraVideo";
 
 const JITTER_BUFFER_CAPACITY = 8;
@@ -389,7 +394,7 @@ export async function sendChatMessage(
 	client: Pick<MoqtChatClient, "sendMessage"> | null,
 	store: Pick<
 		MoqtChatState,
-		"addMessage" | "setMessageSendError" | "nostrPubkey"
+		"addMessage" | "updateMessage" | "setMessageSendError" | "nostrPubkey"
 	>,
 	senderId: string,
 	text: string,
@@ -399,35 +404,33 @@ export async function sendChatMessage(
 		signChatEvent(text, nostrRoom.current?.liveMeeting(), senderId),
 ): Promise<void> {
 	if (!client) return;
+	// D-24: shown at once as pending; the signed id becomes its key before
+	// publish, so the event's echo lands on this entry (store.addMessage).
+	const id = store.addMessage({
+		senderId,
+		text,
+		at: Date.now(),
+		own: true,
+		pending: true,
+		attachments: attachBlobUrls(attachments),
+	});
 	try {
 		const pubkey = nostr && attachments.length === 0 && store.nostrPubkey;
 		const ev = pubkey
 			? checkOwnChatEvent(await sign(text), pubkey, text)
 			: undefined;
-		if (ev) await nostr?.publish(ev);
-		else await client.sendMessage(text, attachments);
-		store.addMessage({
-			senderId,
-			text: ev?.content ?? text,
-			at: Date.now(),
-			own: true,
-			attachments: attachBlobUrls(attachments),
-			...(ev && {
+		if (ev) {
+			store.updateMessage(id, {
 				author: ev.pubkey,
 				key: `nostr:${ev.id}`,
 				raw: JSON.stringify(ev), // what MoqNostr.publish sends
-			}),
-		});
+			});
+			await nostr?.publish(ev);
+		} else await client.sendMessage(text, attachments);
+		store.updateMessage(id, { pending: false });
 	} catch {
 		store.setMessageSendError("message send failed");
-		store.addMessage({
-			senderId,
-			text,
-			at: Date.now(),
-			own: true,
-			failed: true,
-			attachments: attachBlobUrls(attachments),
-		});
+		store.updateMessage(id, { pending: false, failed: true });
 	}
 }
 
@@ -1396,10 +1399,6 @@ export function useMoqtChat() {
 			),
 		[store],
 	);
-
-	const toggleMute = useCallback(() => {
-		store.setMuted(!store.muted);
-	}, [store]);
 
 	// Screen-share start/stop, modeled on startVoice/mic's shape but kept
 	// fully independent: any failure here (getDisplayMedia rejection,

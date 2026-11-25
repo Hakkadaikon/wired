@@ -47,9 +47,9 @@ export function newlyRaised(
 
 type Retried = Pick<ChatMessage, "id" | "text" | "attachments">;
 
-/** A failed message's Retry: the error clears, the message is sent anew
- * (the send adds its own bubble, or a new failed one), and the old bubble
- * stays on screen until that send is done. */
+/** A failed message's Retry: the error clears, the old bubble goes, and the
+ * message is sent anew (the send adds its own pending bubble at once, so
+ * there is never two while NIP-07 signs). */
 export async function retryMessage(
 	m: Retried,
 	send: (text: string, attachments: ChatAttachment[]) => Promise<void>,
@@ -60,6 +60,15 @@ export async function retryMessage(
 		bytes: a.bytes,
 		mimeType: a.mimeType,
 	}));
-	await send(m.text, attachments);
 	store.removeMessage(m.id);
+	await send(m.text, attachments);
 }
+
+/** A message shown as a Nostr post (raw event, reactions, delete): a verified
+ * event, or our own once its send is done. */
+export const isNostrPost = <
+	M extends Pick<ChatMessage, "author" | "key" | "pending" | "failed">,
+>(
+	m: M,
+): m is M & { author: string; key: string } =>
+	Boolean(m.author && m.key && !m.pending && !m.failed);

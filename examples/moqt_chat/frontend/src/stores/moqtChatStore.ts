@@ -33,6 +33,7 @@ export type ChatMessage = {
 	at: number; // epoch ms
 	own: boolean; // true = sent by this client
 	failed?: boolean; // own message whose send failed
+	pending?: boolean; // own message shown before its send is done (D-24)
 	attachments?: ChatAttachment[]; // images/files attached to this message
 	key?: string; // "<sender>:<messageId>" for a received message; a repeat is dropped
 	author?: string; // hex pubkey of a verified Nostr chat event (kind 1311)
@@ -95,6 +96,7 @@ export type MoqtChatState = {
 	setMuted: (muted: boolean) => void;
 	addMessage: (message: Omit<ChatMessage, "id">) => number;
 	removeMessage: (id: number) => void;
+	updateMessage: (id: number, patch: Partial<ChatMessage>) => void;
 	setNickname: (id: string, nickname: string) => void;
 	setPeerPubkey: (id: string, pubkey: string) => void;
 	addPeer: (id: string) => void;
@@ -173,13 +175,23 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 	addMessage: (message) => {
 		const seen =
 			message.key && get().messages.find((m) => m.key === message.key);
-		if (seen) return seen.id;
-		const id = nextMessageId++;
-		set((s) => ({ messages: [...s.messages, { ...message, id }] }));
-		return id;
+		if (!seen) {
+			const id = nextMessageId++;
+			set((s) => ({ messages: [...s.messages, { ...message, id }] }));
+			return id;
+		}
+		// Our own send's echo (live, or a rejoin's history after a publish
+		// that rejected yet reached the hub): it was sent (D-24).
+		if (seen.pending || seen.failed)
+			get().updateMessage(seen.id, { pending: false, failed: false });
+		return seen.id;
 	},
 	removeMessage: (id) =>
 		set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
+	updateMessage: (id, patch) =>
+		set((s) => ({
+			messages: s.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+		})),
 	setNickname: (id, nickname) =>
 		set((s) => ({ nicknames: { ...s.nicknames, [id]: nickname } })),
 	setPeerPubkey: (id, pubkey) =>

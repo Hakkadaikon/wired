@@ -23,9 +23,7 @@ import {
 import type { ScreenQuality } from "@/lib/moqtScreenClient";
 import { nostrRelays, parseRelayList } from "@/lib/nostr";
 import {
-	acceptPresence,
 	countReactions,
-	handRaised,
 	isDeleted,
 	reactedWith,
 	type Target,
@@ -40,7 +38,7 @@ import {
 	type RoomLink,
 	roomName,
 } from "@/lib/roomLink";
-import { retryMessage } from "@/lib/roomUi";
+import { isNostrPost, retryMessage } from "@/lib/roomUi";
 import { isMuteShortcut } from "@/lib/shortcuts";
 import {
 	clampSplit,
@@ -56,13 +54,14 @@ import {
 	resolveDisplayName,
 	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
-import { Icon, type IconName } from "./icons";
+import { Icon } from "./icons";
 import {
 	DEFAULT_RELAYS_TEXT,
 	DEFAULT_URL,
 	JoinScreen,
 	NostrAccount,
 } from "./joinScreen";
+import { Badge, PeerBadges } from "./peerBadges";
 import {
 	authorLabels,
 	NostrAuthor,
@@ -78,6 +77,7 @@ import {
 	useHandToasts,
 } from "./roomStatus";
 import { RoomTabs, type RoomView, useEscToClose } from "./roomTabs";
+import { type Retry, SendState } from "./sendState";
 import { Toast } from "./toast";
 import { Tooltip } from "./tooltip";
 import { VideoSection } from "./videoSection";
@@ -230,36 +230,6 @@ function RoomHead({
 				</button>
 			</Tooltip>
 		</header>
-	);
-}
-
-/** A raised hand in the Room list: the pubkey's fresh presence says so. */
-// While a hand shows, re-check freshness every HAND_RECHECK_MS so a stale
-// presence (its author gone silent) drops the badge.
-const HAND_RECHECK_MS = 30_000;
-
-function Hand({ pubkey, testId }: { pubkey?: string | null; testId: string }) {
-	const presence = useMoqtChatStore((s) =>
-		pubkey ? s.nostrRoom.presence[pubkey] : undefined,
-	);
-	const raised = presence !== undefined && handRaised(presence);
-	const [, recheck] = useState(0);
-	useEffect(() => {
-		if (!raised) return;
-		const t = setInterval(() => recheck((n) => n + 1), HAND_RECHECK_MS);
-		return () => clearInterval(t);
-	}, [raised]);
-	const fresh = presence && acceptPresence(presence, activeRoom.space);
-	if (!fresh || !handRaised(presence)) return null;
-	return (
-		<span
-			className="hand"
-			role="img"
-			aria-label="Hand raised"
-			data-testid={testId}
-		>
-			<Icon name="hand" />
-		</span>
 	);
 }
 
@@ -517,39 +487,6 @@ function PeerName({ id }: { id: string }) {
 		<NostrName pubkey={pubkey} />
 	) : (
 		resolveDisplayName(id, nicknames)
-	);
-}
-
-function Badge({ icon, label }: { icon: IconName; label: string }) {
-	return (
-		<Tooltip tip={label}>
-			<span className="badge" role="img" aria-label={label}>
-				<Icon name={icon} />
-			</span>
-		</Tooltip>
-	);
-}
-
-/** A participant's mic / screen / hand state as icons ("own" = this page). */
-function PeerBadges({ id, handTestId }: { id: string; handTestId: string }) {
-	const own = id === "own";
-	const pubkey = useMoqtChatStore((s) =>
-		own ? s.nostrPubkey : s.peerPubkeys[id],
-	);
-	const muted = useMoqtChatStore((s) => own && s.muted);
-	const speaking = useMoqtChatStore((s) =>
-		own ? s.localSpeaking : Boolean(s.speaking[id]),
-	);
-	const sharing = useMoqtChatStore((s) =>
-		own ? s.screenSharing : s.screenTiles.includes(id),
-	);
-	return (
-		<span className="badges">
-			{muted && <Badge icon="micOff" label="Muted" />}
-			{speaking && !muted && <Badge icon="mic" label="Speaking" />}
-			{sharing && <Badge icon="screen" label="Sharing screen" />}
-			<Hand pubkey={pubkey} testId={handTestId} />
-		</span>
 	);
 }
 
@@ -915,7 +852,8 @@ function Reactions({ target }: { target: Target }) {
 function useNostrPost(m: ChatMessage) {
 	const deletions = useMoqtChatStore((s) => s.nostrRoom.deletions);
 	const own = useMoqtChatStore((s) => s.nostrPubkey === m.author);
-	if (!m.author || !m.key) return undefined;
+	// Not while our own is pending or failed: no raw, reactions or delete.
+	if (!isNostrPost(m)) return undefined;
 	const target = {
 		id: m.key.slice("nostr:".length),
 		pubkey: m.author,
@@ -963,33 +901,6 @@ function NostrFoot({ m }: { m: ChatMessage }) {
 	);
 }
 
-/** A failed message's line: Retry keeps the bubble (disabled, "Retrying…")
- * until the re-send is done. */
-function NotSent({ onRetry }: { onRetry: () => Promise<void> }) {
-	const [busy, setBusy] = useState(false);
-	return (
-		<span className="message__failed" role="alert">
-			<Icon name="alert" />
-			Not sent
-			<button
-				type="button"
-				className="link"
-				data-testid="message-retry"
-				disabled={busy}
-				onClick={() => {
-					setBusy(true);
-					void onRetry().finally(() => setBusy(false));
-				}}
-			>
-				<Icon name={busy ? "spinner" : "rejoin"} />
-				{busy ? "Retrying…" : "Retry"}
-			</button>
-		</span>
-	);
-}
-
-type Retry = (m: ChatMessage) => Promise<void>;
-
 function Message({ m, onRetry }: { m: ChatMessage; onRetry: Retry }) {
 	const deleted = useNostrPost(m)?.deleted;
 	// A fixed English 24 h clock, not the browser's locale (D-29).
@@ -1018,6 +929,7 @@ function Message({ m, onRetry }: { m: ChatMessage; onRetry: Retry }) {
 			data-testid="message"
 			data-sender={m.senderId}
 			data-failed={m.failed || undefined}
+			data-pending={m.pending || undefined}
 		>
 			<span className={m.own ? "message__sender you" : "message__sender"}>
 				<Sender m={m} />
@@ -1037,7 +949,7 @@ function Message({ m, onRetry }: { m: ChatMessage; onRetry: Retry }) {
 					))}
 				</div>
 			)}
-			{m.failed && <NotSent onRetry={() => onRetry(m)} />}
+			<SendState m={m} onRetry={onRetry} />
 		</div>
 	);
 }
