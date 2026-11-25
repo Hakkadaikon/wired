@@ -6,7 +6,7 @@
 // pubkey of its verified event. user3 has no extension: it still sends in
 // the old format (shown under its participant id) and still sees the Nostr
 // messages. `?relays=` keeps every page off the public profile relays, so
-// names stay npubs; the room is a fresh link hosted by user1's key. A received message carries the verified check, and its
+// names stay npubs; user1 creates the room (roomsE2e.mjs). A received message carries the verified check, and its
 // "⋯" toggle shows the verified event JSON.
 //
 //   just e2e-stability s24-nostr-chat
@@ -15,12 +15,15 @@ import { getPublicKey } from "nostr-tools/pure";
 import {
 	keyOf,
 	nostrLogin,
-	roomUrl,
 	sendChat,
 	shortNpub,
 	WAIT_MS,
 } from "../lib/nostrE2e.mjs";
-import { closeClient, joinStabilityClient } from "../lib/stabilityClient.mjs";
+import {
+	closeClient,
+	createRoomClient,
+	joinStabilityClient,
+} from "../lib/stabilityClient.mjs";
 
 // The sender label of a Nostr message with no profile name (?relays=).
 const nostrLabel = (pk) => shortNpub(pk);
@@ -113,7 +116,7 @@ async function checkFoot(client, sender, text, report) {
 }
 
 export async function run({ pageUrl, serverUrl, server, log }) {
-	const url = roomUrl(pageUrl, 1);
+	let url = pageUrl;
 	const opts = (tag, beforeConnect) => ({
 		pageUrl: url,
 		serverUrl,
@@ -133,11 +136,10 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 		if (got !== want) failures.push(`${name}: want ${want}, got ${got}`);
 	};
 	try {
-		log("user1, user2 log in with NIP-07; user3 has no extension");
-		const user1 = await joinStabilityClient(
-			opts("user1", nostrLogin(keyOf(1))),
-		);
+		log("user1 creates the room, user2 logs in; user3 has no extension");
+		const user1 = await createRoomClient(opts("user1"), 1);
 		clients.push(user1);
+		url = user1.link;
 		const user2 = await joinStabilityClient(
 			opts("user2", nostrLogin(keyOf(2))),
 		);

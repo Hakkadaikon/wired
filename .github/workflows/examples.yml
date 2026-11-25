@@ -41,6 +41,10 @@ jobs:
             export TESTCASE=handshake
             extra_args="--port 4433"
           fi
+          # moqt_chat refuses to start without the URL browsers use.
+          if [ "${{ matrix.example }}" = "moqt_chat/server" ]; then
+            extra_args="--public-url https://127.0.0.1:4433"
+          fi
           ./examples/${{ matrix.example }}/wired_server $extra_args &
           pid=$!
           sleep 2

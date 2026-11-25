@@ -38,6 +38,8 @@ import { startUdpProxy } from "../lib/udpProxy.mjs";
 import { summarizeVoiceTrace } from "../lib/voiceMetrics.mjs";
 
 const PROXY_BASE = 24433;
+// The default room's creator joins through flow 0: the hub's --public-url.
+export const publicUrl = `https://127.0.0.1:${PROXY_BASE}`;
 const SERVER_PORT = E2E_PORT;
 const ALL_TAGS = ["user1", "user2", "user3", "user4"];
 const STALL_MS = 3000; // stallDetector.ts's SCREEN_STALL_MS
@@ -97,6 +99,9 @@ function ownScreenStreams(m) {
 		.filter((s) => s.bytes >= 1000)
 		.map(({ openedAt, bytes, closed }) => ({ openedAt, bytes, closed }));
 }
+
+// The run's default room would end at the hub's 5 h --room-lifetime.
+export const serverArgs = ["--room-lifetime", "86400"];
 
 export async function run({ pageUrl, server, arg, log }) {
 	const talkMs = Number(arg("talk-ms", "180000"));

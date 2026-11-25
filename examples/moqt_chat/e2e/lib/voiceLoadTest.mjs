@@ -11,8 +11,9 @@
 // evaluateOnNewDocument) rather than instrumenting the app's own source --
 // same black-box principle as loadTest.mjs's DOM polling for chat.
 
-import { setServerUrl, withDefaultRoom } from "./args.mjs";
+import { setServerUrl } from "./args.mjs";
 import { summarizeDelivery } from "./metrics.mjs";
+import { defaultRoomJoin } from "./roomsE2e.mjs";
 import { summarizeVoiceTrace } from "./voiceMetrics.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
@@ -68,12 +69,14 @@ async function joinVoiceClient(browser, pageUrl, certHash, participantId) {
 	// headless Chrome) on a shared box is a test-environment CPU artifact,
 	// and the transport gates (loss/jitter/plc) must measure the network
 	// path, not worklet CPU (see noiseSuppressionDefault in joinPrefs.ts).
-	const nsOffUrl = new URL(withDefaultRoom(pageUrl));
+	const room = await defaultRoomJoin(page, pageUrl);
+	const nsOffUrl = new URL(room.url);
 	nsOffUrl.searchParams.set("ns", "0");
 	await page.goto(nsOffUrl.href);
 	await setServerUrl(page);
 	await page.type('input[data-testid="certHash"]', certHash);
 	await page.click(`[data-testid="participant-${participantId}"]`);
+	await room.beforeConnect(page);
 	await page.click('[data-testid="connect"]');
 	await page.waitForFunction(
 		() =>
@@ -82,6 +85,7 @@ async function joinVoiceClient(browser, pageUrl, certHash, participantId) {
 				?.getAttribute("data-status") === "connected",
 		{ timeout: JOIN_TIMEOUT_MS },
 	);
+	await room.created();
 
 	const seenIds = new Set();
 	const received = [];

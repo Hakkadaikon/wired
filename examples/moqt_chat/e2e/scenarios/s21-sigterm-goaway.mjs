@@ -11,9 +11,15 @@
 //   B -- both are "connected" again within rejoin-max-ms of the restart;
 //   C -- chat flows both ways afterwards (publishes, namespaces and
 //        subscriptions were re-established by the reconnect).
+// Rooms: a restart ends every room. Gate B is the host (user1, which
+// created the default room in its tab and re-creates it on reconnect); the
+// guest is back on its own, or after no-such-room joins again by hand once
+// the room is live (roomsE2e.mjs guestBack).
 //
 //   just e2e-stability s21-sigterm-goaway
 
+import { withDefaultRoom } from "../lib/args.mjs";
+import { guestBack, hubLogMark } from "../lib/roomsE2e.mjs";
 import { closeClient, joinStabilityClient } from "../lib/stabilityClient.mjs";
 
 async function sendChat(client, text) {
@@ -77,6 +83,7 @@ export async function run({ pageUrl, serverUrl, server, arg, log }) {
 
 		log("SIGTERM the hub, then start it again");
 		const sigtermAt = Date.now();
+		const mark = hubLogMark();
 		await server.restart("SIGTERM");
 		const restartedAt = Date.now();
 		report.hubDownMs = restartedAt - sigtermAt;
@@ -91,7 +98,7 @@ export async function run({ pageUrl, serverUrl, server, arg, log }) {
 				);
 		}
 
-		for (const c of clients) {
+		for (const c of [user1]) {
 			try {
 				await c.page.waitForFunction(
 					(since) =>
@@ -112,6 +119,14 @@ export async function run({ pageUrl, serverUrl, server, arg, log }) {
 			}
 		}
 
+		report.user2Back = await guestBack(
+			user2,
+			withDefaultRoom(pageUrl),
+			mark,
+			rejoinMaxMs,
+		);
+		if (report.user2Back !== "auto" && report.user2Back !== "manual")
+			failures.push(`gate B: user2 ${report.user2Back}`);
 		const a = `after-restart-a-${Date.now()}`;
 		const b = `after-restart-b-${Date.now()}`;
 		await user1.page

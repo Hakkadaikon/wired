@@ -3,19 +3,23 @@
 // dead connection fast (fail-fast <= 3s -- needs the server to answer
 // unknown-DCID short headers with a stateless reset instead of silently
 // dropping them); (2) rejoin against the restarted server completes and
-// audio flows again within the rejoin budget.
+// audio flows again within the rejoin budget. A restart ends every room
+// (they live in the hub's memory): the host (user1, the default room's
+// creator) creates a new room first, then the guest joins it.
 
 import {
 	clientMetrics,
 	closeClient,
 	connectClient,
 	joinStabilityClient,
+	recreateDefaultRoom,
 	waitFirstDecode,
 } from "../lib/stabilityClient.mjs";
 
 export async function run({ pageUrl, server, arg, log }) {
 	const failFastMaxMs = Number(arg("fail-fast-max-ms", "3000"));
-	const rejoinMaxMs = Number(arg("rejoin-max-ms", "5000"));
+	// The host's rejoin includes the login, the create and the NIP-05 check.
+	const rejoinMaxMs = Number(arg("rejoin-max-ms", "10000"));
 	const detectTimeoutMs = Number(arg("detect-timeout-ms", "45000"));
 	const failures = [];
 	const clients = [];
@@ -67,15 +71,19 @@ export async function run({ pageUrl, server, arg, log }) {
 	}
 
 	const rejoins = [];
-	for (const c of clients) {
-		await c.page.close().catch(() => {});
-		const start = Date.now();
-		await connectClient(c, {
+	for (const [i, c] of clients.entries()) {
+		const o = {
 			pageUrl,
 			serverUrl: "",
 			certHash: server.certHash,
 			participantId: c.tag,
-		});
+		};
+		const start = Date.now();
+		if (i === 0) await recreateDefaultRoom(c, o);
+		else {
+			await c.page.close().catch(() => {});
+			await connectClient(c, o);
+		}
 		rejoins.push({ tag: c.tag, connectMs: Date.now() - start });
 	}
 	const redecodeStart = Date.now();

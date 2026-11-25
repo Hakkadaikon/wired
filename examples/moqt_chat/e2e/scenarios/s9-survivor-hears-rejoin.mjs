@@ -6,6 +6,7 @@
 // (The churn scenario gated the REJOINER's decode; survivors there heard
 // each other, masking exactly this bug.)
 
+import { waitCounter } from "../lib/roomsE2e.mjs";
 import {
 	clientMetrics,
 	closeClient,
@@ -15,6 +16,10 @@ import {
 } from "../lib/stabilityClient.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A crashed guest's session holds its id until the idle timeout; in a
+// login-required room its rejoin (same key) takes the id over.
+export const defaultRoomMode = "auth";
 
 export async function run({ pageUrl, server, arg, log }) {
 	const resumeMaxMs = Number(arg("resume-max-ms", "5000"));
@@ -65,7 +70,10 @@ export async function run({ pageUrl, server, arg, log }) {
 		);
 	}
 
-	const report = { rejoinerHears, survivorResumeMs };
+	// The crashed user2 was closed "replaced" by its key's rejoin.
+	const replaced = await waitCounter("replaced", 1);
+	if (replaced < 1) failures.push("hub did not replace the crashed session");
+	const report = { rejoinerHears, survivorResumeMs, replaced };
 	for (const c of [survivor, churner]) {
 		for (const e of c.errors.filter((m) => !m.includes("Connection lost")))
 			failures.push(`${c.tag} page error: ${e}`);

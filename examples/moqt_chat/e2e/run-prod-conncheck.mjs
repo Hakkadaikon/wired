@@ -14,6 +14,10 @@
 //     --cert-hash=86:d7:6e:d8:... \
 //     --connections=4
 //
+// --page-url must be a room link (?room=<id>&host=<hex>): the hub only
+// admits sessions into a room someone created (examples/moqt_chat
+// server.md 5), and these tools cannot create one on a real hub.
+//
 // This is a MEASURE-AND-REPORT tool: it never mutates src/ and never
 // touches screen-share/voice logic, only connection establishment.
 

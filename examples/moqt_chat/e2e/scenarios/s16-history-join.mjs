@@ -8,11 +8,17 @@
 //
 //   just e2e-stability s16-history-join
 
+import { pubkeyOf } from "../lib/nostrE2e.mjs";
+import { DEFAULT_HOST_KEY } from "../lib/roomsE2e.mjs";
 import {
 	closeClient,
 	connectClient,
 	joinStabilityClient,
 } from "../lib/stabilityClient.mjs";
+
+// user1 created the run's room, so it is logged in: its messages are
+// Nostr events whose sender is its pubkey, not "user1".
+const USER1 = pubkeyOf(DEFAULT_HOST_KEY);
 
 const HISTORY_TIMEOUT_MS = 15000;
 
@@ -96,10 +102,10 @@ export async function run({ pageUrl, serverUrl, server, arg, log }) {
 		const user2 = await joinStabilityClient(opts("user2"));
 		clients.push(user2);
 		const start = Date.now();
-		report.historyArrived = await waitAll(user2, "user1", texts);
+		report.historyArrived = await waitAll(user2, USER1, texts);
 		report.historyMs = Date.now() - start;
 		if (!report.historyArrived) {
-			const got = await countsFrom(user2, "user1", texts);
+			const got = await countsFrom(user2, USER1, texts);
 			failures.push(
 				`late joiner missing history: per-message counts ${JSON.stringify(got)}`,
 			);
@@ -108,9 +114,9 @@ export async function run({ pageUrl, serverUrl, server, arg, log }) {
 		log("user2 rejoins: history again, each message once");
 		await user2.page.close();
 		await connectClient(user2, opts("user2"));
-		if (!(await waitAll(user2, "user1", texts)))
+		if (!(await waitAll(user2, USER1, texts)))
 			failures.push("rejoined user2 missing history");
-		const counts = await countsFrom(user2, "user1", texts);
+		const counts = await countsFrom(user2, USER1, texts);
 		report.countsAfterRejoin = counts;
 		if (counts.some((n) => n !== 1))
 			failures.push(`history shown more than once: ${JSON.stringify(counts)}`);

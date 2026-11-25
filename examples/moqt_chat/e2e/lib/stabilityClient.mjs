@@ -11,8 +11,16 @@
 // measured here, not from the UI badge).
 
 import puppeteer from "puppeteer-core";
-import { E2E_SERVER_URL, withDefaultRoom } from "./args.mjs";
+import { defaultRoom, E2E_SERVER_URL, withDefaultRoom } from "./args.mjs";
 import { resolveChromeLaunch } from "./chromeLaunch.mjs";
+import { keyOf, nostrLogin } from "./nostrE2e.mjs";
+import {
+	creator,
+	DEFAULT_HOST_KEY,
+	linkOf,
+	settled as settledScript,
+	waitRoomLog,
+} from "./roomsE2e.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
 
@@ -173,17 +181,99 @@ export const WT_INSTRUMENTATION_SCRIPT = `
  * @param {string} opts.participantId user1..user4
  * @param {string[]} [opts.initScripts] extra scripts injected before navigation (after WT_INSTRUMENTATION_SCRIPT)
  * @param {(page) => Promise<void>} [opts.beforeConnect] runs on the loaded join screen, before Join
+ * @param {boolean} [opts.expectClosed] a final screen instead of connected
+ *   is the expected outcome (client.closedReason)
+ *
+ * A pageUrl without ?room= joins the run's default room; the first such
+ * client creates it (as key DEFAULT_HOST_KEY) and waits until it is live.
  */
-export async function joinStabilityClient({
+export async function joinStabilityClient(opts) {
+	if (new URL(opts.pageUrl).searchParams.has("room")) return joinOnce(opts);
+	if (defaultRoom.id) return joinOnce(withGuestLogin(opts));
+	const client = await createRoomClient(
+		opts,
+		DEFAULT_HOST_KEY,
+		defaultRoom.mode,
+	);
+	const link = new URL(client.link);
+	defaultRoom.id = link.searchParams.get("room");
+	defaultRoom.host = link.searchParams.get("host");
+	return client;
+}
+
+// A login-required default room (defaultRoom.mode "auth", for crash-rejoin
+// scenarios): guest user<k> logs in with test key 10 + k, so its rejoin
+// after a crash carries the same key and takes its id over from the stale
+// session (server.md 5.3).
+function withGuestLogin(opts) {
+	if (defaultRoom.mode !== "auth") return opts;
+	const login = nostrLogin(keyOf(10 + Number(opts.participantId.slice(4))));
+	return {
+		...opts,
+		beforeConnect: async (page) => {
+			await login(page);
+			await opts.beforeConnect?.(page);
+		},
+	};
+}
+
+/** After a hub restart (every room gone): client, the default room's
+ * creator, creates a new default room on a fresh page and waits until it
+ * is live; later default-room joins go there. */
+export async function recreateDefaultRoom(client, opts) {
+	const c = creator(opts.pageUrl, DEFAULT_HOST_KEY);
+	defaultRoom.id = ""; // else the page would open the old room's link
+	await client.page?.close().catch(() => {});
+	await connectClient(client, {
+		...opts,
+		pageUrl: c.pageUrl,
+		initScripts: c.initScripts,
+		beforeConnect: c.beforeConnect,
+	});
+	const link = new URL(await linkOf(client, opts.pageUrl));
+	if (!(await waitRoomLog(link.href, "live")))
+		throw new Error("the default room was not re-created");
+	defaultRoom.id = link.searchParams.get("room");
+	defaultRoom.host = link.searchParams.get("host");
+	client.link = link.href;
+}
+
+/** Key n creates a room (mode open|auth) through the UI and joins it as
+ * its host; resolves once the hub logs the room live. client.link is the
+ * link guests join by. opts as joinStabilityClient's (its beforeConnect
+ * runs after the login and the create; with expectClosed it does not wait
+ * for live). */
+export async function createRoomClient(opts, n, mode = "open") {
+	const c = creator(opts.pageUrl, n, mode);
+	const client = await joinOnce({
+		...opts,
+		pageUrl: c.pageUrl,
+		initScripts: [...c.initScripts, ...(opts.initScripts ?? [])],
+		beforeConnect: async (page) => {
+			await c.beforeConnect(page);
+			await opts.beforeConnect?.(page);
+		},
+	});
+	client.link = await linkOf(client, opts.pageUrl);
+	if (opts.expectClosed) return client; // a refused create: the caller checks
+	if (!(await waitRoomLog(client.link, "live"))) {
+		await closeClient(client);
+		throw new Error(`the room of key ${n} did not go live`);
+	}
+	return client;
+}
+
+async function joinOnce({
 	pageUrl,
 	serverUrl,
 	certHash,
 	participantId,
 	initScripts,
 	beforeConnect,
+	expectClosed,
 }) {
 	const { executablePath, env } = resolveChromeLaunch();
-	const browser = await puppeteer.launch({
+	const browser = await launchChrome({
 		executablePath,
 		headless: "new",
 		env,
@@ -205,6 +295,7 @@ export async function joinStabilityClient({
 		errors: [],
 		joinedAt: null,
 	};
+	// A failed join closes its Chrome: a leaked one keeps the runner alive.
 	await connectClient(client, {
 		pageUrl,
 		serverUrl,
@@ -212,8 +303,23 @@ export async function joinStabilityClient({
 		participantId,
 		initScripts,
 		beforeConnect,
+		expectClosed,
+	}).catch(async (err) => {
+		await closeClient(client);
+		throw err;
 	});
 	return client;
+}
+
+/** puppeteer.launch, retried once when Chrome's browser process itself
+ * fails to start (seen on this host with no server involved); any other
+ * error is thrown at once. */
+export function launchChrome(opts) {
+	return puppeteer.launch(opts).catch((err) => {
+		if (!String(err?.message).includes("Failed to launch the browser process"))
+			throw err;
+		return puppeteer.launch(opts);
+	});
 }
 
 /** (Re)connect an existing client object's browser to the room. Usable both
@@ -227,11 +333,13 @@ export async function connectClient(
 		participantId,
 		initScripts = [],
 		beforeConnect,
+		expectClosed,
 	},
 ) {
 	const page = await client.browser.newPage();
 	client.page = page;
 	page.on("pageerror", (e) => client.errors.push(e.message));
+	page.on("error", (e) => client.errors.push(`page crashed: ${e.message}`));
 	await page.evaluateOnNewDocument(WT_INSTRUMENTATION_SCRIPT);
 	for (const script of initScripts) await page.evaluateOnNewDocument(script);
 	await page.evaluateOnNewDocument(
@@ -260,13 +368,15 @@ export async function connectClient(
 	const connectStart = Date.now();
 	await page.click('[data-testid="connect"]');
 	try {
-		await page.waitForFunction(
-			() =>
-				document
-					.querySelector('[data-testid="status"]')
-					?.getAttribute("data-status") === "connected",
-			{ timeout: JOIN_TIMEOUT_MS },
-		);
+		const h = await page.waitForFunction(settledScript, {
+			timeout: JOIN_TIMEOUT_MS,
+		});
+		const settled = await h.jsonValue();
+		if (settled !== "connected") {
+			client.closedReason = settled;
+			if (expectClosed) return client;
+			throw new Error(`closed: ${settled}`);
+		}
 	} catch (err) {
 		const state = await page
 			.evaluate(() => ({
@@ -278,8 +388,9 @@ export async function connectClient(
 			}))
 			.catch(() => null);
 		throw new Error(
-			`${participantId} did not reach connected in ${JOIN_TIMEOUT_MS}ms; ` +
-				`state=${JSON.stringify(state)}`,
+			`${participantId} did not reach connected in ${JOIN_TIMEOUT_MS}ms ` +
+				`(${err.message}); state=${JSON.stringify(state)}; ` +
+				`errors=${client.errors.join(" | ")}`,
 			{ cause: err },
 		);
 	}

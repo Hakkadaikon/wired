@@ -59,8 +59,24 @@ E2E_RNNOISE=1 just e2e-stability s9-survivor-hears-rejoin
 
 ### 2.5 ルーム
 
-フロントエンドはルームのリンクなしでは参加できない([フロントエンド](frontend.md) 2.1 節)。そのため e2e のハーネスは、ページの URL に `room` がなければ、決まったルーム `E2E_ROOM`(`e2e/lib/args.mjs` の `withDefaultRoom`。ID `e2eDefaultRoom0000000A`、誰も鍵を持たない 64 桁の 0 がホスト)を足す。s15、s16、s18、`e2e-load` など、ルームを選ばないシナリオはこのルームに入る。`s24`、`s25`、`s26` は `nostrE2e.mjs` の `roomUrl` で実行ごとに新しいルーム(16 バイトの乱数、ホストは試験用の鍵)を作り、`?room=&host=` を URL で渡す。ビルドの設定は要らない。
+ハブはルームを必ず確かめる([サーバー](server.md) 5 節)。`run-scenario.mjs` は毎回、次を起動してからハブを `--public-url https://localhost:<port> --nip05 <nip05d>` で起動する(`e2e/lib/roomsE2e.mjs`)。
 
+| 部品 | 内容 |
+|---|---|
+| NIP-05 のフィクスチャ | ループバックの HTTPS(`openssl` で作る自己署名の証明書)。`Host` が `k<n>.e2e.test` なら `{"names":{"user":<試験用の鍵 n の公開鍵>}}` を返す |
+| nip05d | `run-stability.sh` がビルドし、`-allow-host 127.0.0.1:<フィクスチャのポート>` で起動する。このフラグは e2e 専用で、ふだんの SSRF の制限はそのまま残る([nip05d](nip05d/README.md)) |
+| NIP-07 の模擬 | `nostrE2e.mjs` の `nostrLogin`。署名は Node が試験用の鍵(`keyOf(n)`、32 バイトすべて n)で行う |
+| プロフィールのリレーの模擬 | 作成者のページだけ、`window.WebSocket` を差し替え、kind 0(`nip05` = `user@k<n>.e2e.test`)を返す。ドメインを鍵ごとに分けるのは、ハブがドメインごとに 1 つのルームしか作らせないためである |
+
+ルームを作るのは `stabilityClient.mjs` の `createRoomClient(opts, n, mode)` である。鍵 n でログインし、"Create room" を押して接続し、ハブのログに `moqt room: live` が出るまで待つ。`client.link` が参加者の使うリンクになる。ページの URL に `room` のないシナリオ(s1〜s23)は、最初の参加者が鍵 9 で既定のルームを作り(`args.mjs` の `defaultRoom`)、残りの参加者はそこに入る。
+
+`e2e-load`、`run-voice.sh`、`e2e-screen` も同じように、最初の参加者が既定のルームを作る(`roomsE2e.mjs` の `defaultRoomJoin`)。`run.sh` と `run-voice.sh` は `node e2e/lib/roomsE2e.mjs` でフィクスチャと nip05d を起動し、ハブのフラグを受け取る。
+
+ハブを再起動するとルームが消える。s5b では作成者が新しいページで既定のルームを作り直してから、ゲストが入る。s12 と s21 では、作成者のタブが同じルームを作り直す。ゲストはそれより先に着けば `no-such-room` の画面から手で参加し直す(`roomsE2e.mjs` の `guestBack`)。
+
+既定のルームはハブの寿命(5 時間)で終わる。長時間のシナリオ(s6、s11、s13)は `--room-lifetime 86400` を渡す。
+
+`run-prod-conncheck.mjs` と `run-prod-screenshare-check.mjs` は運用中のハブにルームを作れないので、`--page-url` にルームのリンク(`?room=<id>&host=<hex>`)を渡す。
 ## 3. 安定性のシナリオ
 
 `just e2e-stability <id>` で実行する。
@@ -91,9 +107,17 @@ E2E_RNNOISE=1 just e2e-stability s9-survivor-hears-rejoin
 | `s21-sigterm-goaway` | SIGTERM でハブが GOAWAY を送り、クライアントが移る |
 | `s22-camera` | カメラ、背景のぼかしと画像、mp4、途中参加、停止を Chrome の偽のカメラで確かめる |
 | `s23-voice-stream` | データグラムが使えないとき、音声を単方向ストリームで送って届く |
-| `s24-nostr-chat` | NIP-07 の模擬の拡張機能でログインした 2 人が kind 1311 のメッセージを交わし、互いの短い npub で表示され、ルームの一覧にも出る。拡張機能のない 1 人も従来の形式で送受信できる。投稿に検証の印が付き、"⋯" で元のイベントを開閉できる。`?relays=` で公開のリレーにはつながない |
-| `s25-nostr-room` | NIP-53 の meeting space。ホスト(user1)とゲスト(user2)が模擬の拡張機能でログインする。ゲストにホストの space の名前、meeting の題と LIVE が出て、投稿の前からホストが一覧に名前で出る(presence)。ゲストの挙手がホストに見え、ゲストの `+` がホストの投稿に `Like: 1` と数えられ、ホストの削除でゲストの画面の投稿が削除の行になり、ホストの退出で meeting が ended になる。ルームのリンクの `host` を user1 の試験用の鍵にする。`--shots=<dir>` で画面を保存する |
-| `s26-rooms` | 1 つのハブの 2 つのルームが混ざらない。2 つの場合を順に確かめる。1 つ目は user1 と user2 がルーム A に、user3 と user4 がルーム B に入る。2 つ目は両方のルームに user1 と user2 が入る(同じ参加者 ID)。どの参加者も同じルームの相手を一覧に出してそのメッセージを受け取り、接続を保つ。別のルームのメッセージは出ず、1 つ目の場合は別のルームの参加者も出ない。ハブは 4 セッションまでなので、2 つの場合は同時に流さない。いまのハブはルームを確かめないので、確かめているのはクライアントでの分離である |
+| `s24-nostr-chat` | NIP-07 の模擬の拡張機能でログインした 2 人が kind 1311 のメッセージを交わし、互いの短い npub で表示され、ルームの一覧にも出る。拡張機能のない 1 人も従来の形式で送受信できる。投稿に検証の印が付き、"⋯" で元のイベントを開閉できる。user1 がルームを作る。`?relays=` で公開のリレーにはつながない |
+| `s25-nostr-room` | NIP-53 の meeting space。ホスト(user1)とゲスト(user2)が模擬の拡張機能でログインする。ゲストにホストの space の名前、meeting の題と LIVE が出て、投稿の前からホストが一覧に名前で出る(presence)。ゲストの挙手がホストに見え、ゲストの `+` がホストの投稿に `Like: 1` と数えられ、ホストの削除でゲストの画面の投稿が削除の行になる。最後にホストが退出すると、ハブがホストの 30313(ended)でルームを終え、ゲストは `room-ended` の終わりの画面を出す。ルームは user1 が自分の試験用の鍵で作る。`--shots=<dir>` で画面を保存する |
+| `s26-rooms` | 1 つのハブの 2 つのルームが混ざらない。2 つの場合を順に確かめる。1 つ目は user1 と user2 がルーム A に、user3 と user4 がルーム B に入る。2 つ目は両方のルームに user1 と user2 が入る(同じ参加者 ID)。どの参加者も同じルームの相手を一覧に出してそのメッセージを受け取り、接続を保つ。別のルームのメッセージは出ず、1 つ目の場合は別のルームの参加者も出ない。各ルームの最初の参加者がホストの鍵でルームを作る。ホストの退出でルームが終わるのを待ってから、2 つ目の場合を流す |
+
+| `s27-room-admission` | 入室の規則と終わりの画面。作成で `live` になり、参加でき、同じ参加者 ID は `id-taken`、5 人目は `room-full`、別のホストのリンクは `unauthorized`、Login required のルームへのログインなしの参加は `unauthorized`(ログインすれば入れる)、3 つのルームがあるときの 4 つ目の作成は `no-room-slots` |
+| `s28-room-timers` | 短くした時間でルームが終わる。1 人だけ(`alone`)、全員が去ってからの猶予(`empty`。そのあとリンクで来た参加者は `no-such-room`)、寿命(`lifetime`)。メンバーは `room-ended` の終わりの画面を出す |
+| `s29-room-nip05` | nip05d が動いていればルームが開き、止めたあとの作成は 3 秒後に `nip05-unverified` で終わる。その間も、すでに開いているルームの 2 人は接続を保ち、メッセージが届く |
+
+ハブが SETUP の時点でセッションを閉じたとき(`room-full`、`no-such-room`、`no-room-slots`)に Chrome 146 のレンダラーが SEGV で落ちる問題は、ハブが入室を決めるまで自分の SETUP を送らず、クライアントがハブの SETUP を待ってからリクエストを開くことで直した。いま残る失敗は Chrome のブラウザープロセスの起動の失敗で、ハーネスは 1 回だけ起動をやり直す(`stabilityClient.mjs` の `launchChrome`)。
+
+`malformed-auth`、`expired-auth`、`server-busy` は、このフロントエンドからは起こせない。フロントエンドは拡張機能が返したイベントの `created_at` が頼んだ値と違えば送らない(`nostr.ts` の `signOwnEvent`)ので、Node の署名で時刻をずらしても `expired-auth` にはならない。ハブの単体テスト(`tests/app/chatroom_test.c`)とフロントエンドの単体テストで確かめる。
 
 ## 4. そのほかの確認
 

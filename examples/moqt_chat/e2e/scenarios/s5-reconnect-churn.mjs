@@ -3,6 +3,7 @@
 // rejoins. Gate: every rejoin is decoding audio again within the budget,
 // and the two survivors never stop hearing each other.
 
+import { waitCounter } from "../lib/roomsE2e.mjs";
 import {
 	clientMetrics,
 	closeClient,
@@ -12,6 +13,10 @@ import {
 } from "../lib/stabilityClient.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A crashed guest's session holds its id until the idle timeout; in a
+// login-required room its rejoin (same key) takes the id over.
+export const defaultRoomMode = "auth";
 
 export async function run({ pageUrl, server, arg, log }) {
 	const cycles = Number(arg("cycles", "6"));
@@ -66,7 +71,11 @@ export async function run({ pageUrl, server, arg, log }) {
 		cycleResults.push({ cycle: k, rejoinMs });
 	}
 
-	const report = { cycleResults, metrics: {} };
+	// Each crashed user3 was closed "replaced" by its key's rejoin.
+	const replaced = await waitCounter("replaced", cycles);
+	if (replaced < cycles)
+		failures.push(`hub replaced ${replaced} of ${cycles} crashed sessions`);
+	const report = { cycleResults, replaced, metrics: {} };
 	for (const c of [...survivors, churner]) {
 		const m = await clientMetrics(c);
 		if (m) delete m.voiceTapEvents;

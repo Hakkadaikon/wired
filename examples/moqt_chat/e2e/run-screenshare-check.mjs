@@ -34,10 +34,13 @@
 // handshake: pick a free port when one is running here.
 
 import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import puppeteer from "puppeteer-core";
-import { arg, E2E_PORT, setServerUrl, withDefaultRoom } from "./lib/args.mjs";
+import { arg, E2E_PORT, setServerUrl } from "./lib/args.mjs";
 import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
+import { defaultRoomJoin, hubLog, startRoomServices } from "./lib/roomsE2e.mjs";
 import { screenGapStats } from "./lib/screenMetrics.mjs";
 import { fakeDisplayMediaScript } from "./lib/screenShareFake.mjs";
 import { startServer } from "./lib/serverControl.mjs";
@@ -56,7 +59,7 @@ const fakeScreen = portraitMode
 	: { width: 1280, height: 720 };
 const fakeScript = fakeDisplayMediaScript(fakeScreen);
 
-let server, frontend, browser;
+let server, frontend, browser, rooms;
 const clients = [];
 async function join(id) {
 	const ctx = await browser.createBrowserContext();
@@ -68,10 +71,12 @@ async function join(id) {
 	});
 	page.on("pageerror", (e) => c.consoleErrors.push(String(e)));
 	await page.evaluateOnNewDocument(fakeScript);
-	await page.goto(withDefaultRoom(`http://localhost:${frontendPort}/`));
+	const room = await defaultRoomJoin(page, `http://localhost:${frontendPort}/`);
+	await page.goto(room.url);
 	await setServerUrl(page);
 	await page.type('input[data-testid="certHash"]', server.certHash);
 	await page.click(`[data-testid="participant-${id}"]`);
+	await room.beforeConnect(page);
 	await page.click('[data-testid="connect"]');
 	await page.waitForFunction(
 		() =>
@@ -80,6 +85,7 @@ async function join(id) {
 				?.getAttribute("data-status") === "connected",
 		{ timeout: timeoutMs },
 	);
+	await room.created();
 	return c;
 }
 
@@ -118,10 +124,17 @@ const summary = {
 	errors: [],
 };
 try {
+	rooms = await startRoomServices(path.dirname(logPath));
+	hubLog.path = logPath;
+	writeFileSync(logPath, "");
 	server = await startServer({
 		binPath: "./server/wired_server",
 		logPath,
-		args: ["--port", String(E2E_PORT)],
+		args: [
+			"--port",
+			String(E2E_PORT),
+			...rooms.args(`https://localhost:${E2E_PORT}`),
+		],
 	});
 	frontend = spawn(
 		"python3",
@@ -239,6 +252,7 @@ try {
 	}
 	if (frontend) frontend.kill();
 	if (server) await server.stop();
+	if (rooms) await rooms.stop();
 }
 
 summary.ok = summary.errors.length === 0;

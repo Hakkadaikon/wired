@@ -26,6 +26,9 @@ const TAGS = ["user1", "user2"];
 const FRAMES_PER_SEC = 50; // 20ms voice frames from the one peer
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The run's default room would end at the hub's 5 h --room-lifetime.
+export const serverArgs = ["--room-lifetime", "86400"];
+
 export async function run({ pageUrl, server, arg, log }) {
 	const talkMs = Number(arg("talk-ms", "300000"));
 	const progressMs = 60000;

@@ -5,16 +5,16 @@ export const E2E_PORT = Number(process.env.WIRED_E2E_PORT ?? 4433);
 export const E2E_SERVER_URL = `https://localhost:${E2E_PORT}/`;
 
 /** The room an e2e page joins unless its URL already names one: the
- * frontend has no room-less join (?room=&host=, roomLink.ts). A fixed id
- * hosted by a key nobody holds, so no page is its host. */
-export const E2E_ROOM = { id: "e2eDefaultRoom0000000A", host: "0".repeat(64) };
+ * frontend has no room-less join (?room=&host=, roomLink.ts). Empty until
+ * the run's first client creates it (stabilityClient.mjs). */
+export const defaultRoom = { id: "", host: "", mode: "open" };
 
-/** url with E2E_ROOM's ?room=&host= unless it already has a room. */
+/** url with defaultRoom's ?room=&host= unless it already has a room. */
 export function withDefaultRoom(url) {
 	const u = new URL(url);
-	if (!u.searchParams.has("room")) {
-		u.searchParams.set("room", E2E_ROOM.id);
-		u.searchParams.set("host", E2E_ROOM.host);
+	if (!u.searchParams.has("room") && defaultRoom.id) {
+		u.searchParams.set("room", defaultRoom.id);
+		u.searchParams.set("host", defaultRoom.host);
 	}
 	return u.href;
 }

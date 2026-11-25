@@ -21,7 +21,8 @@ import { startUdpProxy } from "../lib/udpProxy.mjs";
 const JOIN_TIMEOUT_MS = 20000;
 const IMAGE_TIMEOUT_MS = 30000;
 const PROXY_BASE = 25433; // distinct from s13 (24433)
-const SERVER_PORT = E2E_PORT;
+// The default room's creator joins through flow 0: the hub's --public-url.
+export const publicUrl = `https://127.0.0.1:${PROXY_BASE}`;
 
 // After every case, both ends must still be alive: no WebTransport close
 // event (stabilityClient's WT_INSTRUMENTATION_SCRIPT records closedAt) and
@@ -432,7 +433,7 @@ export async function run({ pageUrl, server, arg, log }) {
 
 	const proxy = await startUdpProxy({
 		listenBase: PROXY_BASE,
-		upstreamPort: SERVER_PORT,
+		upstreamPort: E2E_PORT,
 		flowCount: 2,
 		profile: { lossRate, seed: 1, jitterBaseMs: jitterMs },
 	});
@@ -441,9 +442,7 @@ export async function run({ pageUrl, server, arg, log }) {
 	const report = { cases: {}, jitterMs, lossRate };
 	const clients = [];
 	try {
-		log(
-			`connecting 2 clients (${tagA}, ${tagB}) via proxy (jitter ${jitterMs}ms, loss ${lossRate})`,
-		);
+		log(`connecting ${tagA} and ${tagB} via the proxy`);
 		for (const [i, tag] of [tagA, tagB].entries()) {
 			clients.push(
 				await joinStabilityClient({

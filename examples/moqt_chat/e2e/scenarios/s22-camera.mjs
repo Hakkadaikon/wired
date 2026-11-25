@@ -13,7 +13,9 @@
 //   just e2e-stability s22-camera
 
 import { fileURLToPath } from "node:url";
+import { pubkeyOf, shortNpub } from "../lib/nostrE2e.mjs";
 import { leaveProd } from "../lib/prodClient.mjs";
+import { DEFAULT_HOST_KEY } from "../lib/roomsE2e.mjs";
 import {
 	closeClient,
 	crashClient,
@@ -236,7 +238,8 @@ async function previewStep({ user1, user2, report, failures }) {
 		() =>
 			document.querySelector('[data-testid="camera-tile-user1"]')?.textContent,
 	);
-	if (!report.tileLabel?.includes("user1"))
+	// user1 created the run's room, so the viewer names it by its key.
+	if (!report.tileLabel?.includes(shortNpub(pubkeyOf(DEFAULT_HOST_KEY))))
 		failures.push(`user1's tile is not labelled: ${report.tileLabel}`);
 	report.tileFill = await stageFill(user2);
 	const f = report.tileFill;

@@ -18,7 +18,8 @@ import { summarizeDelivery } from "./metrics.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
 
-import { setServerUrl, withDefaultRoom } from "./args.mjs";
+import { setServerUrl } from "./args.mjs";
+import { defaultRoomJoin } from "./roomsE2e.mjs";
 
 export const CANDIDATE_PARTICIPANT_IDS = ["user1", "user2", "user3", "user4"];
 export const MAX_CLIENTS = CANDIDATE_PARTICIPANT_IDS.length;
@@ -36,12 +37,14 @@ async function joinClient(browser, pageUrl, certHash, participantId) {
 	// worklets on a shared box is a test-environment CPU artifact, and this
 	// test's own delivery/latency numbers must measure the transport, not
 	// worklet CPU.
-	const nsOffUrl = new URL(withDefaultRoom(pageUrl));
+	const room = await defaultRoomJoin(page, pageUrl);
+	const nsOffUrl = new URL(room.url);
 	nsOffUrl.searchParams.set("ns", "0");
 	await page.goto(nsOffUrl.href);
 	await setServerUrl(page);
 	await page.type('input[data-testid="certHash"]', certHash);
 	await page.click(`[data-testid="participant-${participantId}"]`);
+	await room.beforeConnect(page);
 	await page.click('[data-testid="connect"]');
 	await page.waitForFunction(
 		() =>
@@ -50,6 +53,7 @@ async function joinClient(browser, pageUrl, certHash, participantId) {
 				?.getAttribute("data-status") === "connected",
 		{ timeout: JOIN_TIMEOUT_MS },
 	);
+	await room.created();
 
 	// Poll the message list for new (tag, seq) ids rather than instrumenting
 	// the app's own code -- black-box test of what a real user would see

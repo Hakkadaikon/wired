@@ -1,21 +1,25 @@
 // S26 rooms: two rooms on one hub stay apart, in two cases run one after
-// the other (the hub admits 4 sessions until its capacity scales with
-// rooms, tasks/moqt-chat-rooms.md P3):
+// the other (each room's first id creates it with its host's key; case 1's
+// rooms must end -- the host's Leave ends its room -- before case 2 creates
+// rooms with the same hosts: one room per creator, three per hub):
 //   distinct ids  room A = user1 + user2, room B = user3 + user4
 //   same ids      room C = user1 + user2, room D = user1 + user2
 // Each client must see its own peer in the roster and its message, never
 // the other room's messages, and (distinct ids) never the other room's
 // participants; every client stays connected with no page errors.
 //
-// Client-side separation only: each client stays under its room's
-// namespace wired/moqt_chat/<room>/... The hub does not enforce rooms yet
-// (tasks/moqt-chat-rooms.md P6) -- a client that asks for another room's
-// prefix still gets it.
+// Each client stays under its room's namespace wired/moqt_chat/<room>/...,
+// and the hub confines every session to its own room (room_hooks.c).
 //
 //   just e2e-stability s26-rooms
 
-import { roomUrl, sendChat, WAIT_MS } from "../lib/nostrE2e.mjs";
-import { closeClient, joinStabilityClient } from "../lib/stabilityClient.mjs";
+import { sendChat, WAIT_MS } from "../lib/nostrE2e.mjs";
+import { leave, waitRoomLog } from "../lib/roomsE2e.mjs";
+import {
+	closeClient,
+	createRoomClient,
+	joinStabilityClient,
+} from "../lib/stabilityClient.mjs";
 
 // Time given to a leak (a NAMESPACE or a message from the other room) to
 // show up after the own room's traffic already did.
@@ -99,19 +103,22 @@ async function runCase(rooms, ctx, report, failures) {
 	const clients = [];
 	try {
 		for (const room of rooms) {
-			room.url = roomUrl(pageUrl, room.host);
-			report[`room${room.name}`] = new URL(room.url).searchParams.get("room");
 			for (const id of room.ids) {
-				log(`${id} joins room ${room.name}`);
-				const c = await joinStabilityClient({
-					pageUrl: room.url,
+				log(`${id} ${room.url ? "joins" : "creates"} room ${room.name}`);
+				const opts = {
+					pageUrl: room.url ?? pageUrl,
 					serverUrl,
 					certHash: server.certHash,
 					participantId: id,
-				});
+				};
+				const c = room.url
+					? await joinStabilityClient(opts)
+					: await createRoomClient(opts, room.host);
+				room.url ??= c.link;
 				c.room = room;
 				clients.push(c);
 			}
+			report[`room${room.name}`] = new URL(room.url).searchParams.get("room");
 		}
 		for (const c of clients) await sendChat(c, textOf(c.room, c.tag, stamp));
 		await new Promise((r) => setTimeout(r, SETTLE_MS));
@@ -122,9 +129,13 @@ async function runCase(rooms, ctx, report, failures) {
 				stamp,
 				failures,
 			);
+		for (const c of clients) await leave(c);
 	} finally {
 		for (const c of clients) await closeClient(c);
 	}
+	for (const room of rooms)
+		if (!(await waitRoomLog(room.url, "end")))
+			failures.push(`room ${room.name} did not end`);
 }
 
 export async function run(ctx) {

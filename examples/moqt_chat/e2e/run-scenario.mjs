@@ -9,10 +9,11 @@
 
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import puppeteer from "puppeteer-core";
-import { arg, E2E_PORT } from "./lib/args.mjs";
+import { arg, defaultRoom, E2E_PORT } from "./lib/args.mjs";
 import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
+import { hubLog, startRoomServices } from "./lib/roomsE2e.mjs";
 import { startServer } from "./lib/serverControl.mjs";
+import { launchChrome } from "./lib/stabilityClient.mjs";
 
 const e2eDir = path.dirname(new URL(import.meta.url).pathname);
 const scenariosDir = path.join(e2eDir, "scenarios");
@@ -42,9 +43,13 @@ const serverCc = arg("server-cc", "");
 // --server-port=N (default WIRED_E2E_PORT, else 4433) is the hub's port;
 // scenarios read `serverUrl` / `serverPort`.
 const serverPort = arg("server-port", String(E2E_PORT));
-const serverArgs = [
+const serverArgs = (rooms) => [
 	"--port",
 	serverPort,
+	// The NIP-98 "u" is the URL the room's creator connects to: a scenario
+	// behind a UDP proxy names the proxy's flow-0 URL (publicUrl).
+	...rooms.args(mod.publicUrl ?? `https://localhost:${serverPort}`),
+	...(mod.serverArgs ?? []),
 	...(arg("server-qlog", "") !== ""
 		? ["--qlog", path.join(evidenceDir, "server.qlog")]
 		: []),
@@ -61,36 +66,52 @@ const cpuQuota = arg("server-cpu-quota", "");
 const serverWrap = cpuQuota
 	? ["systemd-run", "--user", "--scope", "-q", "-p", `CPUQuota=${cpuQuota}%`]
 	: undefined;
-const server = await startServer({
-	binPath: path.join(e2eDir, "..", "server", "wired_server"),
-	logPath: path.join(evidenceDir, "server.log"),
-	args: serverArgs,
-	wrap: serverWrap,
-	// A scenario may need the hub configured through its environment (e.g.
-	// WIRED_ALLOWED_ORIGINS); it exports serverEnv for that.
-	env: mod.serverEnv,
-});
+const startHub = (rooms) =>
+	startServer({
+		binPath: path.join(e2eDir, "..", "server", "wired_server"),
+		logPath: hubLog.path,
+		args: serverArgs(rooms),
+		wrap: serverWrap,
+		// A scenario may need the hub configured through its environment (e.g.
+		// WIRED_ALLOWED_ORIGINS); it exports serverEnv for that.
+		env: mod.serverEnv,
+	});
 
 const { executablePath, env } = resolveChromeLaunch();
-const browser = await puppeteer.launch({
-	executablePath,
-	headless: "new",
-	env,
-	args: [
-		"--no-sandbox",
-		"--use-fake-device-for-media-stream",
-		"--use-fake-ui-for-media-stream",
-	],
-});
+const launchRunner = () =>
+	launchChrome({
+		executablePath,
+		headless: "new",
+		env,
+		args: [
+			"--no-sandbox",
+			"--use-fake-device-for-media-stream",
+			"--use-fake-ui-for-media-stream",
+		],
+	});
 
+// Rooms: the NIP-05 fixture and nip05d, then the hub's room flags plus the
+// scenario's own (serverArgs, e.g. short --room-* durations). Started in
+// the try, so a failed start still stops what did start.
+hubLog.path = path.join(evidenceDir, "server.log");
+writeFileSync(hubLog.path, "");
+// open, or auth for scenarios that crash a guest and rejoin it.
+defaultRoom.mode = mod.defaultRoomMode ?? "open";
+let rooms;
+let server;
+let browser;
 let outcome;
 try {
+	rooms = await startRoomServices(evidenceDir);
+	server = await startHub(rooms);
+	browser = await launchRunner();
 	outcome = await mod.run({
 		browser,
 		pageUrl: arg("url", "http://localhost:8093/"),
 		serverUrl: `https://localhost:${serverPort}/`,
 		serverPort: Number(serverPort),
 		server,
+		rooms,
 		arg,
 		log: (msg) => console.error(`[${scenarioId}] ${msg}`),
 	});
@@ -102,8 +123,9 @@ try {
 		failures: [`scenario crashed: ${err}`],
 	};
 } finally {
-	await browser.close().catch(() => {});
-	await server.stop().catch(() => {});
+	await browser?.close().catch(() => {});
+	await server?.stop().catch(() => {});
+	await rooms?.stop().catch(() => {});
 }
 
 const { report, failures } = outcome;

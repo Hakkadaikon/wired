@@ -16,8 +16,15 @@ import {
 import { startUdpProxy } from "../lib/udpProxy.mjs";
 
 const PROXY_BASE = 24433;
+// The default room's creator joins through flow 0: the hub's --public-url.
+export const publicUrl = `https://127.0.0.1:${PROXY_BASE}`;
 const SERVER_PORT = E2E_PORT;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The crashed user3's session holds its id until the idle timeout, so the
+// rejoin is closed id-taken and joins again as the next free id by itself.
+// (A login-required room's same-key takeover does not fit here: every
+// client signs its own proxy flow's URL, and the hub has one --public-url.)
 
 export async function run({ pageUrl, server, arg, log }) {
 	const outageMs = Number(arg("outage-ms", "3000"));
@@ -56,6 +63,7 @@ export async function run({ pageUrl, server, arg, log }) {
 		await sleep(outageMs); // let the outage window fully lapse
 		log("outage over; user3 rejoins immediately on a fresh flow");
 		const t0 = Date.now();
+		const report = { metrics: {} };
 		victim = await joinStabilityClient(opts("user3", 3));
 		let rejoinMs = null;
 		try {
@@ -63,6 +71,23 @@ export async function run({ pageUrl, server, arg, log }) {
 			rejoinMs = Date.now() - t0;
 		} catch {
 			failures.push("rejoined user3 never decoded audio");
+			// What the rejoined page did: its voice tap by direction, and the
+			// notices it shows (a mic / playback error says startVoice failed).
+			report.victimProbe = await victim.page
+				.evaluate(() => ({
+					tap: Object.fromEntries(
+						Object.entries(
+							Object.groupBy(window.__wiredVoiceTapBuf ?? [], (e) => e.dir),
+						).map(([dir, es]) => [dir, es.length]),
+					),
+					status: document
+						.querySelector('[data-testid="status"]')
+						?.getAttribute("data-status"),
+					notices: [...document.querySelectorAll('[role="alert"]')].map(
+						(e) => e.textContent,
+					),
+				}))
+				.catch((e) => String(e));
 		}
 		if (rejoinMs !== null && rejoinMs > rejoinMaxMs) {
 			failures.push(`rejoin ${rejoinMs}ms > ${rejoinMaxMs}ms`);
@@ -77,7 +102,7 @@ export async function run({ pageUrl, server, arg, log }) {
 			}
 		}
 
-		const report = { rejoinMs, proxyStats: proxy.stats(), metrics: {} };
+		Object.assign(report, { rejoinMs, proxyStats: proxy.stats() });
 		for (const c of [...survivors, victim]) {
 			const m = await clientMetrics(c);
 			if (m) delete m.voiceTapEvents;

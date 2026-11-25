@@ -16,7 +16,13 @@
 // sent=... dropped=... open_dropped=..."), which has no such cap. Read it
 // from evidence-dir's server.log after the run.
 
+// s10 behind its UDP proxy: the same --public-url.
+export { publicUrl } from "./s10-voice-chat-longevity.mjs";
+
 import { run as runS10 } from "./s10-voice-chat-longevity.mjs";
+
+// The run's default room would end at the hub's 5 h --room-lifetime.
+export const serverArgs = ["--room-lifetime", "86400"];
 
 const FIVE_MIN_MS = "300000";
 

@@ -15,13 +15,66 @@
 // pinned the OLD hash can then never complete the rejoin handshake. A
 // changed hash is reported as its own named failure instead of a mystery
 // timeout.
+//
+// Rooms: a restart ends every room. The host page (user1 created the
+// default room in this tab) re-creates the same room on its auto-rejoin;
+// the guest (user2) is back on its own when the room is already there,
+// else it shows no-such-room and joins again by hand once the room is live
+// (roomsE2e.mjs guestBack). Gate (2) is: host auto, guest auto or manual.
 
+import { withDefaultRoom } from "../lib/args.mjs";
+import { guestBack, hubLogMark } from "../lib/roomsE2e.mjs";
 import {
 	clientMetrics,
 	closeClient,
 	joinStabilityClient,
 	waitFirstDecode,
 } from "../lib/stabilityClient.mjs";
+
+const statusIs = (c, status, timeout) =>
+	c.page.waitForFunction(
+		(s) =>
+			document
+				.querySelector('[data-testid="status"]')
+				?.getAttribute("data-status") === s,
+		{ timeout, polling: 100 },
+		status,
+	);
+
+// Gate (2) after the restart: the host back on its own (re-creating the
+// room), the guest back on its own or by hand after no-such-room.
+async function rejoinAfterRestart(
+	clients,
+	pageUrl,
+	mark,
+	{ rejoinMaxMs, failures },
+) {
+	const restartAt = Date.now();
+	const [host, guest] = clients;
+	const rejoins = [];
+	try {
+		await statusIs(host, "connected", rejoinMaxMs);
+		rejoins.push({
+			tag: host.tag,
+			how: "auto",
+			rejoinMs: Date.now() - restartAt,
+		});
+	} catch {
+		failures.push(
+			`${host.tag}: not connected again within ${rejoinMaxMs}ms of the restart`,
+		);
+	}
+	const how = await guestBack(
+		guest,
+		withDefaultRoom(pageUrl),
+		mark,
+		rejoinMaxMs,
+	);
+	rejoins.push({ tag: guest.tag, how, rejoinMs: Date.now() - restartAt });
+	if (how !== "auto" && how !== "manual") failures.push(`${guest.tag}: ${how}`);
+
+	return rejoins;
+}
 
 export async function run({ pageUrl, server, arg, log }) {
 	const detectMaxMs = Number(arg("detect-max-ms", "3000"));
@@ -56,16 +109,6 @@ export async function run({ pageUrl, server, arg, log }) {
 	}
 	const hashBeforeKill = server.certHash;
 
-	const statusIs = (c, status, timeout) =>
-		c.page.waitForFunction(
-			(s) =>
-				document
-					.querySelector('[data-testid="status"]')
-					?.getAttribute("data-status") === s,
-			{ timeout, polling: 100 },
-			status,
-		);
-
 	log("both clients decoding; SIGKILL the hub");
 	const killAt = Date.now();
 	await server.stop("SIGKILL");
@@ -86,7 +129,8 @@ export async function run({ pageUrl, server, arg, log }) {
 			);
 	}
 
-	log("restarting the hub; waiting for auto-rejoin (no manual reconnect)");
+	log("restarting the hub; waiting for the host to re-create the room");
+	const mark = hubLogMark();
 	await server.restart("SIGKILL");
 	if (server.certHash !== hashBeforeKill) {
 		failures.push(
@@ -94,23 +138,10 @@ export async function run({ pageUrl, server, arg, log }) {
 				"hash, so the auto-rejoin handshake cannot succeed",
 		);
 	}
-	const restartAt = Date.now();
-	const rejoins = await Promise.all(
-		clients.map(async (c) => {
-			try {
-				await statusIs(c, "connected", rejoinMaxMs);
-				return { tag: c.tag, rejoinMs: Date.now() - restartAt };
-			} catch {
-				return { tag: c.tag, rejoinMs: null };
-			}
-		}),
-	);
-	for (const r of rejoins) {
-		if (r.rejoinMs === null)
-			failures.push(
-				`${r.tag}: not connected again within ${rejoinMaxMs}ms of the restart`,
-			);
-	}
+	const rejoins = await rejoinAfterRestart(clients, pageUrl, mark, {
+		rejoinMaxMs,
+		failures,
+	});
 
 	const after = {};
 	for (const c of clients) {

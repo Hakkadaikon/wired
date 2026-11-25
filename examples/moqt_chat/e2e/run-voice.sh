@@ -9,9 +9,26 @@ cd "$(dirname "$0")/.."   # examples/moqt_chat/
 SERVER_LOG="$(mktemp)"
 FRONTEND_PORT=8092   # distinct from run.sh's 8091
 
-trap 'kill "${SERVER_PID:-0}" "${FRONTEND_PID:-0}" 2>/dev/null || true; wait "${SERVER_PID:-0}" 2>/dev/null || true; rm -f "$SERVER_LOG"' EXIT
+trap 'kill "${SERVER_PID:-0}" "${FRONTEND_PID:-0}" "${ROOMS_PID:-0}" 2>/dev/null || true; wait "${SERVER_PID:-0}" "${ROOMS_PID:-0}" 2>/dev/null || true; rm -rf "$SERVER_LOG" "${ROOM_DIR:-}"' EXIT
 
-./server/wired_server --port "${WIRED_E2E_PORT:-4433}" >"$SERVER_LOG" 2>&1 &
+# Rooms: the NIP-05 fixture and nip05d first (e2e/lib/roomsE2e.mjs prints
+# the hub's room flags); the first client creates the default room.
+(cd nip05d && CGO_ENABLED=0 go build -o nip05d .)
+ROOM_DIR="$(mktemp -d)"
+node e2e/lib/roomsE2e.mjs "$ROOM_DIR" "${WIRED_E2E_PORT:-4433}" >"$ROOM_DIR/args" &
+ROOMS_PID=$!
+for _ in $(seq 1 50); do
+  [ -s "$ROOM_DIR/args" ] && break
+  sleep 0.1
+done
+if [ ! -s "$ROOM_DIR/args" ]; then
+  echo "room services (fixture, nip05d) did not start; see $ROOM_DIR" >&2
+  exit 1
+fi
+read -r -a ROOM_ARGS <"$ROOM_DIR/args"
+export WIRED_E2E_HUB_LOG="$SERVER_LOG"
+
+./server/wired_server --port "${WIRED_E2E_PORT:-4433}" "${ROOM_ARGS[@]}" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 50); do

@@ -1,12 +1,13 @@
 // S25 nostr-room: the NIP-53 meeting space over the MoQ hub. user1 is the
-// host -- the room link's `host` is its fixed test key (0x01..) -- and
+// host -- it creates the room with its fixed test key (0x01..) -- and
 // user2 a guest; both log in with a mocked
 // NIP-07 extension. The guest must see the host's space and live meeting
 // (kinds 30312/30313, latest-only tracks) and the host's name in the Room
 // list before anyone posts (kind 10312 presence). Then: the guest's raised
 // hand shows at the host, the guest's "+" reaction (kind 7) is counted under
 // the host's post, the host's kind 5 deletion turns its post into the
-// "Deleted" line at the guest, and the host leaving ends the meeting.
+// "Deleted" line at the guest, and the host leaving ends the room at the
+// hub (30313 status=ended): the guest shows the room-ended final screen.
 // --shots=<dir> saves room2-desktop-light.png, room2-tablet-light.png and
 // room2-phone-light.png (guest) and
 // room2-phone-dark.png (host) before the host leaves.
@@ -17,12 +18,16 @@ import {
 	keyOf,
 	nostrLogin,
 	pubkeyOf,
-	roomUrl,
 	sendChat,
 	shortNpub,
 	WAIT_MS,
 } from "../lib/nostrE2e.mjs";
-import { closeClient, joinStabilityClient } from "../lib/stabilityClient.mjs";
+import { leave, waitClosed, waitRoomLog } from "../lib/roomsE2e.mjs";
+import {
+	closeClient,
+	createRoomClient,
+	joinStabilityClient,
+} from "../lib/stabilityClient.mjs";
 
 const MEETING_TITLE = "Open session"; // nostr.ts NOSTR_MEETING_TITLE
 
@@ -167,30 +172,24 @@ async function shoot(host, guest, dir) {
 	});
 }
 
+// The host's Leave publishes its 30313 status=ended; the hub taps it and
+// ends the room, so the guest lands on the room-ended final screen.
 async function checkEnded(host, guest, report, failures) {
-	await host.page.evaluate(() =>
-		[...document.querySelectorAll("button")]
-			.find((b) => b.textContent.includes("Leave"))
-			?.click(),
-	);
-	report.endedAtGuest = await waitFor(
-		guest,
-		() =>
-			document.querySelector('[data-testid="meeting-status"]')?.textContent ===
-			"ended",
-	);
-	if (!report.endedAtGuest) failures.push("meeting not ended after host left");
+	await leave(host);
+	report.hostEnd = await waitRoomLog(host.link, "end", "host");
+	report.endedAtGuest = await waitClosed(guest);
+	if (!report.hostEnd) failures.push("hub did not end the room on host end");
+	if (report.endedAtGuest !== "room-ended")
+		failures.push(`guest final screen: ${report.endedAtGuest}`);
 }
 
 export async function run({ pageUrl, serverUrl, server, arg, log }) {
-	const url = roomUrl(pageUrl, 1);
-	const roomName = `Room ${new URL(url).searchParams.get("room").slice(0, 6)}`;
-	const opts = (tag, n) => ({
+	const opts = (tag, url, beforeConnect) => ({
 		pageUrl: url,
 		serverUrl,
 		certHash: server.certHash,
 		participantId: tag,
-		beforeConnect: nostrLogin(keyOf(n)),
+		beforeConnect,
 	});
 	const hostPk = pubkeyOf(1);
 	const stamp = Date.now();
@@ -199,10 +198,13 @@ export async function run({ pageUrl, serverUrl, server, arg, log }) {
 	const clients = [];
 	try {
 		log("host (user1) joins, then the guest (user2)");
-		const host = await joinStabilityClient(opts("user1", 1));
+		const host = await createRoomClient(opts("user1", pageUrl), 1);
 		clients.push(host);
+		const roomName = `Room ${new URL(host.link).searchParams.get("room").slice(0, 6)}`;
 		await textOf(host, "meeting-title"); // the meeting is out before the guest
-		const guest = await joinStabilityClient(opts("user2", 2));
+		const guest = await joinStabilityClient(
+			opts("user2", host.link, nostrLogin(keyOf(2))),
+		);
 		clients.push(guest);
 
 		await checkMeeting(guest, hostPk, roomName, report, failures);

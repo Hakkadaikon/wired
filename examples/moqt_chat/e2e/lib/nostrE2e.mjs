@@ -1,8 +1,7 @@
 // Nostr helpers shared by the s24/s25/s26 scenarios: fixed test keys, a
-// fresh room link, the short-npub label, a mocked NIP-07 extension and the
+// the short-npub label, a mocked NIP-07 extension and the
 // chat input.
 
-import { randomBytes } from "node:crypto";
 import { npubEncode } from "nostr-tools/nip19";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 
@@ -11,17 +10,6 @@ export const WAIT_MS = 15000;
 // Fixed test-only keys: user1 = 0x01.., user2 = 0x02..
 export const keyOf = (n) => new Uint8Array(32).fill(n);
 export const pubkeyOf = (n) => getPublicKey(keyOf(n));
-
-/** pageUrl joining a fresh room (16 random bytes, base64url) hosted by
- * test key n, off the public profile relays (`?relays=`): the room link
- * a creator would share (roomLink.ts). */
-export function roomUrl(pageUrl, n) {
-	const u = new URL(pageUrl);
-	u.searchParams.set("relays", "");
-	u.searchParams.set("room", randomBytes(16).toString("base64url"));
-	u.searchParams.set("host", pubkeyOf(n));
-	return u.href;
-}
 
 /** The sender label of a Nostr author with no profile name (?relays=). */
 export function shortNpub(pk) {

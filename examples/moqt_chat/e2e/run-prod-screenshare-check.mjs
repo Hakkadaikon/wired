@@ -47,6 +47,10 @@
 // repo's other e2e evidence layout) -- but see this repo's own note:
 // tasks/ is gitignored, so evidence survives locally only.
 
+//
+// --page-url must be a room link (?room=<id>&host=<hex>): the hub only
+// admits sessions into a room someone created (examples/moqt_chat
+// server.md 5), and these tools cannot create one on a real hub.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { arg } from "./lib/args.mjs";

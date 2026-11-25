@@ -20,6 +20,8 @@ import { evaluateVoiceGates } from "../lib/voiceGates.mjs";
 import { summarizeVoiceTrace } from "../lib/voiceMetrics.mjs";
 
 const PROXY_BASE = 24433;
+// The default room's creator joins through flow 0: the hub's --public-url.
+export const publicUrl = `https://127.0.0.1:${PROXY_BASE}`;
 const SERVER_PORT = E2E_PORT;
 const TAGS = ["user1", "user2", "user3", "user4"];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

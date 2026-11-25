@@ -14,6 +14,9 @@ shift
 # on that port would share it through SO_REUSEPORT and steal packets, so
 # pick a free port when one is running here (WIRED_E2E_PORT=14833 ...).
 
+# Rooms need nip05d (run-scenario.mjs starts it next to a NIP-05 fixture).
+(cd nip05d && CGO_ENABLED=0 go build -o nip05d .)
+
 FRONTEND_PORT=8093   # distinct from run.sh (8091) / run-voice.sh (8092)
 trap 'kill "${FRONTEND_PID:-0}" 2>/dev/null || true' EXIT
 python3 -m http.server "$FRONTEND_PORT" --directory frontend/out >/dev/null 2>&1 &

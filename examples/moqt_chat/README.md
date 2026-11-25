@@ -15,7 +15,7 @@
 |---|---|
 | この文書 | 全体の構成、Track の一覧、ディレクトリ |
 | [MoQT の使い方](wire.md) | セッション、名前空間の発見、履歴、Object の形、Track 切り替え |
-| [サーバー](server.md) | ビルドと起動、設定、ハブの上限、GOAWAY による再起動 |
+| [サーバー](server.md) | ビルドと起動、設定、ハブの上限、GOAWAY による再起動、ルーム |
 | [フロントエンド](frontend.md) | 開発サーバー、GitHub Pages、Biome、カメラと動画 |
 | [e2e テスト](e2e.md) | 負荷テスト、安定性のシナリオ、そのほかの確認 |
 
@@ -34,7 +34,7 @@ graph LR
 | 項目 | 値 |
 |---|---|
 | MoQT のドラフト | draft-ietf-moq-transport-23。クライアントは `moqt-23` だけを提示する |
-| ルーム | ページの URL の `?room=<id>&host=<pubkey>` で決まる。1 つのハブに複数のルームが入る([フロントエンド](frontend.md) 2.1 節)。ただし、ハブの上限がルームの数に合わせて増えるまで(tasks/moqt-chat-rooms.md の P3)、1 つのハブが受け入れるのは全ルーム合わせて 4 人分(満員のルーム 1 つ分)である。2 つ目のルームが埋まると、接続やリクエストがハブの上限で失敗する([サーバー](server.md) 3 節) |
+| ルーム | ページの URL の `?room=<id>&host=<pubkey>` で決まる。1 つのハブに 3 つまでのルームが入り、1 つのルームに 4 人まで入れる。ルームを作るには Nostr のログインと NIP-05 が要り、ハブは nip05d で NIP-05 を確かめる([フロントエンド](frontend.md) 2.1 節、[サーバー](server.md) 5 節) |
 | 参加者 ID | `user1`〜`user4` の 4 つ(`CANDIDATE_PARTICIPANT_IDS`、`moqtClient.ts`) |
 | 名前空間 | `wired/moqt_chat/<ルーム ID>` |
 | フロントエンド | Next.js と React の静的エクスポート。GitHub Pages にだけデプロイする |
@@ -58,7 +58,9 @@ graph LR
 | パス | 中身 |
 |---|---|
 | `server/wired_server.c` | ハブの初期化、WebTransport のコールバックの接続、証明書、CLI |
-| `server/access.c` | 名前空間の認可と Origin の許可リスト |
+| `server/access.c` | Origin の許可リスト |
+| `server/room*.c`、`server/room.h` | ルーム。入室、参加者 ID、名前空間の閉じ込め、NIP-98、nip05d との通信、ルームの終わり |
+| `nip05d/` | NIP-05 を照合する Go の補助プロセス |
 | `server/live.c` | `wired_moqt_io` の `send_uni2`。セッションごとのリングに送信を溜める |
 | `server/relay.c` | セッションの数え上げ、GOAWAY、10 秒ごとの中継の統計のログ |
 | `server/moqt_chat.h` | サーバーの各ファイルが共有する宣言 |
