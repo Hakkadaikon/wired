@@ -24,7 +24,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o nip05d .
 |---|---|
 | `-tcp` | ループバックの `ip:port` だけを受け付ける。wired_server は AF_UNIX をまだ扱えないため、当面はこちらを使う |
 | `-unix` | Unix ソケットのパス。同じパスに古いソケットが残っていれば消してから作る。ソケット以外のファイルは消さない |
-| `-allow-private` | アドレスの制限を外す。e2e のフィクスチャ専用で、既定は無効 |
+| `-allow-host ip:port` | e2e のフィクスチャ専用。すべての照合をこのループバックのアドレスへ送り、アドレスの制限はこのアドレスにだけ外し、TLS の証明書を検証しない。ループバックの正規の `ip:port` だけを受け付ける(`[::1]:p` は可、IPv4 射影の `[::ffff:127.0.0.1]:p` は不可)。指定しなければ 3 章の規則がそのまま働く |
 
 `-tcp` と `-unix` は同時に指定できない。
 ループバックの TCP は同じホストのどのプロセスからも届く。nip05d が止まっている間は、別のプロセスが同じポートで待ち受けて偽の `ok` を返せる。AF_UNIX が使えるようになれば `-unix` に移す。
@@ -76,6 +76,7 @@ check <name@domain> <pubkey-hex>\n
 ## 4. scratch イメージへの同梱
 
 `CGO_ENABLED=0` の静的バイナリなので、scratch イメージにも wired_server のイメージにも置ける。
+`nip05d/Dockerfile` がこの形のイメージを作り、`server/docker-compose.yml` が wired_server の隣で動かす。
 scratch にない次の 2 つが要る。
 
 1. TLS のルート CA: バンドルを `/etc/ssl/certs/ca-certificates.crt`(Go の既定の探索先)へコピーする。`golang` か `alpine` のビルドステージから取る。

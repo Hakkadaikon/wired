@@ -20,13 +20,16 @@ const pub = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
 
 // newTestResolver points every dial at an httptest TLS server (cert valid for
 // example.com) so the tests stay offline.
-func newTestResolver(t *testing.T, allowPrivate bool, h http.HandlerFunc) *resolver {
+func newTestResolver(t *testing.T, allow bool, h http.HandlerFunc) *resolver {
 	t.Helper()
 	srv := httptest.NewTLSServer(h)
 	t.Cleanup(srv.Close)
-	r := newResolver(allowPrivate)
+	r := newResolver("")
 	r.tr.TLSClientConfig = srv.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
 	r.dialAddr = srv.Listener.Addr().String()
+	if allow {
+		r.allowHost = r.dialAddr
+	}
 	return r
 }
 
@@ -115,8 +118,7 @@ func TestTimeoutIsUnknown(t *testing.T) {
 }
 
 func TestNetworkErrorIsUnknown(t *testing.T) {
-	r := newResolver(true)
-	r.dialAddr = "127.0.0.1:1" // nothing listens
+	r := newResolver("127.0.0.1:1") // nothing listens
 	if got := r.handle("check bob@example.com " + pub); got != "unknown network" {
 		t.Fatalf("got %q", got)
 	}
@@ -180,7 +182,7 @@ func TestCache(t *testing.T) {
 }
 
 func TestUnknownNotCachedAndCacheBounded(t *testing.T) {
-	r := newResolver(true)
+	r := newResolver("")
 	r.store("k", "unknown timeout")
 	if _, ok := r.cached("k"); ok {
 		t.Fatal("unknown must not be cached")
@@ -243,7 +245,7 @@ func TestProtocolPipelinedInOrder(t *testing.T) {
 }
 
 func TestProtocolLineLength(t *testing.T) {
-	r := newResolver(true)
+	r := newResolver("")
 	c, rd := dialServe(t, r)
 	// 511 chars + "\n" = 512: the longest accepted line.
 	go fmt.Fprint(c, strings.Repeat("x", 511)+"\n"+strings.Repeat("x", 512)+"\n")
@@ -271,7 +273,7 @@ func TestListen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go serveAll(tcp, newResolver(false))
+	go serveAll(tcp, newResolver(""))
 	c, err := net.Dial("tcp", tcp.Addr().String())
 	if err != nil {
 		t.Fatal(err)
@@ -300,13 +302,13 @@ func TestTruncatedBodyIsUnknown(t *testing.T) {
 }
 
 func TestControlRejectsUnparsableAddress(t *testing.T) {
-	if newResolver(true).control("tcp", "not-an-addr", nil) == nil {
+	if newResolver("").control("tcp", "not-an-addr", nil) == nil {
 		t.Fatal("want error")
 	}
 }
 
 func TestQueueWaitIsBounded(t *testing.T) {
-	r := newResolver(true)
+	r := newResolver("")
 	r.sem = make(chan struct{}, 1)
 	r.sem <- struct{}{} // the only slot is taken and never released
 	r.timeout = 50 * time.Millisecond
@@ -316,7 +318,7 @@ func TestQueueWaitIsBounded(t *testing.T) {
 }
 
 func TestTimeoutBelowServer(t *testing.T) {
-	if r := newResolver(false); r.timeout != 2500*time.Millisecond {
+	if r := newResolver(""); r.timeout != 2500*time.Millisecond {
 		t.Fatalf("timeout %v", r.timeout)
 	}
 }
@@ -325,7 +327,7 @@ func TestWriteDeadlineClosesStuckReader(t *testing.T) {
 	old := writeTimeout
 	writeTimeout = 50 * time.Millisecond
 	defer func() { writeTimeout = old }()
-	c, rd := dialServe(t, newResolver(true))
+	c, rd := dialServe(t, newResolver(""))
 	fmt.Fprint(c, "bogus\n") // the reply is not read in time
 	time.Sleep(200 * time.Millisecond)
 	if _, err := rd.ReadString('\n'); err == nil {
@@ -342,7 +344,7 @@ func TestConnectionCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	go serveAll(ln, newResolver(true))
+	go serveAll(ln, newResolver(""))
 	first, _ := net.Dial("tcp", ln.Addr().String())
 	second, _ := net.Dial("tcp", ln.Addr().String())
 	defer second.Close()
@@ -381,5 +383,28 @@ func TestListenUnixStaleAndBoth(t *testing.T) {
 	}
 	if _, err := listen(path, "127.0.0.1:0"); err == nil {
 		t.Fatal("-unix and -tcp together must be refused")
+	}
+}
+
+// -allow-host: the fixture's self-signed cert is accepted and its loopback
+// address let through; without the flag TLS stays verified.
+func TestAllowHost(t *testing.T) {
+	srv := httptest.NewTLSServer(names(`{"names":{"bob":"` + pub + `"}}`))
+	t.Cleanup(srv.Close)
+	r := newResolver(srv.Listener.Addr().String())
+	if got := r.handle("check bob@e2e.test " + pub); got != "ok" {
+		t.Fatalf("got %q", got)
+	}
+	if newResolver("").tr.TLSClientConfig != nil {
+		t.Fatal("TLS verification must stay on without -allow-host")
+	}
+	for in, ok := range map[string]bool{
+		"127.0.0.1:4443": true, "": true, "10.0.0.1:443": false,
+		"localhost:1": false, "127.0.0.1": false, "127.000.0.1:1": false,
+		"[::1]:4443": true, "[::ffff:127.0.0.1]:4443": false,
+	} {
+		if _, err := parseAllowHost(in); (err == nil) != ok {
+			t.Errorf("parseAllowHost(%q) err=%v", in, err)
+		}
 	}
 }

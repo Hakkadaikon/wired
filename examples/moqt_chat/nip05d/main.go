@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -73,27 +74,31 @@ type entry struct {
 }
 
 type resolver struct {
-	allowPrivate bool
-	timeout      time.Duration
-	sem          chan struct{} // in-flight fetches
-	queue        int32         // fetches allowed to wait for a slot
-	pending      atomic.Int32
-	tr           *http.Transport
-	client       *http.Client
-	dialAddr     string // tests only: dial this instead of the resolved address
-	now          func() time.Time
-	mu           sync.Mutex
-	cache        map[string]entry
+	allowHost string // e2e only: the one fixture address let through
+	timeout   time.Duration
+	sem       chan struct{} // in-flight fetches
+	queue     int32         // fetches allowed to wait for a slot
+	pending   atomic.Int32
+	tr        *http.Transport
+	client    *http.Client
+	dialAddr  string // dial this instead of the resolved address (-allow-host, tests)
+	now       func() time.Time
+	mu        sync.Mutex
+	cache     map[string]entry
 }
 
-func newResolver(allowPrivate bool) *resolver {
+// newResolver: allowHost "" for production. Otherwise (the e2e fixture)
+// every fetch dials that loopback ip:port, the address filter lets exactly
+// it through, and its self-signed certificate is not verified.
+func newResolver(allowHost string) *resolver {
 	r := &resolver{
-		allowPrivate: allowPrivate,
-		timeout:      2500 * time.Millisecond, // under the server's 3 s NIP-05 deadline
-		sem:          make(chan struct{}, 8),
-		queue:        32,
-		now:          time.Now,
-		cache:        map[string]entry{},
+		allowHost: allowHost,
+		dialAddr:  allowHost,
+		timeout:   2500 * time.Millisecond, // under the server's 3 s NIP-05 deadline
+		sem:       make(chan struct{}, 8),
+		queue:     32,
+		now:       time.Now,
+		cache:     map[string]entry{},
 	}
 	d := &net.Dialer{Control: r.control}
 	r.tr = &http.Transport{
@@ -106,6 +111,9 @@ func newResolver(allowPrivate bool) *resolver {
 		},
 		DisableKeepAlives:      true,
 		MaxResponseHeaderBytes: 16 << 10,
+	}
+	if allowHost != "" {
+		r.tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 	r.client = &http.Client{
 		Transport:     r.tr,
@@ -121,7 +129,7 @@ func (r *resolver) control(_, address string, _ syscall.RawConn) error {
 	if err != nil {
 		return err
 	}
-	if !r.allowPrivate && forbidden(ap.Addr()) {
+	if ap.String() != r.allowHost && forbidden(ap.Addr()) {
 		return errForbidden
 	}
 	return nil
@@ -340,11 +348,26 @@ func listen(unixPath, tcpAddr string) (net.Listener, error) {
 	return net.Listen("tcp", tcpAddr)
 }
 
+// parseAllowHost accepts "" or a canonical loopback ip:port; an
+// IPv4-mapped IPv6 address is refused like everywhere else in nip05d.
+func parseAllowHost(s string) (string, error) {
+	ap, err := netip.ParseAddrPort(s)
+	a := ap.Addr()
+	if s != "" && (err != nil || !a.IsLoopback() || a.Is4In6() || ap.String() != s) {
+		return "", fmt.Errorf("-allow-host needs a loopback ip:port, got %q", s)
+	}
+	return s, nil
+}
+
 func main() {
 	unixPath := flag.String("unix", "", "listen on this Unix socket path (mode 0600)")
 	tcpAddr := flag.String("tcp", "", "listen on this loopback ip:port, e.g. 127.0.0.1:4480")
-	allowPrivate := flag.Bool("allow-private", false, "e2e fixtures only: allow private/loopback targets")
+	allowFlag := flag.String("allow-host", "", "e2e fixture only: fetch every name from this loopback ip:port, TLS unverified")
 	flag.Parse()
+	allowHost, err := parseAllowHost(*allowFlag)
+	if err != nil {
+		log.Fatal(err)
+	}
 	if os.Geteuid() == 0 {
 		log.Fatal("nip05d: refusing to run as root")
 	}
@@ -352,6 +375,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("nip05d: listening on %s (allow-private=%v)", ln.Addr(), *allowPrivate)
-	log.Fatal(serveAll(ln, newResolver(*allowPrivate)))
+	log.Printf("nip05d: listening on %s (allow-host=%q)", ln.Addr(), allowHost)
+	log.Fatal(serveAll(ln, newResolver(allowHost)))
 }
