@@ -315,6 +315,26 @@ static void test_mthk_admit_refusal_drops_requests(void) {
   CHECK(mthk_sent_to(SESS_A) == 0);
 }
 
+/* With admit set, the hub's SETUP waits for the client's to be admitted
+ * (the clock does not open it early): a refused session never gets one,
+ * an admitted one gets it right then. */
+static void test_mthk_admit_defers_hub_setup(void) {
+  u8  msg[8];
+  usz n = mtctl_uni_ctl(msg, 0, 0);
+  for (u32 code = 0; code <= 2; code += 2) {
+    mthk_init();
+    mtst_hub.admit  = mthk_admit;
+    mthk_admit_code = code;
+    wired_moqt_on_session(
+        &mtst_hub, SESS_A, wired_span_of(0, 0),
+        moqtrun_test_proto(moqtrun_test_ver_tok()));
+    wired_moqt_tick(&mtst_hub, 0);
+    CHECK(moqtrun_test_count_kind(5) == 0);
+    mt_feed(&mtst_hub, SESS_A, 2, wired_span_of(msg, n), 0);
+    CHECK(moqtrun_test_count_kind(5) == (code == 0));
+  }
+}
+
 /* ===================== closing from inside a hook ===================== */
 
 /* An authorizer that closes the requesting session: one close with its
@@ -556,6 +576,7 @@ static void test_moqtrun_hooks(void) {
   test_mthk_close_drops_new_requests();
   test_mthk_close_drops_objects();
   test_mthk_admit_refusal_drops_requests();
+  test_mthk_admit_defers_hub_setup();
   test_mthk_close_inside_authorize();
   test_mthk_close_inside_admit();
   test_mthk_close_inside_tap();

@@ -138,9 +138,21 @@ void moqtrun_ctl_urgency(wired_moqt_io* io, wired_wt_session* s, u64 sid) {
   }
 }
 
+/* 1 while p's control stream must not open: it already did, or (with
+ * hub->admit) the client's SETUP is not admitted yet -- a refused session
+ * never sees the hub's SETUP, so a client can wait for it before opening
+ * requests (draft-23 9.1 lets it pipeline or not). */
+static int moqtrun_ctl_wait(
+    const wired_moqt_hub* hub, const wired_moqtrun_peer* p) {
+  return p->ctl_opened || (hub->admit && !p->setup_recv);
+}
+
 void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   wired_mspan buf = wired_mspan_of(p->send_bufs[0], WIRED_MOQTRUN_CTL_SEND_BUF);
   moqctl_setup setup = {0};
+  if (moqtrun_ctl_wait(hub, p)) {
+    return;
+  }
   moqtrun_setup_limits(&setup, p->ver);
   moqtrun_setup_impl(hub, &setup);
   moqtss_setup_opt(hub, p, &setup); /* SSTS (moqtssts_run.c) */

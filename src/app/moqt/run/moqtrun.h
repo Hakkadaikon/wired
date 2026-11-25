@@ -686,7 +686,8 @@ typedef struct {
    * wired_moqt_init default) sends the name and major version. */
   u8 no_implementation;
   /** Session admission at the client's SETUP (wired_moqt_admit_fn); 0
-   * (the wired_moqt_init default) admits every session. */
+   * (the wired_moqt_init default) admits every session. When set, the
+   * hub's own SETUP goes out only once the client's is admitted. */
   wired_moqt_admit_fn admit;
   /** Opaque first argument handed to admit. */
   void* admit_ctx;
@@ -719,7 +720,8 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io);
 int wired_moqt_cache_attach(wired_moqt_hub* hub, u8* arena, usz size);
 
 /** wired_wt_on_session-shaped: registers a new peer slot for s and opens
- * its control stream carrying SETUP (draft 3.3); protocol (the WT
+ * its control stream carrying SETUP (draft 3.3; with hub->admit set, at
+ * admission instead); protocol (the WT
  * subprotocol) picks the draft, path is unused. app_ctx must be the
  * wired_moqt_hub*. With no free peer slot s is closed INTERNAL_ERROR
  * through io.close_session (WIRED_MOQTRUN_MAX_SESSIONS), and with

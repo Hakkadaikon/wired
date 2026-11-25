@@ -67,7 +67,12 @@ static void tap(void* ctx, wired_wt_session* s, wired_span ns,
 - `admit` runs once per session, synchronously, when the client's SETUP
   decodes. It sees the first AUTHORIZATION TOKEN option that carries a
   value (0 when none). Until it admits, no request of the session is
-  handled. A legacy session (no `moqt-NN` subprotocol) need never send a
+  handled, and the hub sends its own SETUP only once it admits: a refused
+  client never sees one, so a client can wait for it before opening
+  requests. Such a client must also give up after a while: if the hub
+  never answers and never closes, the two wait on each other forever.
+  The timeout is the app's job (moqt_chat's client waits 5 s, the hub's
+  own `CHATROOM_SETUP_MS` for a client's SETUP). A legacy session (no `moqt-NN` subprotocol) need never send a
   SETUP, so with `admit` set it is closed UNAUTHORIZED at once.
 - `wired_moqt_close(hub, s, code, reason)` closes any session, from a
   timer or from inside a hook. After it nothing the session sends is read:

@@ -81,6 +81,7 @@ static void moqtrun_dispatch_setup(
   }
   moqtrun_setup_accept(p, &m);
   moqtss_negotiate(hub, p, &m); /* SSTS (moqtssts_run.c) */
+  moqtrun_ctl_open(hub, p); /* the SETUP admit held back (moqtrun_ctl_wait) */
 }
 
 /* draft-22 9.10: PUBLISH_STATE_NOTIFY rides a subscription's request
