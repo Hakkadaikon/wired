@@ -23542,6 +23542,103 @@ static void test_srvrun_dgring_held_head_does_not_pin_ring(void) {
   CHECK(g_srvrun_env.dgring_n == 0);
 }
 
+/* g_srvrun_env's evictions, read the way an app reads them: through the
+ * calling loop's usage snapshot (the tests' loop drives g_srvrun_env),
+ * cross-checked against the env-addressed one. */
+static u64 sr_dg_evicted(void) {
+  wired_srvrun_wt_usage u, e;
+  wired_server_wt_usage(&u);
+  wired_srvrun_env_wt_usage(&g_srvrun_env, &e);
+  CHECK(u.datagrams_evicted == e.datagrams_evicted);
+  return e.datagrams_evicted;
+}
+
+/* Ring entry i (0 = the oldest). */
+static const srvrun_dgring_entry* sr_dgring_nth(usz i) {
+  return &g_srvrun_env
+              .dgring[(g_srvrun_env.dgring_head + i) % SRVRUN_DGRING_CAP];
+}
+
+/* Three WT conns with conn 0's window shut (a peer that died, held until
+ * the idle timeout) and an empty ring whose head sits 3 before the wrap. */
+static void sr_dgring_dead_conn0(
+    struct lp_fix* f0, struct lp_fix* f1, struct lp_fix* f2) {
+  static wired_obuf ob0, ob1, ob2;
+  static u8         obuf0[1024], obuf1[1024], obuf2[1024];
+  ob0 = (wired_obuf){obuf0, sizeof obuf0, 0};
+  ob1 = (wired_obuf){obuf1, sizeof obuf1, 0};
+  ob2 = (wired_obuf){obuf2, sizeof obuf2, 0};
+  sr_three_wt_conns(f0, f1, f2, &ob0, &ob1, &ob2);
+  g_srvrun_state.conns[0].cc.cwnd = 1;
+  g_srvrun_env.dgring_n           = 0;
+  g_srvrun_env.dgring_head        = SRVRUN_DGRING_CAP - 3;
+}
+
+/* Pushes n one-byte datagrams (payload: their index from 0) to conn
+ * slot's session; 1 iff all queued. */
+static int sr_dgring_push_n(int slot, usz n) {
+  int ok = 1;
+  for (usz i = 0; i < n; i++) {
+    u8 b = (u8)i;
+    ok &= wired_server_wt_send_datagram_to(
+        &g_srvrun_state.conns[slot].wt, wired_span_of(&b, 1));
+  }
+  return ok;
+}
+
+/* A dead connection filled the whole ring: another connection's datagram
+ * still queues, the dead one's oldest entry giving way (counted as
+ * evicted); the dead one's own next push is refused, not overwriting
+ * itself. The ring starts past a wrap. */
+static void test_srvrun_dgring_full_evicts_other_conns_oldest(void) {
+  struct lp_fix f0, f1, f2;
+  u64           ev0;
+  sr_dgring_dead_conn0(&f0, &f1, &f2);
+  CHECK(sr_dgring_push_n(0, SRVRUN_DGRING_CAP));
+  ev0 = sr_dg_evicted();
+  CHECK(sr_dgring_push_n(1, 1));
+  CHECK(sr_dg_evicted() == ev0 + 1);
+  CHECK(g_srvrun_env.dgring_n == SRVRUN_DGRING_CAP);
+  CHECK(sr_dgring_nth(0)->conn_slot == 0 && sr_dgring_nth(0)->buf[1] == 1);
+  CHECK(sr_dgring_nth(SRVRUN_DGRING_CAP - 1)->conn_slot == 1);
+  CHECK(!sr_dgring_push_n(0, 1)); /* conn 1 holds less: not evicted */
+  CHECK(sr_dgring_nth(SRVRUN_DGRING_CAP - 1)->conn_slot == 1);
+  CHECK(sr_dg_evicted() == ev0 + 1);
+  g_srvrun_state.conns[0].cc.cwnd = 1u << 20;
+}
+
+/* The oldest entry is the pusher's own: the oldest of the heavier
+ * connection (the dead one's first) gives way, not a refusal. */
+static void test_srvrun_dgring_full_skips_own_oldest(void) {
+  struct lp_fix f0, f1, f2;
+  sr_dgring_dead_conn0(&f0, &f1, &f2);
+  CHECK(sr_dgring_push_n(1, 1));
+  CHECK(sr_dgring_push_n(0, SRVRUN_DGRING_CAP - 1));
+  CHECK(sr_dgring_push_n(1, 1));
+  CHECK(g_srvrun_env.dgring_n == SRVRUN_DGRING_CAP);
+  CHECK(sr_dgring_nth(0)->conn_slot == 1);
+  CHECK(sr_dgring_nth(1)->conn_slot == 0 && sr_dgring_nth(1)->buf[1] == 1);
+  g_srvrun_state.conns[0].cc.cwnd = 1u << 20;
+}
+
+/* A payload too big for a ring slot is refused BEFORE anything is evicted:
+ * a full ring keeps every entry. */
+static void test_srvrun_dgring_oversize_evicts_nothing(void) {
+  static u8     big[SRVRUN_DGRING_SLOT];
+  struct lp_fix f0, f1, f2;
+  u64           ev0;
+  sr_dgring_dead_conn0(&f0, &f1, &f2);
+  CHECK(sr_dgring_push_n(0, SRVRUN_DGRING_CAP));
+  ev0 = sr_dg_evicted();
+  CHECK(
+      wired_server_wt_send_datagram_to(
+          &g_srvrun_state.conns[1].wt, wired_span_of(big, sizeof big)) == 0);
+  CHECK(g_srvrun_env.dgring_n == SRVRUN_DGRING_CAP);
+  CHECK(sr_dgring_nth(0)->buf[1] == 0);
+  CHECK(sr_dg_evicted() == ev0);
+  g_srvrun_state.conns[0].cc.cwnd = 1u << 20;
+}
+
 /* RFC 9002 7.7: the ring gates on the whole packet (payload plus
  * SRVRUN_DG_PKT_OVERHEAD), not the payload alone -- one byte short of it
  * holds, exactly it releases. */
@@ -32511,6 +32608,9 @@ void test_srvrun(void) {
   test_srvrun_mixed_streams_keep_pacer_budget();
   test_srvrun_wt_datagram_ring_by_urgency();
   test_srvrun_dgring_held_head_does_not_pin_ring();
+  test_srvrun_dgring_full_evicts_other_conns_oldest();
+  test_srvrun_dgring_full_skips_own_oldest();
+  test_srvrun_dgring_oversize_evicts_nothing();
   test_srvrun_dg_refill_held_counts_packet_overhead();
   test_srvrun_wt_datagram_ring_small_payload_rate();
   test_srvrun_dgring_stream_starved_datagram_leaves();

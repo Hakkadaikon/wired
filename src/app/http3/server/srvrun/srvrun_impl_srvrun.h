@@ -1140,9 +1140,11 @@ struct wired_srvrun_env {
    * datagram_to): dgring_n entries starting at dgring_head, drained once per
    * loop step most urgent first, oldest first within one urgency
    * (srvrun_dgring_send_best; RFC 9221 5.1). A sent entry frees its slot at
-   * once (srvrun_dgring_remove), so a held one never pins the ring.
-   * Env-level, not per-connection,
-   * so one step's burst across many sessions shares one bounded pool. */
+   * once (srvrun_dgring_remove); a full ring evicts the oldest entry of a
+   * heavier connection for a push (srvrun_dgring_evict), so a connection whose
+   * window never reopens cannot hold it either. Env-level, not
+   * per-connection, so one step's burst across many sessions shares one
+   * bounded pool. */
   srvrun_dgring_entry dgring[SRVRUN_DGRING_CAP];
   usz                 dgring_head;
   usz                 dgring_n;
@@ -1171,7 +1173,8 @@ struct wired_srvrun_env {
   /* draft-ietf-webtrans-http3-15 SS8: WebTransport feature-usage totals
    * (wired_srvrun_env_wt_usage) -- sessions established (srvrun_start_wt),
    * incoming streams offered to a session (srvrun_offer_wt_slot/_uni_slot),
-   * datagrams received for a session (srvrun_deliver_to_known_session). */
+   * datagrams received for a session (srvrun_deliver_to_known_session),
+   * ring datagrams evicted for another connection's (srvrun_dgring_evict). */
   wired_srvrun_wt_usage wt_usage;
   /* wired_srvrun_opt.wt_on_session_draining and its ctx, copied in at serve
    * time -- held here rather than in srvrun_cfg for the same reason as

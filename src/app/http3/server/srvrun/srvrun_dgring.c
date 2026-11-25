@@ -4,7 +4,9 @@ static int srvrun_wt_datagram_request_type_ok(const wired_wt_session* s);
 static int srvrun_dg_send_ready(const srvrun_conn* c);
 static int srvrun_dgring_target_ok(
     const wired_srvrun_env* env, int slot, const wired_wt_session* s);
-static srvrun_dgring_entry* srvrun_dgring_tail(wired_srvrun_env* env);
+static int srvrun_dgring_make_room(wired_srvrun_env* env, int slot);
+static srvrun_dgring_entry* srvrun_dgring_tail(
+    wired_srvrun_env* env, int slot, usz need);
 static usz srvrun_dg_prefix_put(u8* buf, usz cap, int raw, u64 connect_id);
 static int srvrun_dgring_fill(
     srvrun_dgring_entry* e,
@@ -78,9 +80,19 @@ static int srvrun_dgring_target_ok(
          srvrun_wt_datagram_request_type_ok(s);
 }
 
-/* The next free ring entry (FIFO tail), or 0 when the ring is full. */
-static srvrun_dgring_entry* srvrun_dgring_tail(wired_srvrun_env* env) {
-  if (env->dgring_n >= SRVRUN_DGRING_CAP) {
+/* Room for one more entry: free, or a full ring evicts the oldest entry
+ * of a connection holding more of it than slot (srvrun_dgring_evict);
+ * otherwise slot's push is refused, nothing overwritten. */
+static int srvrun_dgring_make_room(wired_srvrun_env* env, int slot) {
+  return env->dgring_n < SRVRUN_DGRING_CAP || srvrun_dgring_evict(env, slot);
+}
+
+/* The next free ring entry (FIFO tail) for slot's need bytes, or 0 when
+ * they exceed a slot -- checked first, so a doomed push evicts nothing --
+ * or no room is made (srvrun_dgring_make_room). */
+static srvrun_dgring_entry* srvrun_dgring_tail(
+    wired_srvrun_env* env, int slot, usz need) {
+  if (need > SRVRUN_DGRING_SLOT || !srvrun_dgring_make_room(env, slot)) {
     return 0;
   }
   return &env->dgring[(env->dgring_head + env->dgring_n) % SRVRUN_DGRING_CAP];
@@ -99,7 +111,8 @@ static usz srvrun_dg_prefix_put(u8* buf, usz cap, int raw, u64 connect_id) {
 
 /* Fill e with the session's prefix (srvrun_dg_prefix_put) followed by the
  * payload copy. 0 when the prefix cannot be encoded or the prefixed
- * payload does not fit a ring slot. */
+ * payload does not fit a ring slot (a push checks the size before it
+ * evicts, srvrun_dgring_tail). */
 static int srvrun_dgring_fill(
     srvrun_dgring_entry* e,
     int                  conn_slot,
@@ -123,8 +136,9 @@ static int srvrun_dgring_push(
     u64               connect_id,
     wired_span        payload,
     u8                urgency) {
-  srvrun_dgring_entry* e   = srvrun_dgring_tail(env);
   int                  raw = srvrun_conn_is_raw(&env->conns[slot]);
+  srvrun_dgring_entry* e   = srvrun_dgring_tail(
+      env, slot, rawq_dgram_prefix_len(raw, connect_id) + payload.n);
   if (!e) {
     return 0;
   }
@@ -169,8 +183,9 @@ static int srvrun_bcast_ring_target(wired_srvrun_env* env, int cslot, int i) {
 
 /* Queue data for one (connection, session) pair: an ineligible pair is
  * skipped (1 -- not a failure, mirroring srvrun_broadcast_to_all's own
- * best-effort skip), an eligible one that cannot be queued (ring full, or
- * the qsid-prefixed payload exceeds a ring slot) reports 0. */
+ * best-effort skip), an eligible one that cannot be queued (ring full and
+ * no connection holds more of it, or the qsid-prefixed payload exceeds a
+ * ring slot) reports 0. */
 int srvrun_bcast_ring_sess(
     wired_srvrun_env* env, int cslot, int i, wired_span data) {
   if (!srvrun_bcast_ring_target(env, cslot, i)) {

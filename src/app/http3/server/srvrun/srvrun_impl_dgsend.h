@@ -10,6 +10,12 @@ int srvrun_dg_refill_held(srvrun_conn* c, usz len, u64 now_ms);
  * window and pacer allow it at now_ms; 0 when none can be sent. */
 int srvrun_dgring_send_best(
     const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms);
+/* Ring entry i (0 = the head); remove frees it, older entries shift up. */
+srvrun_dgring_entry* srvrun_dgring_at(wired_srvrun_env* env, usz i);
+void                 srvrun_dgring_remove(wired_srvrun_env* env, usz i);
+/* Full ring: drop the oldest entry of a connection holding more entries
+ * than slot (srvrun_dgring_evict.c); 0 when none. */
+int  srvrun_dgring_evict(wired_srvrun_env* env, int slot);
 void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms);
 /* 1 when connection slot's oldest ring entry has waited past its bound
  * behind that connection's streams (stamps first-seen times on the way). */

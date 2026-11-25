@@ -1,17 +1,15 @@
 #include "app/http3/server/srvrun/srvrun_gen.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
-static srvrun_dgring_entry* srvrun_dgring_at(wired_srvrun_env* env, usz i);
-static int                  srvrun_dgring_ready(
+static int srvrun_dgring_ready(
     srvrun_state* st, const srvrun_dgring_entry* e, u64 now_ms);
 static int srvrun_dgring_beats(
     wired_srvrun_env* env, srvrun_state* st, usz i, usz best, u64 now_ms);
 static usz srvrun_dgring_best(
     wired_srvrun_env* env, srvrun_state* st, u64 now_ms);
-static int  srvrun_dgring_open(wired_srvrun_env* env, usz i, usz best);
-static usz  srvrun_dgring_used(const srvrun_dgring_entry* e);
-static void srvrun_dgring_remove(wired_srvrun_env* env, usz i);
-static int  srvrun_dgring_live(
+static int srvrun_dgring_open(wired_srvrun_env* env, usz i, usz best);
+static usz srvrun_dgring_used(const srvrun_dgring_entry* e);
+static int srvrun_dgring_live(
     const srvrun_conn* c, const srvrun_dgring_entry* e);
 static int srvrun_dgring_take(
     const srvrun_cfg* cfg, srvrun_state* st, usz i, u64 now_ms);
@@ -56,7 +54,7 @@ static int srvrun_dgring_send_one(
 }
 
 /* Queued entry i (0 = the ring head). */
-static srvrun_dgring_entry* srvrun_dgring_at(wired_srvrun_env* env, usz i) {
+srvrun_dgring_entry* srvrun_dgring_at(wired_srvrun_env* env, usz i) {
   return &env->dgring[(env->dgring_head + i) % SRVRUN_DGRING_CAP];
 }
 
@@ -111,7 +109,7 @@ static usz srvrun_dgring_used(const srvrun_dgring_entry* e) {
 /* Free entry i at once: the i older entries shift one slot toward it and
  * the head advances, so call order holds and a held entry anywhere -- the
  * head included -- never keeps a sent entry's slot from the next push. */
-static void srvrun_dgring_remove(wired_srvrun_env* env, usz i) {
+void srvrun_dgring_remove(wired_srvrun_env* env, usz i) {
   for (; i > 0; i--) {
     const srvrun_dgring_entry* src = srvrun_dgring_at(env, i - 1);
     bytes_memcpy(srvrun_dgring_at(env, i), src, srvrun_dgring_used(src));

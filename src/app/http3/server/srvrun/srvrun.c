@@ -43,6 +43,10 @@ void wired_srvrun_env_wt_usage(
   *out = env->wt_usage;
 }
 
+void wired_server_wt_usage(wired_srvrun_wt_usage* out) {
+  wired_srvrun_env_wt_usage(srvrun_caller_env(), out);
+}
+
 /* qlog packet_sent, stamped with the loop's clock (srvrun_now_ms; the same
  * ms clock the packet_lost records carry). pn is not tracked at this layer
  * and is logged as 0. group_id is c's slot (srvrun_conn.qlog_slot's doc).

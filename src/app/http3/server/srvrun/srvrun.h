@@ -545,6 +545,9 @@ typedef struct {
   u64 sessions;  /**< Extended CONNECT sessions established */
   u64 streams;   /**< incoming WT bidi/uni streams offered to a session */
   u64 datagrams; /**< HTTP Datagrams received for a session */
+  /** queued HTTP Datagrams a full send ring dropped for another
+   * connection's (wired_server_wt_send_datagram_to): never sent */
+  u64 datagrams_evicted;
 } wired_srvrun_wt_usage;
 
 /** Snapshot env's WebTransport usage counters into *out.
@@ -553,6 +556,12 @@ typedef struct {
  * @param out receives the totals */
 void wired_srvrun_env_wt_usage(
     const wired_srvrun_env* env, wired_srvrun_wt_usage* out);
+
+/** wired_srvrun_env_wt_usage of the env the calling loop drives (the
+ * process-wide one for wired_server_run callers). Callable from inside the
+ * server's own loop, or from its thread once the run returned.
+ * @param out receives the totals */
+void wired_server_wt_usage(wired_srvrun_wt_usage* out);
 
 /** Same as wired_server_run_opt, but driven off caller-owned `env` instead
  * of the SDK's single process-wide instance -- lets a caller run more than
@@ -917,11 +926,16 @@ int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id);
  * many datagrams is delivered without overwriting. Frames exceeding the
  * peer's advertised max_datagram_frame_size are dropped at send time (RFC
  * 9221 3), matching this SDK's existing per-connection DATAGRAM policy.
+ * A full ring makes room by dropping the oldest queued datagram of a
+ * connection holding more of it than s's (counted in
+ * wired_srvrun_wt_usage.datagrams_evicted), so one connection whose window
+ * never reopens cannot starve the rest.
  * @param s the session the datagram is addressed to
  * @param payload the HTTP Datagram payload (qsid prefix NOT included)
  * @return 1 queued, 0 when s resolves to no live connection, this
  *   endpoint's SETTINGS have not been sent yet (RFC 9297 2.1), the ring is
- *   full, or the prefixed payload exceeds a ring slot */
+ *   full and no connection holds more of it than this one, or the prefixed
+ *   payload exceeds a ring slot */
 int wired_server_wt_send_datagram_to(wired_wt_session* s, wired_span payload);
 
 /** wired_server_wt_send_datagram_to with a priority (RFC 9221 5.1): the
