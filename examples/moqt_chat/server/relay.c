@@ -33,17 +33,21 @@ void chat_on_session_close(void* ctx, wired_wt_session* s) {
 /* The relay-stats fields up to rel_overflow, after label. */
 static usz relay_stats_head(
     char* line, usz cap, const wired_moqt_hub* hub, const char* label) {
+  wired_srvrun_wt_usage u; /* the loop's env owns the datagram ring */
+  wired_server_wt_usage(&u);
   return wired_snprintf(
       line, cap,
       "%ssent=%llu dropped=%llu frag_dropped=%llu open_dropped=%llu reset=%llu "
       "relay_full=%llu live_sent=%llu live_dropped=%llu dg_sent=%llu "
-      "dg_dropped=%llu dg_bad=%llu rel_stall=%llu rel_overflow=%llu ",
+      "dg_dropped=%llu dg_evicted=%llu dg_bad=%llu rel_stall=%llu "
+      "rel_overflow=%llu ",
       label, (u64)hub->stat_relay_sent, (u64)hub->stat_relay_drop,
       (u64)hub->stat_frag_drop, (u64)hub->stat_open_drop,
       (u64)hub->stat_relay_reset, (u64)hub->stat_relay_full,
       (u64)hub->stat_live_sent, (u64)hub->stat_live_drop,
-      (u64)hub->stat_dg_sent, (u64)hub->stat_dg_drop, (u64)hub->stat_dg_bad,
-      (u64)hub->stat_rel_stall, (u64)hub->stat_rel_overflow);
+      (u64)hub->stat_dg_sent, (u64)hub->stat_dg_drop, u.datagrams_evicted,
+      (u64)hub->stat_dg_bad, (u64)hub->stat_rel_stall,
+      (u64)hub->stat_rel_overflow);
 }
 
 /* The relay-stats fields from sessions on, through the newline. */
@@ -66,8 +70,8 @@ static void relay_stats_tail(char* line, usz cap, const wired_moqt_hub* hub) {
  * periodic on_step timer -- one format, so log-scraping regexes match
  * both. */
 void chat_log_relay_stats(const wired_moqt_hub* hub, const char* label) {
-  char line[1024]; /* label (<=17) + 24 field labels (~290 chars) + 24
-                      u64s at 20 digits (480) + newline/NUL = ~790 worst
+  char line[1024]; /* label (<=17) + 25 field labels (~300 chars) + 25
+                      u64s at 20 digits (500) + newline/NUL = ~820 worst
                       case; 1024 keeps headroom */
   usz at = relay_stats_head(line, sizeof line, hub, label);
   relay_stats_tail(line + at, sizeof line - at, hub);
