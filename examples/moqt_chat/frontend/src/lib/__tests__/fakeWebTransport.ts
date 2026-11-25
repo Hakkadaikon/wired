@@ -321,6 +321,7 @@ export class FakeWebTransport {
 	 * (Type 0x2F00, empty options unless `setupBody` gives the encoded Setup
 	 * Options). */
 	startControl(setupBody: Uint8Array = new Uint8Array(0)): void {
+		this.#controlStarted = true;
 		this.serverControl.push(encodeControlFrame(0x2f00n, setupBody));
 		this.incomingUnidirectionalStreams.pushStream(this.serverControl);
 	}
@@ -351,6 +352,12 @@ export class FakeWebTransport {
 	/** Every uni stream the client opened, in order, with its writes. */
 	readonly uniStreams: FakeUniWrite[] = [];
 
+	/** The hub admits: its SETUP (startControl's default) answers the
+	 * client's, unless the test started the control stream itself. false:
+	 * a hub that has not admitted (yet) -- it sends no SETUP. */
+	autoControl = true;
+	#controlStarted = false;
+
 	createUnidirectionalStream = async () => {
 		const rec: FakeUniWrite = { written: [], closed: false };
 		this.uniStreams.push(rec);
@@ -358,6 +365,7 @@ export class FakeWebTransport {
 			getWriter: () => ({
 				write: async (chunk: Uint8Array) => {
 					rec.written.push(chunk);
+					if (this.autoControl && !this.#controlStarted) this.startControl();
 				},
 				close: async () => {
 					rec.closed = true;

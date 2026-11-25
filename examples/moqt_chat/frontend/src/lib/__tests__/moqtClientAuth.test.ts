@@ -4,7 +4,7 @@
 // the failed-connect path.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { authTokenOption } from "../moqtAuthWire";
-import { MoqtChatClient } from "../moqtClient";
+import { HUB_SETUP_TIMEOUT_MS, MoqtChatClient } from "../moqtClient";
 import {
 	bytesToHex,
 	encodeControlFrame,
@@ -148,6 +148,42 @@ describe("MoqtChatClient close reason", () => {
 		await expect(done).rejects.toThrow();
 		await flush();
 		expect(t.onCloseReason).toHaveBeenCalledWith("unauthorized");
+	});
+
+	// Chrome 146's renderer can crash on a request stream written just as
+	// the session closes: a refused client must not have opened one.
+	it("refused at SETUP: no request stream opens before the hub's SETUP", async () => {
+		const t = start();
+		const done = t.client.connect("https://hub.example/", []);
+		const fake = t.fakes[0];
+		fake.autoControl = false;
+		fake.resolveReady();
+		await flush();
+		expect(fake.uniStreams.length).toBe(1); // our SETUP went out
+		expect(fake.requests).toEqual([]);
+		fake.resolveClosed({ closeCode: 2, reason: "no-such-room" });
+		await expect(done).rejects.toThrow();
+		await flush();
+		expect(fake.requests).toEqual([]);
+		expect(t.onCloseReason).toHaveBeenCalledWith("no-such-room");
+	});
+
+	// An admit hub sends its SETUP only after admission; one that never
+	// answers must not leave the client in "connecting" forever.
+	it("no hub SETUP within HUB_SETUP_TIMEOUT_MS: closes, the connect fails", async () => {
+		const t = start();
+		const done = t.client.connect("https://hub.example/", []);
+		const failed = expect(done).rejects.toThrow("SETUP");
+		const fake = t.fakes[0];
+		fake.autoControl = false;
+		fake.resolveReady();
+		await flush();
+		await vi.advanceTimersByTimeAsync(HUB_SETUP_TIMEOUT_MS - 1);
+		expect(fake.closeCalls).toBe(0);
+		await vi.advanceTimersByTimeAsync(1);
+		await failed;
+		expect(fake.closeCalls).toBe(1);
+		expect(fake.requests).toEqual([]);
 	});
 
 	it("a reason for a session close()d since (a torn-down client) reports none", async () => {

@@ -316,6 +316,7 @@ describe("MoqtChatClient transport close detection", () => {
 			fake as unknown as { incomingUnidirectionalStreams: unknown }
 		).incomingUnidirectionalStreams = failing;
 		(fake.datagrams as unknown as { readable: unknown }).readable = failing;
+		fake.autoControl = false; // the failing reader never yields the hub's SETUP
 		stubWebTransport(() => fake);
 		const client = new MoqtChatClient("user1", "room1", {
 			onStatusChange: () => {},
@@ -323,7 +324,9 @@ describe("MoqtChatClient transport close detection", () => {
 		});
 		const ready = client.connect("https://hub.example/", []);
 		fake.resolveReady();
-		await ready;
+		await flushAsync();
+		fake.resolveClosed();
+		await expect(ready).rejects.toThrow("closed");
 		await flushAsync();
 		client.close();
 	});
@@ -693,6 +696,7 @@ describe("MoqtChatClient.sendMessage", () => {
 			onMessage: () => {},
 		});
 		const connected = client.connect("https://hub.example/", []);
+		fake.startControl();
 		fake.resolveReady();
 		await connected;
 		// The first uni stream is our control stream (SETUP, 6.3).

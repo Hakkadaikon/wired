@@ -186,6 +186,10 @@ export const SUBGROUP_HEADER_TYPE = 0x70n;
 // id's index is its Track Alias (ownTrackAlias below), so ids stay a small
 // fixed list.
 // ponytail: raise/replace with alias negotiation if the room needs more.
+/** How long a connect waits for the hub's SETUP: the room hub's own
+ * deadline for ours (CHATROOM_SETUP_MS, examples/moqt_chat/server/room.h). */
+export const HUB_SETUP_TIMEOUT_MS = 5000;
+
 export const CANDIDATE_PARTICIPANT_IDS = ["user1", "user2", "user3", "user4"];
 
 export function candidateParticipantIds(localId: string): string[] {
@@ -734,6 +738,8 @@ export class MoqtChatClient {
 	// The hub's SETUP's SSTS_ALGORITHMS: undefined until it arrives or when
 	// it carries no such option (the extension is off on that hub).
 	#hubSsts: bigint[] | undefined;
+	// Resolves the current connect's wait for the hub's SETUP.
+	#hubSetupSeen?: () => void;
 	#callbacks: MoqtChatCallbacks;
 	#roomNs: Uint8Array[];
 	#session?: RoomSessionOf;
@@ -811,6 +817,9 @@ export class MoqtChatClient {
 			this.#subscribed.clear();
 			this.#fetches.clear();
 			this.#hubSsts = undefined;
+			const hubSetup = new Promise<void>((resolve) => {
+				this.#hubSetupSeen = resolve;
+			});
 			// Both readers end by rejecting once the session closes.
 			this.#readIncomingUniStreams().catch(() => {});
 			this.#readIncomingDatagrams().catch(() => {});
@@ -824,6 +833,25 @@ export class MoqtChatClient {
 				this.#violation(wt, e),
 			).catch(() => {});
 			await this.#openControlStream(wt, token);
+			// No request before the hub's SETUP: a hub with admission sends it
+			// only once our SETUP is admitted, and a request stream written as
+			// a refusal closes the session can crash Chrome 146's renderer.
+			// A hub that answers neither SETUP nor close must not hold the
+			// client in "connecting": the failure reports "disconnected" and the
+			// usual rejoin runs.
+			let setupTimer: ReturnType<typeof setTimeout> | undefined;
+			await Promise.race([
+				hubSetup,
+				wt.closed.then(() => {
+					throw new Error("closed");
+				}),
+				new Promise<never>((_, reject) => {
+					setupTimer = setTimeout(
+						() => reject(new Error("no hub SETUP in time")),
+						HUB_SETUP_TIMEOUT_MS,
+					);
+				}),
+			]).finally(() => clearTimeout(setupTimer));
 			this.#alive(gen);
 			await this.publishTrack(
 				utf8ToBytes(this.#localId),
@@ -1130,6 +1158,7 @@ export class MoqtChatClient {
 			this.#hubSsts = undefined; // a malformed SETUP advertises nothing
 		}
 		this.#callbacks.onHubSetup?.(this.sstsAlgorithms);
+		this.#hubSetupSeen?.();
 	}
 
 	// A protocol violation on the current session closes it with the
