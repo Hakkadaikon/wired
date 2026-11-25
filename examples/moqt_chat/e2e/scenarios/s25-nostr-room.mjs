@@ -4,8 +4,9 @@
 // NIP-07 extension. The guest must see the host's space and live meeting
 // (kinds 30312/30313, latest-only tracks) and the host's name in the Room
 // list before anyone posts (kind 10312 presence). Then: the guest's raised
-// hand shows at the host, the guest's "+" reaction (kind 7) is counted under
-// the host's post, the host's kind 5 deletion turns its post into the
+// hand shows at the host, the guest's mic mute shows as its Muted badge at
+// the host and goes on unmute (presence ["muted","1"]), the guest's "+"
+// reaction (kind 7) is counted under the host's post, the host's kind 5 deletion turns its post into the
 // "Deleted" line at the guest, and the host leaving ends the room at the
 // hub (30313 status=ended): the guest shows the room-ended final screen.
 // --shots=<dir> saves room2-desktop-light.png, room2-tablet-light.png and
@@ -110,6 +111,32 @@ async function checkHand(host, guest, report, failures) {
 		failures.push(`hand: ${report.handPressed} / ${report.handAtHost}`);
 }
 
+// user2's row at the host: [Muted badge shown, speech heard].
+const rowState = () => {
+	const q = document.querySelector('[data-testid="quality-user2"]');
+	return [
+		Boolean(q?.closest("li")?.querySelector('[aria-label="Muted"]')),
+		q?.hasAttribute("data-speaking") ?? true,
+	];
+};
+
+// D-15 / D-21: the guest's mic mute rides its kind 10312 presence
+// (["muted","1"]); the badge shows only while no speech is heard. A muted
+// guest sends no audio, so its Muted badge can only come from the tag. After
+// unmute the fake mic's beep would hide a stale tag, so wait for a moment
+// with neither badge nor speech: a stale tag would show Muted right then.
+async function checkMute(host, guest, report, failures) {
+	await guest.page.click('[data-testid="mic-toggle"]');
+	report.mutedAtHost = await waitFor(host, `(${rowState})()[0]`);
+	await guest.page.click('[data-testid="mic-toggle"]');
+	report.unmutedAtHost = await waitFor(
+		host,
+		`(([m, s]) => !m && !s)((${rowState})())`,
+	);
+	if (!report.mutedAtHost || !report.unmutedAtHost)
+		failures.push(`mute: ${report.mutedAtHost} / ${report.unmutedAtHost}`);
+}
+
 async function checkReaction(host, guest, text, report, failures) {
 	await clickIn(guest, text, "reaction-add");
 	await clickIn(guest, text, "reaction-pick"); // the first one: "+"
@@ -209,6 +236,7 @@ export async function run({ pageUrl, serverUrl, server, arg, log }) {
 
 		await checkMeeting(guest, hostPk, roomName, report, failures);
 		await checkHand(host, guest, report, failures);
+		await checkMute(host, guest, report, failures);
 
 		const kept = `room-kept-${stamp}`;
 		const gone = `room-gone-${stamp}`;
