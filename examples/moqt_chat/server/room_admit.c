@@ -133,5 +133,9 @@ u32 chatroom_admit(
   chatroom_pend_drop(p);
   t->refused[r]++;
   *reason = chatroom_reason_token(r);
+  if (r != CHATROOM_R_NONE) {
+    /* room-ended's code is NO_ERROR, which alone would admit: close here. */
+    t->close(t->close_ctx, s, chatroom_reason_code(r), *reason);
+  }
   return chatroom_reason_code(r);
 }

@@ -171,28 +171,25 @@ static chatroom_reason chatroom_slot_rule(
              : CHATROOM_R_NO_SLOTS;
 }
 
-/* An id that just ended: a reconnecting host page must not resurrect it.
- * Checked after the creator rules, so a wrong signer learns nothing. */
-static chatroom_reason chatroom_fresh_rule(
-    const chatroom_table* t, const chatroom_who* w, usz* slot) {
-  return chatroom_recently_gone(t, w->room) ? CHATROOM_R_ENDED
-                                            : chatroom_slot_rule(t, w, slot);
-}
-
 static chatroom_reason chatroom_create_rule(
     const chatroom_table* t, const chatroom_who* w, usz* slot) {
   if (!w->create) {
     return CHATROOM_R_NO_SUCH_ROOM;
   }
-  return chatroom_creator_ok(t, w) ? chatroom_fresh_rule(t, w, slot)
+  return chatroom_creator_ok(t, w) ? chatroom_slot_rule(t, w, slot)
                                    : CHATROOM_R_UNAUTHORIZED;
 }
 
+/* An absent id that just ended answers room-ended to every join and
+ * create (whatever ?host= says): a host page that lost the close must not
+ * resurrect it, and the id is known only to invite holders. */
 chatroom_reason chatroom_decide(
     const chatroom_table* t, const chatroom_who* w, usz* slot) {
   const chatroom* r = chatroom_find(t, w->room);
   if (!r) {
-    return chatroom_create_rule(t, w, slot);
+    return chatroom_recently_gone(t, w->room)
+               ? CHATROOM_R_ENDED
+               : chatroom_create_rule(t, w, slot);
   }
   *slot = (usz)(r - t->room);
   return chatroom_join_rule(r, w);

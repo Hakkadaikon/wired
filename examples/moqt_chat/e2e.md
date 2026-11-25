@@ -112,7 +112,7 @@ E2E_RNNOISE=1 just e2e-stability s9-survivor-hears-rejoin
 | `s26-rooms` | 1 つのハブの 2 つのルームが混ざらない。2 つの場合を順に確かめる。1 つ目は user1 と user2 がルーム A に、user3 と user4 がルーム B に入る。2 つ目は両方のルームに user1 と user2 が入る(同じ参加者 ID)。どの参加者も同じルームの相手を一覧に出してそのメッセージを受け取り、接続を保つ。別のルームのメッセージは出ず、1 つ目の場合は別のルームの参加者も出ない。各ルームの最初の参加者がホストの鍵でルームを作る。ホストの退出でルームが終わるのを待ってから、2 つ目の場合を流す |
 
 | `s27-room-admission` | 入室の規則と終わりの画面。作成で `live` になり、参加でき、同じ参加者 ID は `id-taken`、5 人目は `room-full`、別のホストのリンクは `unauthorized`、Login required のルームへのログインなしの参加は `unauthorized`(ログインすれば入れる)、3 つのルームがあるときの 4 つ目の作成は `no-room-slots` |
-| `s28-room-timers` | 短くした時間でルームが終わる。1 人だけ(`alone`)、全員が去ってからの猶予(`empty`。そのあとリンクで来た参加者は `no-such-room`)、寿命(`lifetime`)。メンバーは `room-ended` の終わりの画面を出す |
+| `s28-room-timers` | 短くした時間でルームが終わる。1 人だけ(`alone`)、全員が去ってからの猶予(`empty`。そのあとリンクで来た参加者は `room-ended`)、寿命(`lifetime`)。メンバーは `room-ended` の終わりの画面を出す |
 | `s29-room-nip05` | nip05d が動いていればルームが開き、止めたあとの作成は 3 秒後に `nip05-unverified` で終わる。その間も、すでに開いているルームの 2 人は接続を保ち、メッセージが届く |
 
 ハブが SETUP の時点でセッションを閉じたとき(`room-full`、`no-such-room`、`no-room-slots`)に Chrome 146 のレンダラーが SEGV で落ちる問題は、ハブが入室を決めるまで自分の SETUP を送らず、クライアントがハブの SETUP を待ってからリクエストを開くことで直した。いま残る失敗は Chrome のブラウザープロセスの起動の失敗で、ハーネスは 1 回だけ起動をやり直す(`stabilityClient.mjs` の `launchChrome`)。

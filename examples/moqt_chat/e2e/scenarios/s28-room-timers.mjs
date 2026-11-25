@@ -3,7 +3,7 @@
 // screen, and the hub logs the end's why.
 //   alone        key 1 creates a room and stays alone past the timeout
 //   empty grace  key 2's room: host and guest go away together; past the
-//                grace a joiner by the link gets no-such-room
+//                grace a joiner by the link gets room-ended (tombstone)
 //   lifetime     key 3's room, host + guest (never alone): both are
 //                closed at the lifetime
 // (Host end by 30313 is s25's last step.)
@@ -77,7 +77,7 @@ async function ended(t, name, [link, why], clients) {
 		t.failures.push(`${name}: screens ${r.screens}`);
 }
 
-// Host and guest go away together; past the grace the link finds no room.
+// Host and guest go away together; past the grace the link gets room-ended.
 async function emptyGrace(t) {
 	const host = await create(t, 2);
 	const guest = await join(t, host.link);
@@ -97,7 +97,7 @@ async function emptyGrace(t) {
 	}).catch((e) => ({ closedReason: `join failed: ${e.message}` }));
 	if (late.browser) t.open.push(late);
 	t.report.emptyLate = late.closedReason ?? (await waitClosed(late));
-	if (t.report.emptyLate !== "no-such-room")
+	if (t.report.emptyLate !== "room-ended")
 		t.failures.push(`empty: late joiner ${t.report.emptyLate}`);
 }
 

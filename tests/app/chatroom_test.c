@@ -167,9 +167,9 @@ static void test_chatroom_no_such_room(void) {
       CHATROOM_R_NO_SUCH_ROOM);
   chatroom_end(&chr_t, &chr_t.room[0], CHATROOM_END_HOST);
   CHECK(chr_state(0) == CHATROOM_FREE);
+  /* a live room that just ended answers room-ended (T-49) */
   CHECK(
-      chr_enter(CHR_S(1), chr_join(CHR_RA, chrfx_pk1, 0)) ==
-      CHATROOM_R_NO_SUCH_ROOM);
+      chr_enter(CHR_S(1), chr_join(CHR_RA, chrfx_pk1, 0)) == CHATROOM_R_ENDED);
 }
 
 /* T-05 */
@@ -353,10 +353,11 @@ static void test_chatroom_tombstone_timing(void) {
 }
 
 /* T-49: only a room that reached live leaves a tombstone (a verifying
- * room's self-signed end must not evict others); a wrong signer learns
- * nothing (unauthorized before room-ended); a guest without create tags
- * gets no-such-room. */
-static void test_chatroom_tombstone_who(void) {
+ * room's self-signed end must not evict others); while it lasts every
+ * join and create of the id gets room-ended, a wrong signer and a guest
+ * without create tags included (the room did end; its id is known only to
+ * invite holders). */
+static void test_chatroom_tombstone_all(void) {
   chatroom_who w;
   chr_init();
   chr_enter(CHR_S(1), chr_create(CHR_RA, chrfx_pk1, "alice@d1.example", 0));
@@ -367,10 +368,9 @@ static void test_chatroom_tombstone_who(void) {
   chatroom_host(&chr_t, &chr_t.room[0], 1, CHR_T + 1);
   w        = chr_create(CHR_RA, chrfx_pk1, "alice@d1.example", 0);
   w.pubkey = wired_span_cstr(chrfx_pk2); /* not the link's host */
-  CHECK(chr_enter(CHR_S(6), w) == CHATROOM_R_UNAUTHORIZED);
+  CHECK(chr_enter(CHR_S(6), w) == CHATROOM_R_ENDED);
   CHECK(
-      chr_enter(CHR_S(7), chr_join(CHR_RA, chrfx_pk1, 0)) ==
-      CHATROOM_R_NO_SUCH_ROOM);
+      chr_enter(CHR_S(7), chr_join(CHR_RA, chrfx_pk1, 0)) == CHATROOM_R_ENDED);
 }
 
 /* T-50: 2 x MAX_ROOMS tombstones, the oldest evicted first. */
@@ -528,6 +528,24 @@ static void test_chatroom_refused_token_not_spent(void) {
   chatroom_verdict(&chr_t, 0, chr_t.room[0].nonce, 0);
   CHECK(chr_admit(CHR_S(3), chrfx_path_c1, chrfx_c1c) == 0);
   CHECK(chr_replay_n() == 2 && chr_t.room[0].id[0] == 'C');
+}
+
+/* A refusal whose code is NO_ERROR (room-ended) cannot be told from an
+ * admission by the code alone (wired_moqt_admit_fn: 0 admits), so the
+ * admission closes the session itself: a host page that lost the room's
+ * close and auto-rejoins must get room-ended, not a hub SETUP (s28). */
+static void test_chatroom_admit_ended_closes(void) {
+  chr_init();
+  CHECK(chr_admit(CHR_S(1), chrfx_path_a1, chrfx_c1a) == 0);
+  chatroom_verdict(&chr_t, 0, chr_t.room[0].nonce, 1);
+  chr_t.lifetime_ms = 10000;
+  chatroom_tick(&chr_t, 1000 + 10000, CHR_T);
+  CHECK(chr_state(0) == CHATROOM_FREE);
+  chr_closes = 0;
+  CHECK(chr_admit(CHR_S(2), chrfx_path_a1, chrfx_c1a) == CHATROOM_NO_ERROR);
+  CHECK(chr_closes == 1 && chr_close_s == CHR_S(2));
+  CHECK(chr_close_code == CHATROOM_NO_ERROR);
+  CHECK(wired_cstr_eq(chr_close_why, "room-ended"));
 }
 
 /* T-21 */
@@ -1119,7 +1137,7 @@ void test_chatroom(void) {
   test_chatroom_lifetime();
   test_chatroom_no_resurrect();
   test_chatroom_tombstone_timing();
-  test_chatroom_tombstone_who();
+  test_chatroom_tombstone_all();
   test_chatroom_tombstone_ring();
   test_chatroom_alone_restarts();
   test_chatroom_empty_grace();
@@ -1128,6 +1146,7 @@ void test_chatroom(void) {
   test_chatroom_no_join_while_ending();
   test_chatroom_invalid_token_spends_nothing();
   test_chatroom_refused_token_not_spent();
+  test_chatroom_admit_ended_closes();
   test_chatroom_token_once();
   test_chatroom_replay_full_busy();
   test_chatroom_host_mismatch();

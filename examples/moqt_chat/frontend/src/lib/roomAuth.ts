@@ -103,7 +103,7 @@ export const CLOSE_REASONS: Record<string, string> = {
 		"Someone in this room already uses your participant ID. Pick another one and join again.",
 	"no-room-slots": "The hub has no free room. Try again later.",
 	"no-such-room":
-		"This room does not exist. It may have ended, or the hub restarted.",
+		"This room does not exist. Check the link; the hub may have restarted.",
 	"room-ended": "The room has ended.",
 	replaced:
 		"Your participant ID was taken over by a newer session of your Nostr key.",
