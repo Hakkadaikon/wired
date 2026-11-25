@@ -1,8 +1,9 @@
 # shellcheck shell=sh
 # Compile flag sets (sourced by gen_ninja.sh, cov.sh, cognitive.sh).
 # Max simultaneous connections per server process: each slot is a fixed
-# array (~1.9MiB/conn of BSS); 4 matches moqt_chat's participant pool.
-# Override: `CONNTABLE_CAP=256 just ninja`.
+# array (~10 MiB/conn of BSS, docs/architecture/memory.md 3). Override:
+# `CONNTABLE_CAP=256 just ninja`. The moqt_chat server does not use it:
+# its room profile sets 16 (ROOMCONNFLAG below).
 
 CC=clang
 # The ISA to build for: the host's (x86_64 or aarch64), or WIRED_ARCH to
@@ -53,6 +54,11 @@ FUZZFLAGS="$WARNFLAGS -g -fsanitize=fuzzer,address -Isrc"
 # per-room limits, built into build/profile/moqt_room/ for the moqt_chat
 # server and into build/quic_test_room so the suite runs at those values.
 ROOMFLAG="-DWIRED_PROFILE_MOQT_ROOM"
+# The room server's connection table (not the room test, whose fixtures
+# are sized for CONNFLAGS): 3 rooms x 4 people plus 4 spare for joins being
+# refused (4 would refuse a 5th connection before the room logic could say
+# room-full). -U first: CONNFLAGS already defined it.
+ROOMCONNFLAG="-UWIRED_CONNTABLE_CAP -DWIRED_CONNTABLE_CAP=16"
 # clang-tidy: CERT C + bug finders, minus this repo's unavoidable noise --
 # `_start` is a required entry point (reserved-identifier, dcl37) and every
 # p256_fe is `const u64*` (easily-swappable-parameters). readability checks
@@ -62,4 +68,4 @@ TIDYCHECKS="-*,cert-*,bugprone-*,clang-analyzer-*,-bugprone-easily-swappable-par
 # limit was set (`just cognitive` reports every score).
 TIDYCONFIG="{CheckOptions: {readability-function-cognitive-complexity.Threshold: 4}}"
 TIDYFLAGS="$TARGET -ffreestanding -nostdlib -fno-builtin -Isrc"
-export CC ROOMFLAG CFLAGS SANCFLAGS TESTFLAGS SANTESTFLAGS FUZZFLAGS TIDYCHECKS TIDYCONFIG TIDYFLAGS
+export CC ROOMFLAG ROOMCONNFLAG CFLAGS SANCFLAGS TESTFLAGS SANTESTFLAGS FUZZFLAGS TIDYCHECKS TIDYCONFIG TIDYFLAGS

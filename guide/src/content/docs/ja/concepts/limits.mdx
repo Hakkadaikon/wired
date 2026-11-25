@@ -14,9 +14,9 @@ wired が内部に持つ表（コネクションやストリームの管理表�
 
 | 上限 | 値 | 定数 |
 |---|---|---|
-| サーバーあたりの QUIC コネクション | 既定 4、interop イメージは 64（`-D` で上書き可） | `WIRED_CONNTABLE_CAP` |
+| サーバーあたりの QUIC コネクション | 既定 4、moqt_chat のルームのサーバーは 16、interop イメージは 64（`-D` で上書き可） | `WIRED_CONNTABLE_CAP` |
 | コネクションあたりの WebTransport セッション | 2（`-D` で上書き可、最小 2） | `WIRED_SRVRUN_MAX_WT_SESSIONS` |
-| 全コネクション合計の WebTransport セッション | `WIRED_CONNTABLE_CAP` と同じ（既定 4、interop イメージは 64） | `SRVRUN_MAX_WT_SESSIONS_GLOBAL` |
+| 全コネクション合計の WebTransport セッション | `WIRED_CONNTABLE_CAP` と同じ（既定 4、moqt_chat のルームのサーバーは 16、interop イメージは 64） | `SRVRUN_MAX_WT_SESSIONS_GLOBAL` |
 | コネクションあたり 1 秒間に開ける WebTransport セッション | 10 | `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` |
 | コネクションあたりの、クライアントが開いた WT 双方向ストリーム | 24、ルーム 47（`-D` で上書き可、最大 47） | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
 | コネクションあたりの、クライアントが開いた WT 単方向ストリーム | 6、ルーム 9（`-D` で上書き可） | `H3SETTINGS_WT_INIT_STREAMS_UNI_VALUE`(受信の表 `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` はこれ + 3) |

@@ -36,6 +36,7 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "tidyconfig = $TIDYCONFIG"
     echo "tidyflags = $TIDYFLAGS"
     echo "roomflag = $ROOMFLAG"
+    echo "roomconnflag = $ROOMCONNFLAG"
     echo
     echo "rule cc_freestanding"
     echo "  command = \$cc \$cflags -MD -MF \$out.d -c \$in -o \$out"
@@ -76,7 +77,7 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo
     echo "# moqt_chat room profile objects (build/profile/, not build/src/)."
     echo "rule cc_room"
-    echo "  command = \$cc \$cflags \$roomflag -MD -MF \$out.d -c \$in -o \$out"
+    echo "  command = \$cc \$cflags \$roomflag \$roomconnflag -MD -MF \$out.d -c \$in -o \$out"
     echo "  depfile = \$out.d"
     echo "  deps = gcc"
     echo "  description = CC \$out"
@@ -188,7 +189,7 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "build build/profile/moqt_room/libwired.a: ar $roomlib"
     echo "build examples/moqt_chat/server/wired_server: cc_freestanding_bin \$"
     echo "    $(ex_srcs moqt_chat/server) build/profile/moqt_room/libwired.a"
-    echo "  extra = \$roomflag"
+    echo "  extra = \$roomflag \$roomconnflag"
     echo
     echo "build examples/moqt_interop/wired_server: cc_freestanding_bin \$"
     echo "    $(ex_srcs moqt_interop) build/libwired.a"

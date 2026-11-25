@@ -17,9 +17,9 @@ as the moqt_chat server is.
 
 | Limit | Value | Constant |
 |---|---|---|
-| QUIC connections per server | 4 by default, 64 in the interop image (`-D` overridable) | `WIRED_CONNTABLE_CAP` |
+| QUIC connections per server | 4 by default, 16 in the moqt_chat room server, 64 in the interop image (`-D` overridable) | `WIRED_CONNTABLE_CAP` |
 | WebTransport sessions per connection | 2 (`-D` overridable, at least 2) | `WIRED_SRVRUN_MAX_WT_SESSIONS` |
-| WebTransport sessions, all connections | equal to `WIRED_CONNTABLE_CAP` (4 by default, 64 in the interop image) | `SRVRUN_MAX_WT_SESSIONS_GLOBAL` |
+| WebTransport sessions, all connections | equal to `WIRED_CONNTABLE_CAP` (4 by default, 16 in the moqt_chat room server, 64 in the interop image) | `SRVRUN_MAX_WT_SESSIONS_GLOBAL` |
 | New WebTransport sessions per connection per second | 10 | `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` |
 | Client-opened WT bidi streams per connection | 24, room 47 (`-D` overridable, at most 47) | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
 | Client-opened WT uni streams per connection | 6, room 9 (`-D` overridable) | `H3SETTINGS_WT_INIT_STREAMS_UNI_VALUE` (the receive table `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` is this + 3) |

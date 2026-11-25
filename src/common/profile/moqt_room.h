@@ -34,8 +34,10 @@
  *   bidi limit covers the CONNECT stream, 47 WT streams and one stream past
  *   the WT limit (refused with WT_FLOW_CONTROL_ERROR, not a connection
  *   STREAM_LIMIT_ERROR).
- * - Peers (WIRED_MOQTRUN_MAX_SESSIONS 32), subscribers per track (31) and
- *   the connection table (64) keep their SDK defaults, above 3 x 4. */
+ * - Peers (WIRED_MOQTRUN_MAX_SESSIONS 32) and subscribers per track (31)
+ *   keep their SDK defaults, above 3 x 4. The connection table is 16
+ *   (3 x 4 plus 4 spare), set with the profile flag in
+ *   scripts/just/flags.sh. */
 
 #ifdef WIRED_PROFILE_MOQT_ROOM
 /** Rooms one hub serves (moqt_chat D5). */
