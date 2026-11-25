@@ -18,6 +18,7 @@ import {
 	isDeleted,
 	meetingA,
 	meetingTemplate,
+	micMuted,
 	newer,
 	PARTICIPANT_TAG,
 	PRESENCE_STALE_S,
@@ -198,6 +199,18 @@ describe("kind 10312 presence", () => {
 		]);
 		expect(handRaised(sign(up, GUEST_SK))).toBe(true);
 		expect(handRaised(sign(down, GUEST_SK))).toBe(false);
+	});
+
+	it("adds muted only when the mic is muted, and reads it back (D-15)", () => {
+		const muted = presenceTemplate(SPACE, false, NOW, undefined, true);
+		const open = presenceTemplate(SPACE, false, NOW, undefined, false);
+		expect(muted.tags).toEqual([
+			["a", SPACE, "", "root"],
+			["muted", "1"],
+		]);
+		expect(open.tags).toEqual([["a", SPACE, "", "root"]]);
+		expect(micMuted(sign(muted, GUEST_SK))).toBe(true);
+		expect(micMuted(sign(open, GUEST_SK))).toBe(false);
 	});
 
 	it("accepts a fresh one for our space, from anyone", () => {

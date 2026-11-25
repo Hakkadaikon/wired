@@ -170,9 +170,12 @@ export function presenceTemplate(
 	hand: boolean,
 	now = now_s(),
 	participant?: string,
+	muted = false,
 ): EventTemplate {
 	const tags = [["a", space, "", "root"]];
 	if (hand) tags.push(["hand", "1"]);
+	// Our tag: room events stay on the hub, other NIP-53 clients ignore it.
+	if (muted) tags.push(["muted", "1"]);
 	return {
 		kind: PRESENCE_KIND,
 		created_at: now,
@@ -191,6 +194,7 @@ export function acceptPresence(ev: Event, space: string, now = now_s()) {
 }
 
 export const handRaised = (ev: Event) => tag(ev, "hand") === "1";
+export const micMuted = (ev: Event) => tag(ev, "muted") === "1";
 
 // --- 1311 chat ------------------------------------------------------------
 

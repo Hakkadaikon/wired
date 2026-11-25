@@ -8,7 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	MEETING_DEBOUNCE_MS,
 	NostrRoomSession,
+	nostrRoom,
 	PRESENCE_EVERY_MS,
+	republishPresence,
+	toggleMute,
 } from "@/hooks/nostrRoomSession";
 import { afterRoomEnd, announceRoom } from "@/hooks/useMoqtChat";
 import { MoqNostr } from "@/lib/moqNostr";
@@ -112,6 +115,14 @@ describe("NostrRoomSession host lifecycle", () => {
 		await auth.room.start();
 		expect(tag(auth.sent[1].ev, "status")).toBe("private");
 		auth.room.stop();
+		// P7: a reload of the creating tab keeps created and mode.
+		enterRoom({ id: D, host: HOST });
+		const reload = session(HOST);
+		await reload.room.start();
+		expect(tag(reload.sent[1].ev, "status")).toBe("private");
+		expect(tag(reload.sent[2].ev, "ends")).toBe(String(NOW + ROOM_LIFETIME_S));
+		reload.room.stop();
+		sessionStorage.clear();
 		enterRoom({ id: D, host: HOST }); // not the creator: from the meeting start
 		const again = session(HOST);
 		await again.room.start();
@@ -270,6 +281,70 @@ describe("NostrRoomSession hardening", () => {
 		const { room, sent } = session(GUEST);
 		await room.setHand(false);
 		expect(sent[0].ev.tags).toContainEqual(["wired-participant", "user1"]);
+	});
+
+	it("a mute toggle republishes presence with the muted tag (D-15)", async () => {
+		const { room, sent } = session(GUEST);
+		nostrRoom.current = room;
+		useMoqtChatStore.setState({ muted: true });
+		republishPresence();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(sent[0].ev.tags).toContainEqual(["muted", "1"]);
+		useMoqtChatStore.setState({ muted: false });
+		republishPresence();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(sent[1].ev.tags.some((t) => t[0] === "muted")).toBe(false);
+		room.stop();
+		republishPresence(); // stopped: nothing more
+		await vi.advanceTimersByTimeAsync(0);
+		expect(sent).toHaveLength(2);
+		nostrRoom.current = session(null).room; // logged out: rejects, swallowed
+		republishPresence();
+		await vi.advanceTimersByTimeAsync(0);
+		nostrRoom.current = null;
+	});
+
+	it("toggleMute flips the store and republishes presence", async () => {
+		const { room, sent } = session(GUEST);
+		nostrRoom.current = room;
+		useMoqtChatStore.setState({ muted: false });
+		toggleMute();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(useMoqtChatStore.getState().muted).toBe(true);
+		expect(sent[0].ev.tags).toContainEqual(["muted", "1"]);
+		useMoqtChatStore.setState({ muted: false });
+		room.stop();
+		nostrRoom.current = null;
+	});
+
+	it("a burst of republishes goes out in order: the last one is current", async () => {
+		const sent: Event[] = [];
+		let calls = 0;
+		const room = new NostrRoomSession({
+			nostr: {
+				publish: async (ev) => void sent.push(ev),
+				subscribe: () => () => {},
+			},
+			// The first sign is the slow one: unserialized, it would land last.
+			sign: (t, pk) =>
+				new Promise((r) =>
+					setTimeout(
+						() => r(finalizeEvent({ ...t }, keyOf(pk))),
+						calls++ ? 0 : 50,
+					),
+				),
+		});
+		useMoqtChatStore.setState({ nostrPubkey: GUEST, muted: true });
+		const first = room.refreshPresence();
+		useMoqtChatStore.setState({ muted: false });
+		const second = room.refreshPresence();
+		await vi.advanceTimersByTimeAsync(100);
+		await Promise.all([first, second]);
+		// Unserialized, the slow first sign (muted) landed last: [false, true].
+		expect(sent).toHaveLength(2);
+		expect(sent[1].tags.some((t) => t[0] === "muted")).toBe(false);
+		expect(sent[1].created_at).toBeGreaterThan(sent[0].created_at);
+		room.stop();
 	});
 
 	it("a failed hand raise reverts the stored hand", async () => {

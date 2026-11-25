@@ -28,7 +28,7 @@ import {
 	tag,
 } from "@/lib/nostrRoom";
 import { ROOM_LIFETIME_S } from "@/lib/roomAuth";
-import { activeRoom, roomName } from "@/lib/roomLink";
+import { activeRoom, hostedRoom, roomName } from "@/lib/roomLink";
 import {
 	type MoqtChatState,
 	type NostrRoom,
@@ -47,7 +47,7 @@ const PRESENCE_MAX = 512; // authors whose presence is held
 
 type Store = Pick<
 	MoqtChatState,
-	"nostrPubkey" | "nostrRoom" | "peers" | "setNostrRoom"
+	"nostrPubkey" | "nostrRoom" | "peers" | "setNostrRoom" | "muted"
 >;
 
 export type RoomDeps = {
@@ -139,6 +139,7 @@ export class NostrRoomSession {
 	#debounce?: ReturnType<typeof setTimeout>;
 	#off: (() => void)[] = [];
 	#stopped = false; // stop() ran: start() publishes nothing further
+	#republish: Promise<void> = Promise.resolve(); // refreshPresence's chain
 
 	constructor(deps: RoomDeps) {
 		this.#d = {
@@ -196,11 +197,28 @@ export class NostrRoomSession {
 	}
 
 	#presence(): Promise<Event> {
-		const hand = this.#d.state().nostrRoom.hand;
+		const { nostrRoom, muted } = this.#d.state();
 		const { now, participant } = this.#d;
 		return this.#publish(
-			presenceTemplate(this.space, hand, now(), participant() || undefined),
+			presenceTemplate(
+				this.space,
+				nostrRoom.hand,
+				now(),
+				participant() || undefined,
+				muted,
+			),
 		);
+	}
+
+	/** Our mic was muted or unmuted: a fresh presence carries it (D-15).
+	 * Chained, so a burst of toggles publishes in order and the track's last
+	 * group is the current state, whatever order NIP-07 signs in. */
+	refreshPresence(): Promise<void> {
+		const run = this.#republish.then(async () => {
+			if (!this.#stopped) await this.#presence();
+		});
+		this.#republish = run.catch(() => {});
+		return run;
 	}
 
 	#publishMeeting(status: MeetingStatus): Promise<Event | undefined> {
@@ -240,23 +258,23 @@ export class NostrRoomSession {
 	// The meeting starts with the space update, so staleLive never hides it.
 	async #startMeeting(): Promise<void> {
 		const { host, d, room, service } = this.#d;
+		// A reloaded creating tab reads its create back (hostedRoom); any other
+		// host page announces `open` and counts from this meeting's start (the
+		// hub's own clock is what ends the room).
+		const made = activeRoom.create ?? hostedRoom(activeRoom.id);
 		const space = await this.#publish(
 			spaceTemplate({
 				host,
 				d,
 				room,
 				service,
-				// shortcut: only the creating page knows the mode; a host that
-				// reloaded announces `open` until the hub reports the mode (P6).
-				status: activeRoom.create?.mode === "auth" ? "private" : "open",
+				status: made?.mode === "auth" ? "private" : "open",
 				now: this.#d.now(),
 			}),
 		);
 		if (this.#stopped) return;
 		const starts = space.created_at;
-		// shortcut: a host page that did not create the room (a reload) counts
-		// from this meeting's start; the hub's own clock is what ends it.
-		const ends = (activeRoom.create?.created ?? starts) + ROOM_LIFETIME_S;
+		const ends = (made?.created ?? starts) + ROOM_LIFETIME_S;
 		this.#meeting = { d: `meeting-${starts.toString(36)}`, starts, ends };
 		await this.#publishMeeting("live");
 		if (this.#stopped) return;
@@ -316,6 +334,18 @@ const failed = (what: string) => () =>
 export function toggleHand(): void {
 	const hand = !useMoqtChatStore.getState().nostrRoom.hand;
 	void nostrRoom.current?.setHand(hand).catch(failed("hand raise"));
+}
+
+// Best effort: the 60 s refresh carries the mic state anyway.
+export function republishPresence(): void {
+	void nostrRoom.current?.refreshPresence().catch(() => {});
+}
+
+/** The mic toggle (button and shortcut): the store, then our presence. */
+export function toggleMute(): void {
+	const s = useMoqtChatStore.getState();
+	s.setMuted(!s.muted);
+	republishPresence();
 }
 
 export function reactTo(target: Target, content: string): void {
