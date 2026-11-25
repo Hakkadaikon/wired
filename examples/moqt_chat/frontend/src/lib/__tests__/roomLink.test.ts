@@ -4,6 +4,7 @@ import {
 	activeRoom,
 	enterRoom,
 	exitRoom,
+	hostedRoom,
 	isRoomId,
 	newRoomId,
 	parseRoomLink,
@@ -106,6 +107,46 @@ describe("enterRoom", () => {
 			host: HOST,
 			space: `30312:${HOST}:${ID}`,
 		});
+	});
+	it("P7: a create is kept per room id for a reload of this tab", () => {
+		sessionStorage.clear();
+		expect(hostedRoom(ID)).toBeUndefined();
+		enterRoom(
+			{ id: ID, host: HOST },
+			{ mode: "auth", nip05: "a@b", created: 7 },
+		);
+		expect(hostedRoom(ID)).toEqual({ mode: "auth", created: 7 });
+		expect(hostedRoom(`${ID.slice(1)}Q`)).toBeUndefined();
+		sessionStorage.setItem(`wired-room-host:${ID}`, "{");
+		expect(hostedRoom(ID)).toBeUndefined();
+	});
+	it.each([
+		["a non-number created", '{"created":"7","mode":"auth"}'],
+		["an infinite created", '{"created":1e999,"mode":"auth"}'],
+		["an unknown mode", '{"created":7,"mode":"x"}'],
+		["null", "null"],
+	])("P7: ignores a stored value with %s", (_, raw) => {
+		sessionStorage.setItem(`wired-room-host:${ID}`, raw);
+		expect(hostedRoom(ID)).toBeUndefined();
+	});
+	it("P7: works when storage is unavailable", () => {
+		const spy = vi
+			.spyOn(Storage.prototype, "getItem")
+			.mockImplementation(() => {
+				throw new Error("denied");
+			});
+		vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+			throw new Error("denied");
+		});
+		expect(() =>
+			enterRoom(
+				{ id: ID, host: HOST },
+				{ mode: "open", nip05: "", created: 1 },
+			),
+		).not.toThrow();
+		expect(hostedRoom(ID)).toBeUndefined();
+		expect(spy).toHaveBeenCalled();
+		vi.restoreAllMocks();
 	});
 	it("names a room by its id until the host's space says otherwise", () => {
 		expect(roomName(ID)).toBe("Room AAAAAA");

@@ -71,6 +71,32 @@ export function enterRoom(link: RoomLink, create?: RoomCreate): void {
 		space: spaceA(link.host, link.id),
 		create,
 	});
+	if (create) saveHostedRoom(link.id, create);
+}
+
+// What the creating tab knew of its room, for the host's space and meeting
+// after a reload (nostrRoomSession.ts). Not activeRoom.create: a reload is no
+// create, so its connects carry no creator tags.
+// shortcut: same-tab reload only, another device needs a hub-sent field
+type Hosted = Pick<RoomCreate, "created" | "mode">;
+const hostedKey = (id: string) => `wired-room-host:${id}`;
+
+function saveHostedRoom(id: string, { created, mode }: Hosted): void {
+	try {
+		sessionStorage.setItem(hostedKey(id), JSON.stringify({ created, mode }));
+	} catch {} // storage unavailable: a reload announces `open`
+}
+
+const isHosted = (v: Partial<Hosted> | null): v is Hosted =>
+	Number.isFinite(v?.created) && (v?.mode === "open" || v?.mode === "auth");
+
+export function hostedRoom(id: string): Hosted | undefined {
+	try {
+		const v = JSON.parse(sessionStorage.getItem(hostedKey(id)) ?? "null");
+		return isHosted(v) ? { created: v.created, mode: v.mode } : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /** Leaving (or a final close): the next connect is no longer this page's
