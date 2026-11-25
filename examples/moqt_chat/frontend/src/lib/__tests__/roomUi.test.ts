@@ -4,6 +4,7 @@ import {
 	inviteLink,
 	isNostrPost,
 	newlyRaised,
+	nextParticipantId,
 	retryMessage,
 	timerLevel,
 } from "@/lib/roomUi";
@@ -108,5 +109,23 @@ describe("retryMessage", () => {
 		await retryMessage({ id: 8, text: "t" }, send, store);
 		expect(send).toHaveBeenCalledWith("t", []);
 		expect(store.removeMessage).toHaveBeenCalledWith(8);
+	});
+});
+
+describe("nextParticipantId (id-taken retry)", () => {
+	it("takes the next id after the current one, wrapping around", () => {
+		expect(nextParticipantId("user2", [], ["user2"])).toBe("user3");
+		expect(nextParticipantId("user4", [], ["user4"])).toBe("user1");
+	});
+	it("skips ids seen as peers and ids already tried", () => {
+		expect(nextParticipantId("user1", ["user2"], ["user1"])).toBe("user3");
+		expect(nextParticipantId("user1", [], ["user1", "user2"])).toBe("user3");
+	});
+	it("gives up once every id was tried", () => {
+		const all = ["user1", "user2", "user3", "user4"];
+		expect(nextParticipantId("user4", [], all)).toBeUndefined();
+		expect(
+			nextParticipantId("user1", ["user2", "user3", "user4"], ["user1"]),
+		).toBeUndefined();
 	});
 });

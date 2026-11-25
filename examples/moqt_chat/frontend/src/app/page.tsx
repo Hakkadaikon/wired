@@ -75,6 +75,7 @@ import {
 	RoomClosed,
 	useEndOnRoomClosed,
 	useHandToasts,
+	useIdTakenRetry,
 } from "./roomStatus";
 import { RoomTabs, type RoomView, useEscToClose } from "./roomTabs";
 import { type Retry, SendState } from "./sendState";
@@ -1441,6 +1442,14 @@ export default function Home() {
 	}, []);
 	useEscToClose(view === "people", closeDrawer);
 	useEndOnRoomClosed(exit);
+	useIdTakenRetry(
+		participantId,
+		(id) => {
+			setParticipantId(id);
+			void connect(url, id, pins, nickname);
+		},
+		exit,
+	);
 
 	useEffect(() => {
 		if (!joined) return;

@@ -105,6 +105,8 @@ export const CLOSE_REASONS: Record<string, string> = {
 	"no-such-room":
 		"This room does not exist. It may have ended, or the hub restarted.",
 	"room-ended": "The room has ended.",
+	replaced:
+		"Your participant ID was taken over by a newer session of your Nostr key.",
 };
 
 /** The final screen's message for a close reason; undefined when it is not

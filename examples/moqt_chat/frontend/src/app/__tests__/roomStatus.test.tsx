@@ -11,6 +11,7 @@ import {
 	RoomClosed,
 	useEndOnRoomClosed,
 	useHandToasts,
+	useIdTakenRetry,
 } from "../roomStatus";
 import { showToast, Toast } from "../toast";
 
@@ -71,6 +72,80 @@ describe("useEndOnRoomClosed", () => {
 		expect(end).toHaveBeenCalledOnce();
 		act(() => useMoqtChatStore.getState().setRoomClosed(null));
 		expect(end).toHaveBeenCalledOnce();
+	});
+});
+
+function RetryProbe(p: {
+	id: string;
+	rejoin: (id: string) => void;
+	end?: () => void;
+}) {
+	useIdTakenRetry(p.id, p.rejoin, p.end ?? (() => {}));
+	return null;
+}
+
+describe("useIdTakenRetry", () => {
+	it("swaps the session to the next free id, says so, ends when none is left", () => {
+		const rejoin = vi.fn();
+		const end = vi.fn();
+		const el = render(
+			<>
+				<Toast />
+				<RetryProbe id="user3" rejoin={rejoin} end={end} />
+			</>,
+		);
+		act(() => useMoqtChatStore.getState().setRoomClosed("id-taken"));
+		expect(rejoin).toHaveBeenLastCalledWith("user4");
+		expect(useMoqtChatStore.getState().roomClosed).toBeNull();
+		expect(el.textContent).toContain(
+			"user3 is in use in this room: joined as user4",
+		);
+		for (const _ of ["user4", "user1", "user2"])
+			act(() => useMoqtChatStore.getState().setRoomClosed("id-taken"));
+		expect(rejoin).toHaveBeenCalledTimes(3);
+		expect(end).toHaveBeenCalledOnce();
+		expect(useMoqtChatStore.getState().roomClosed).toBe("id-taken");
+		act(() => useMoqtChatStore.getState().setRoomClosed(null));
+	});
+
+	it("starts afresh after a connect that held, and in another room", () => {
+		const rejoin = vi.fn();
+		const end = vi.fn();
+		render(<RetryProbe id="user1" rejoin={rejoin} end={end} />);
+		const st = () => useMoqtChatStore.getState();
+		for (const want of ["user2", "user3", "user4", "user1"]) {
+			act(() => st().setConnectionState("connected"));
+			act(() => st().setRoomClosed("id-taken"));
+			expect(rejoin).toHaveBeenLastCalledWith(want);
+			act(() => st().setConnectionState("disconnected"));
+		}
+		expect(end).not.toHaveBeenCalled();
+		// three misses, then a new room: its first miss is not the fourth
+		act(() => st().setRoomClosed("id-taken"));
+		act(() => st().setRoomClosed("id-taken"));
+		enterRoom({ id: "otherRoom00000000000A", host: "0".repeat(64) });
+		act(() => st().setRoomClosed("id-taken"));
+		act(() => st().setRoomClosed("id-taken"));
+		expect(end).not.toHaveBeenCalled();
+		act(() => st().setRoomClosed(null));
+	});
+
+	it("leaves every other reason to the final screen", () => {
+		const rejoin = vi.fn();
+		render(<RetryProbe id="user1" rejoin={rejoin} />);
+		act(() => useMoqtChatStore.getState().setRoomClosed("room-full"));
+		expect(rejoin).not.toHaveBeenCalled();
+		act(() => useMoqtChatStore.getState().setRoomClosed(null));
+	});
+});
+
+describe("useEndOnRoomClosed and id-taken", () => {
+	it("leaves id-taken to the retry (no teardown)", () => {
+		const end = vi.fn();
+		render(<Probe end={end} />);
+		act(() => useMoqtChatStore.getState().setRoomClosed("id-taken"));
+		expect(end).not.toHaveBeenCalled();
+		act(() => useMoqtChatStore.getState().setRoomClosed(null));
 	});
 });
 

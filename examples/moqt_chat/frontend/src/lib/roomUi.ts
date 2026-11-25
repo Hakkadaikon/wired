@@ -3,7 +3,7 @@
 
 import type { Event } from "nostr-tools";
 import type { ChatMessage, MoqtChatState } from "@/stores/moqtChatStore";
-import type { ChatAttachment } from "./moqtClient";
+import { CANDIDATE_PARTICIPANT_IDS, type ChatAttachment } from "./moqtClient";
 import { acceptPresence, handRaised } from "./nostrRoom";
 import { type RoomLink, withRoom } from "./roomLink";
 
@@ -72,3 +72,18 @@ export const isNostrPost = <
 	m: M,
 ): m is M & { author: string; key: string } =>
 	Boolean(m.author && m.key && !m.pending && !m.failed);
+
+/** After id-taken, the id to join as next: the first one after current
+ * (wrapping) that no peer was seen using and that was not tried yet;
+ * undefined when none is left (the final screen stays). */
+export function nextParticipantId(
+	current: string,
+	peers: readonly string[],
+	tried: readonly string[],
+): string | undefined {
+	const ids = CANDIDATE_PARTICIPANT_IDS;
+	const from = ids.indexOf(current) + 1;
+	return [...ids.slice(from), ...ids.slice(0, from)].find(
+		(id) => !peers.includes(id) && !tried.includes(id),
+	);
+}

@@ -41,7 +41,7 @@
 
 ルーム ID は base64url の 22 文字で、16 バイトを表す形(最後の文字が `A`、`Q`、`g`、`w` のどれか)だけを受け付ける。`host` は 64 桁の小文字の hex か npub で、npub は hex に直す。共有のリンクにはページの URL のほかの引数(`?relays=` など)を入れない。
 
-ルームは名前空間 `wired/moqt_chat/<room>` と NIP-53 の space の座標 `30312:<host>:<room>` を決める([MoQT の使い方](wire.md) 3 節、5.3 節)。いまのハブはルームを確かめない。別のルームのメッセージや参加者が見えないのは、クライアントが自分のルームの名前空間だけを使うからである。
+ルームは名前空間 `wired/moqt_chat/<room>` と NIP-53 の space の座標 `30312:<host>:<room>` を決める([MoQT の使い方](wire.md) 3 節、5.3 節)。クライアントは自分のルームの名前空間だけを使い、ハブもセッションをそのルームの名前空間に閉じ込める([MoQT の使い方](wire.md) 2.3 節)。
 
 ページはどの接続でも、"Server URL" に `?room=<id>&host=<hex>` を足した URL に WebTransport でつなぐ(`roomAuth.ts` の `roomSession`)。ハブの CONNECT の `:path` に、ルームとホストが入る。Nostr でログインしていれば、接続のたびに NIP-98 のイベントを拡張機能に署名させ、SETUP の AUTHORIZATION TOKEN で送る([MoQT の使い方](wire.md) 2.1 節)。トークンは 1 回しか使えないので、作成、参加、自動の再参加のどれでも署名し直す。署名を拒まれたとき(拡張機能がない場合を含む)は接続が失敗し、"Could not connect" に理由を出す。自動では試し直さず、"Join" か "Rejoin" を押すと署名からやり直す。ログインしていなければトークンを送らない。"Open" のルームにはそのまま入れ、"Login required" のルームはハブが `unauthorized` で断る。ルームを作ったページは、ログインした鍵がルームの `host` と同じときだけ、接続のたびにイベントへ `nip05` と `["wired-room", <id>, "open" か "auth"]` を入れる。"Leave" か最終画面でこの作成の情報を捨てる。トークンは 1 KiB までで、超える長さの "Server URL" では署名を頼まずに接続をやめる([MoQT の使い方](wire.md) 2.1 節)。
 
@@ -60,12 +60,13 @@
 | `no-room-slots` | The hub has no free room. Try again later. |
 | `no-such-room` | This room does not exist. It may have ended, or the hub restarted. |
 | `room-ended` | The room has ended. |
+| `replaced` | Your participant ID was taken over by a newer session of your Nostr key. |
 
-ルームは作ってから 5 時間で終わる(`ROOM_LIFETIME_S`。終わらせるのはハブ)。ホストは live の meeting(kind 30313)に `ends`(作った時刻 + 5 時間)を入れ、ルームの見出しは状態の横に残り時間("4:59:12 left")を 1 秒ごとに出す。`ends` が過ぎたとき、または今から 5 時間 5 分(時計のずれの分)より先のときは出さない。ルームを作ったページでないホスト(作ったあとに再読み込みした場合など)は、その meeting の開始から数える。"Login required" のルームの space(kind 30312)は `status` を `private` にする。作ったページでないホストはモードを知らないので `open` を送る(ハブがモードを知らせるのは P6 以降)。
+ルームは作ってから 5 時間で終わる(`ROOM_LIFETIME_S`。終わらせるのはハブ)。ホストは live の meeting(kind 30313)に `ends`(作った時刻 + 5 時間)を入れ、ルームの見出しは状態の横に残り時間("4:59:12 left")を 1 秒ごとに出す。`ends` が過ぎたとき、または今から 5 時間 5 分(時計のずれの分)より先のときは出さない。ルームを作ったページでないホスト(作ったあとに再読み込みした場合など)は、その meeting の開始から数える。"Login required" のルームの space(kind 30312)は `status` を `private` にする。作ったページでないホストはモードを知らないので `open` を送る。ハブはモードも作成の時刻もクライアントに知らせないので、再読み込みしたホストの残り時間と space の `status` は正しくないことがある。
 
-いまのハブは、トークンも理由のトークンもまだ扱わない(tasks/moqt-chat-rooms.md の P6)。
+`id-taken` だけは終わりの画面をすぐには出さない。一覧で見かけた ID と試した ID を飛ばして、次の空いている ID で参加し直し、「user2 is in use in this room: joined as user3」のように知らせる(`roomStatus.tsx` の `useIdTakenRetry`)。4 つすべてを試しても入れないときに、終わりの画面を出す。試した ID の記録は、接続が保たれたときと部屋が変わったときに消す。入り直しでは退出の後片付けをせず、セッションだけを差し替える。ハブの SETUP を 5 秒待っても来なければ、接続を閉じて通常の再接続に移る(`moqtClient.ts` の `HUB_SETUP_TIMEOUT_MS`)。
 
-ハブの上限は、まだルームの数に合わせて増えない(tasks/moqt-chat-rooms.md の P3 で増やす)。それまで 1 つのハブが受け入れるのは、全ルーム合わせて 4 人分(満員のルーム 1 つ分)である。2 つ目のルームが埋まると、接続(既定の接続表は 4)やリクエストストリーム(ハブ全体で 192)がハブの上限で失敗する([サーバー](server.md) 3 節)。
+ハブはトークンを確かめ、上の理由のトークンで閉じる([サーバー](server.md) 5 節)。1 つのハブは 3 つのルームに 4 人ずつを受け入れる([サーバー](server.md) 3 節)。
 
 ### 2.2 Nostr でログインする
 

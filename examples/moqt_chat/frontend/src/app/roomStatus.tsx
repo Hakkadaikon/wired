@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { closeMessage, remaining } from "@/lib/roomAuth";
 import { activeRoom } from "@/lib/roomLink";
-import { newlyRaised, timerLevel } from "@/lib/roomUi";
+import { newlyRaised, nextParticipantId, timerLevel } from "@/lib/roomUi";
 import { useMoqtChatStore } from "@/stores/moqtChatStore";
 import { authorLabels } from "./rawNostrEvent";
 import { showToast } from "./toast";
@@ -71,7 +71,61 @@ export function useEndOnRoomClosed(end: () => void): void {
 	useEffect(
 		() =>
 			useMoqtChatStore.subscribe((s, prev) => {
-				if (s.roomClosed && !prev.roomClosed) endRef.current();
+				// id-taken is useIdTakenRetry's: it swaps the session instead.
+				if (s.roomClosed && !prev.roomClosed && s.roomClosed !== "id-taken")
+					endRef.current();
+			}),
+		[],
+	);
+}
+
+/** id-taken (the id is held in an open room, or by another key): joins
+ * again right away as the next free id and says so; the final screen
+ * (end) only once every id was tried. current is the id the page joined
+ * as. */
+export function useIdTakenRetry(
+	current: string,
+	rejoin: (id: string) => void,
+	end: () => void,
+): void {
+	const latest = useRef({
+		current,
+		rejoin,
+		end,
+		tried: [] as string[],
+		room: activeRoom.id,
+	});
+	useEffect(() => {
+		Object.assign(latest.current, { current, rejoin, end });
+	}, [current, rejoin, end]);
+	useEffect(
+		() =>
+			useMoqtChatStore.subscribe((s, prev) => {
+				const l = latest.current;
+				// The ids tried so far count only for this room, until a
+				// connect holds: a stale list would skip ids that are free now.
+				const held =
+					s.connectionState === "connected" &&
+					prev.connectionState !== "connected";
+				if (held || l.room !== activeRoom.id) {
+					l.tried = [];
+					l.room = activeRoom.id;
+				}
+				if (s.roomClosed !== "id-taken" || prev.roomClosed === "id-taken")
+					return;
+				l.tried.push(l.current);
+				const next = nextParticipantId(l.current, s.peers, l.tried);
+				if (!next) {
+					l.tried = [];
+					l.end(); // the final screen, after a full teardown
+					return;
+				}
+				showToast(`${l.current} is in use in this room: joined as ${next}`);
+				l.current = next;
+				s.setRoomClosed(null);
+				// connect() replaces the closed session itself (mic, audio and
+				// the room stay up): no Leave, so no 30313 ended either.
+				l.rejoin(next);
 			}),
 		[],
 	);
