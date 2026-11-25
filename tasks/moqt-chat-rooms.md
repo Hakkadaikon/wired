@@ -347,7 +347,40 @@ BIP-340 spent only after nip98_precheck, `open` clamped to now+60 s, --nip05 127
   connected, no notices) but receives 0 "recv", also when joining straight
   as user4; the hub logs dg_dropped > dg_sent (tasks/voice-stability/
   s4-voice-outage-reconnect/report.json, victimProbe, and server.log).
-  Left: the hub's datagram relay investigation.
+  Fixed (2026-11-25, root cause, srvrun not the hub): the server's shared
+  DATAGRAM ring (SRVRUN_DGRING_CAP 256, all connections) had no
+  per-connection bound. The crashed peer's connection stays up until the
+  idle timeout with its window closed, so every copy queued for it was held
+  and its entries filled the ring; then every push for anyone failed
+  (ring-full). The survivors still got through because the fan-out pushes
+  them first into the one slot a drain frees; the rejoiner, last in
+  subscriber order, never did. A temporary probe in srvrun_dgring.c
+  (removed) showed ring_n=256 with 255 entries on the dead conn's slot,
+  ftarget=0, ffull=4421 of 8000 pushes. Fix: a push to a full ring evicts
+  the oldest entry of a connection holding more of the ring than the
+  pusher (srvrun_dgring_evict, srvrun_dgring_evict.c; RFC 9221 1
+  best-effort), otherwise it is refused and nothing is overwritten. So the
+  dead connection cannot evict a lighter one's entries. Urgency is
+  ignored (the stalest entry is the one least worth sending). The size is
+  checked before evicting, so an oversize push loses nothing. Evictions
+  are counted per env next to the ring (wired_srvrun_wt_usage.
+  datagrams_evicted; the calling loop's via wired_server_wt_usage, an
+  env's via wired_srvrun_env_wt_usage) and printed as
+  dg_evicted= in the relay-stats line, after dg_dropped=. Tests:
+  test_srvrun_dgring_full_evicts_other_conns_oldest (wrapped head, the
+  evicted entry is c0's oldest, counter +1, the hog's own push refused),
+  _full_skips_own_oldest ([A's 1, D's 255]: A's push evicts D's oldest),
+  _oversize_evicts_nothing. RED: conn 1's push refused; after review,
+  counter not counted, head-only refusal, oversize push evicted one.
+  Regression (first fix): s4 PASS twice (rejoinMs 1077, 1127;
+  dg_sent=1942 dg_dropped=122), s1, s9 and s12 PASS. After review: s4
+  PASS (rejoinMs 1219; dg_sent=1980 dg_dropped=120 dg_evicted=232).
+  Counter moved into the env: s4 PASS (rejoinMs 1133, dg_evicted=220);
+  s1 FAIL twice on a single PLC frame (user2->user4, then user3->user4)
+  with dg_dropped=0 dg_evicted=0 (the hub dropped nothing, the ring never
+  evicted), load average ~3 on 4 cores beside TLC. Confirmed host load:
+  a third run beside TLC failed the same way (plc 3/6 at user3), and a run
+  with the TLC process stopped (SIGSTOP) PASSed (2026-11-25).
 - s10 / s11 / s13: 4-peer voice PLC / inter-arrival p99 (600-2100 ms) and
   screen stalls >= 3 s, the same at 3999828e8 and in the room tree on this
   4-core host with a TLC run beside it: host load, not P8.
