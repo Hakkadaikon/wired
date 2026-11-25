@@ -299,66 +299,95 @@ Review round 1 fixed, round 2 PASS: NIP-05 charset (no request-line injection; n
 nothing, so replies still match by order), tap budget 1/room/tick apart from NIP-98's 8,
 BIP-340 spent only after nip98_precheck, `open` clamped to now+60 s, --nip05 127/8 only,
 "moqt rooms: OFF" log; T-35..T-43.)
-- [~] Room table, create / join / refuse rules; host query check -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-01..T-08, T-23)
-- [~] Participant id claims per room -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-24)
-- [~] Namespace confinement per the table -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-25, T-27; frontend-wire deviation above)
-- [~] Optimistic create (`verifying`), async NIP-05 verdict, timeout -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-01, T-09, T-10, T-33; nip05d over loopback TCP, --nip05)
-- [~] Anti-squatting (per pubkey, per domain, optional allowlist), SETUP
-      timeout, no-room sessions closed, per-tick verify cap -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-26, T-29, T-30; --room-allow)
-- [~] Lifecycle: lifetime, alone, empty grace, host end via 30313 -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-11..T-15, T-28, T-32)
-- [~] Close with code + reason token; slot freed once; restart semantics;
-      --goaway-uri keeps room/host -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-16..T-18, T-31, T-34; new SDK call wired_moqt_goaway_session, test_moqtrun_goaway_session_uri); left: restart semantics in server.md (P8)
-- [~] Flags (durations, allowlist, public URL); WIRED_MOQT_CHAT_MAX_ROOMS -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (room_server.c: --public-url --nip05 --room-lifetime --room-alone-timeout --room-empty-grace --room-allow; no flag test)
-- [~] Logging without tokens; unit tests per rule -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (create/end lines + "moqt rooms: admitted= refused ..." with the 10 s stats line)
-- [~] Test first: host end ignores an `ended` older than the newest recorded
-      `open` (the newest `open` created_at is stored); P5 survivor -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (T-12 test_chatroom_host_end_ignores_ended_older_than_open; red without the open_at record)
-- [~] Test list from tasks/loopeng/MoqtChatRooms.feature transferred to
-      tasks/test-design/ before the P6 tests are written -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (tasks/test-design/MoqtChatRooms.md)
+- [x] Room table, create / join / refuse rules; host query check -- done (0086cdae7..a2b77e6d8; room-mode e2e 32f4e4efd) (T-01..T-08, T-23)
+- [x] Participant id claims per room -- done (0086cdae7..a2b77e6d8; room-mode e2e 32f4e4efd) (T-24)
+- [x] Namespace confinement per the table -- done (0086cdae7..a2b77e6d8; room-mode e2e 32f4e4efd) (T-25, T-27; frontend-wire deviation above)
+- [x] Optimistic create (`verifying`), async NIP-05 verdict, timeout -- done (0086cdae7..a2b77e6d8; room-mode e2e 32f4e4efd) (T-01, T-09, T-10, T-33; nip05d over loopback TCP, --nip05)
+- [x] Anti-squatting (per pubkey, per domain, optional allowlist), SETUP
+      timeout, no-room sessions closed, per-tick verify cap -- done (0086cdae7..a2b77e6d8; room-mode e2e 32f4e4efd) (T-26, T-29, T-30; --room-allow)
+- [x] Lifecycle: lifetime, alone, empty grace, host end via 30313 -- done (0086cdae7..a2b77e6d8; room-mode e2e 32f4e4efd) (T-11..T-15, T-28, T-32)
+- [x] Close with code + reason token; slot freed once; restart semantics;
+      --goaway-uri keeps room/host -- done (0086cdae7..a2b77e6d8; room-mode e2e 32f4e4efd) (T-16..T-18, T-31, T-34; new SDK call wired_moqt_goaway_session, test_moqtrun_goaway_session_uri); e2e s5b/s12/s21 PASS 2026-11-25; restart semantics in server.md 5.3
+- [x] Flags (durations, allowlist, public URL); WIRED_MOQT_CHAT_MAX_ROOMS -- done (0086cdae7..a2b77e6d8; room-mode e2e 32f4e4efd) (room_server.c: --public-url --nip05 --room-lifetime --room-alone-timeout --room-empty-grace --room-allow; no flag test)
+- [x] Logging without tokens; unit tests per rule -- done (0086cdae7..a2b77e6d8; room-mode e2e 32f4e4efd) (create/end lines + "moqt rooms: admitted= refused ..." with the 10 s stats line)
+- [x] Test first: host end ignores an `ended` older than the newest recorded
+      `open` (the newest `open` created_at is stored); P5 survivor -- done (0086cdae7..a2b77e6d8; room-mode e2e 32f4e4efd) (T-12 test_chatroom_host_end_ignores_ended_older_than_open; red without the open_at record)
+- [x] Test list from tasks/loopeng/MoqtChatRooms.feature transferred to
+      tasks/test-design/ before the P6 tests are written -- done (0086cdae7..a2b77e6d8; room-mode e2e 32f4e4efd) (tasks/test-design/MoqtChatRooms.md)
 
 ### P7 frontend — est. 1 day
-- [~] Create room UI (NIP-07 + nip05 + mode), share link (2afd44193) -- e2e (P8, uncommitted): open and auth create -> live in s24-s29; reload: 2f3008081 + 24a01413b, {created, mode} per room id in sessionStorage (same-tab reload only; another device needs a hub-sent field); tests: roomLink "P7: a create is kept per room id for a reload of this tab", "P7: works when storage is unavailable", "P7: ignores a stored value with %s", nostrRoomSession "the live meeting ends ROOM_LIFETIME_S after the room was created" (reload step)
-- [~] NIP-98 signing for create and auth joins; re-sign on reconnect (2afd44193) -- e2e (P8, uncommitted): every logged-in connect signs (s24/s25/s27); left: no e2e of a reconnect re-sign
-- [~] Close-info handling in both paths; final screens per reason token (2afd44193) -- e2e (P8, uncommitted): room-full, unauthorized, no-room-slots (s27), room-ended (s25/s28), no-such-room (s28), nip05-unverified (s29); id-taken now retries the next free id (useIdTakenRetry), new token `replaced`; left: malformed-auth / expired-auth / server-busy only in unit tests (the page refuses an event whose created_at differs, so no e2e for expired-auth); after an id-taken retry s4's voice does not decode again -- open
+- [x] Create room UI (NIP-07 + nip05 + mode), share link (2afd44193) -- e2e (32f4e4efd): open and auth create -> live in s24-s29; reload: 2f3008081 + 24a01413b, {created, mode} per room id in sessionStorage (same-tab reload only; another device needs a hub-sent field); tests: roomLink "P7: a create is kept per room id for a reload of this tab", "P7: works when storage is unavailable", "P7: ignores a stored value with %s", nostrRoomSession "the live meeting ends ROOM_LIFETIME_S after the room was created" (reload step)
+- [~] NIP-98 signing for create and auth joins; re-sign on reconnect (2afd44193) -- e2e (32f4e4efd): every logged-in connect signs (s24/s25/s27); left: no e2e of a reconnect re-sign
+- [~] Close-info handling in both paths; final screens per reason token (2afd44193) -- e2e (32f4e4efd): room-full, unauthorized, no-room-slots (s27), room-ended (s25/s28), no-such-room (s28), nip05-unverified (s29); id-taken now retries the next free id (useIdTakenRetry), new token `replaced`; left: malformed-auth / expired-auth / server-busy only in unit tests (the page refuses an event whose created_at differs, so no e2e for expired-auth); after an id-taken retry s4's voice does not decode again -- open
 - [~] Countdown from 30313 `ends` (2afd44193; unit tests) -- not in the e2e; the lifetime end itself is (s28)
 
 ### P8 e2e and docs — est. 1 day
-- [~] e2e NIP-07 stub + local nostr.json fixture (resolver allowed to reach
-      it only in the e2e build) -- done, uncommitted: e2e/lib/roomsE2e.mjs (HTTPS fixture, fake profile relay), nip05d -allow-host (TestAllowHost)
-- [~] e2e: create, join, room full, id taken, 4th room refused, auth room
+- [x] e2e NIP-07 stub + local nostr.json fixture (resolver allowed to reach
+      it only in the e2e build) -- done (32f4e4efd): e2e/lib/roomsE2e.mjs (HTTPS fixture, fake profile relay), nip05d -allow-host (TestAllowHost)
+- [x] e2e: create, join, room full, id taken, 4th room refused, auth room
       refuses unauthenticated join, host mismatch, host end, alone timeout,
-      empty grace, lifetime (short flags), cross-room isolation -- done, uncommitted (P8 round 2, 2026-11-25; the SETUP-close crash fixed by deferring the hub SETUP until admission): s25 host end, s26 isolation, s27-room-admission (id-taken -> retried as user3, room-full, host mismatch, auth room, no-room-slots), s28-room-timers, s29-room-nip05 x5 all PASS. Evidence tasks/voice-stability/<id>/
-- [~] Remove the legacy mode: `--public-url` required (else wired_die),
+      empty grace, lifetime (short flags), cross-room isolation -- done (32f4e4efd, P8 round 2, 2026-11-25; the SETUP-close crash fixed by deferring the hub SETUP until admission): s25 host end, s26 isolation, s27-room-admission (id-taken -> retried as user3, room-full, host mismatch, auth room, no-room-slots), s28-room-timers, s29-room-nip05 x5 all PASS. Evidence tasks/voice-stability/<id>/
+- [x] Remove the legacy mode: `--public-url` required (else wired_die),
       delete chat_authorize_room_ns, migrate s24/s25/s26 and the other
-      scenarios to create rooms (no-compat; P6 review deviation 1) -- done, uncommitted: default room created by the first client (s1-s23, e2e-load, run-voice, e2e-screen), compose + nip05d service, examples.yml; room profile conntable 4 -> 16 (a 5th joiner was refused at QUIC before room-full); left: s5b/s12/s21 restart semantics (rooms end) not rerun
-- [~] P6 review minors: T-35 inputs NUL / non-ASCII / '%'; rename
+      scenarios to create rooms (no-compat; P6 review deviation 1) -- done (32f4e4efd): default room created by the first client (s1-s23, e2e-load, run-voice, e2e-screen), compose + nip05d service, examples.yml; room profile conntable 4 -> 16 (a 5th joiner was refused at QUIC before room-full); s5b/s12/s21 rerun PASS 2026-11-25
+- [x] P6 review minors: T-35 inputs NUL / non-ASCII / '%'; rename
       g_rooms / g_nip05 / g_room_hub with a module prefix; fold
-      nip98_tag_is into nostrev_tag_value if they overlap -- done, uncommitted (chat_rooms_tab/_nip05/_hub; nip98_tag_is = nostrev_tag_count + nostrev_tag_value)
-- [~] e2e: nip05d running -> create goes live; nip05d stopped ->
-      nip05-unverified after 3 s while other sessions keep running -- done, uncommitted: s29-room-nip05
-- [~] wire.md (codes/reasons, NIP-98 and NIP-53 deviations), server.md,
+      nip98_tag_is into nostrev_tag_value if they overlap -- done (32f4e4efd) (chat_rooms_tab/_nip05/_hub; nip98_tag_is = nostrev_tag_count + nostrev_tag_value)
+- [x] e2e: nip05d running -> create goes live; nip05d stopped ->
+      nip05-unverified after 3 s while other sessions keep running -- done (32f4e4efd): s29-room-nip05
+- [x] wire.md (codes/reasons, NIP-98 and NIP-53 deviations), server.md,
       frontend.md, e2e.md; limitations (restart ends rooms, shared hub
-      capacity and cache, squatting with many domains, NIP-05 dependency) -- done, uncommitted (wire.md 2.3, server.md 5, frontend.md 2.1, e2e.md 2.5/3, nip05d README)
+      capacity and cache, squatting with many domains, NIP-05 dependency) -- done (32f4e4efd) (wire.md 2.3, server.md 5, frontend.md 2.1, e2e.md 2.5/3, nip05d README)
 
-#### P8 paused (2026-11-25): s4 state
-- Paused for other frontend work; tree builds, all gates green at the pause.
-- Symptom: s4-voice-outage-reconnect FAIL "rejoined user3 never decoded
-  audio". The crashed user3's stale session holds user3 until the 30 s idle
-  timeout, so the rejoin is closed id-taken; useIdTakenRetry then rejoins as
-  user4. The second WebTransport opens and is ready, the hub admits it
-  (admitted=5, id-taken=1), 7 incoming uni streams arrive, yet
-  __decodedFrameCount stays 0 (tasks/voice-stability/s4-voice-outage-reconnect/report.json).
-- Hypothesis: the retry path is exit() (leave + teardown, useEndOnRoomClosed)
-  followed by connect(); the voice pipeline is not restarted for the new
-  session (startVoice skipped or gated: AudioContext / audioContextGate after
-  a teardown without a fresh user gesture, or a teardown that lands after the
-  new connect).
-- Tried: (1) immediate rejoin -> no decode; (2) rejoin delayed 2 s
-  (RETRY_AFTER_MS, roomStatus.tsx) so afterRoomEnd's 1.5 s teardown finishes
-  first -> still no decode. An auth room (same-key takeover) does not fit s4:
-  each client signs its own proxy flow's URL against one --public-url.
-- Left: log in the page whether startVoice / the receive pipeline runs after
-  the retry; consider retrying without the full exit() teardown (keep the
-  audio context, swap only the session); then rerun s4, s27 and s10/s11/s13
-  (perf FAILs, suspected host load).
+#### Known pre-existing issues (not P8 regressions)
+- s4-voice-outage-reconnect: the hub does not relay voice datagrams to a
+  rejoiner after a peer died mid-outage. Same failure on a clean worktree at
+  3999828e8 (no rooms, rejoin as user3): "rejoined user3 never decoded
+  audio". In the room tree the rejoined page sends (1498 "send" taps, status
+  connected, no notices) but receives 0 "recv", also when joining straight
+  as user4; the hub logs dg_dropped > dg_sent (tasks/voice-stability/
+  s4-voice-outage-reconnect/report.json, victimProbe, and server.log).
+  Left: the hub's datagram relay investigation.
+- s10 / s11 / s13: 4-peer voice PLC / inter-arrival p99 (600-2100 ms) and
+  screen stalls >= 3 s, the same at 3999828e8 and in the room tree on this
+  4-core host with a TLC run beside it: host load, not P8.
+
+#### P8 round 3 (2026-11-25)
+- A full Login-required room admits a rejoin of a member's key and replaces
+  the stale session at admission (count stays <= 4; T-46); the hooks pin
+  that the new session PUBLISHes the id's tracks and the old one is refused
+  (T-44). Deviation from the Design (room table): the takeover happens at
+  claim normally, at admission when the room is full.
+- Client: HUB_SETUP_TIMEOUT_MS (5 s) on the wait for the hub SETUP; the
+  id-taken retry swaps only the session and forgets its tried ids on a held
+  connect or a new room. Hub logs "moqt room: leave <id6> slot=i n=<left>".
+- --public-url refuses '?' and '#' (T-45).
+- Fixed (s28, root cause): when the hub closed a session itself, the
+  client kept sending voice DATAGRAMs until it read WT_CLOSE_SESSION. The
+  slot was already freed, so srvrun took each one for an unknown request
+  (RFC 9297 9297-002) and aborted the CONNECT stream (RESET_STREAM +
+  STOP_SENDING, H3_DATAGRAM_ERROR 0x33), dropping the queued capsule.
+  Chrome's net-log showed exactly that RST on stream 0 and "WebTransport
+  client terminated", so `closed` rejected ("Connection lost") and the
+  page auto-rejoined. Datagrams for a CONNECT stream this connection has
+  closed are now dropped silently: such a stream had known datagram
+  semantics (WebTransport), so RFC 9297 2's abort for "no known semantics"
+  does not apply; our own close ended its send side (draft-ietf-webtrans-
+  http3 6), not its receive side, so this is not 9297-008 either
+  (srvrun_wt_closed_connect_id, test_srvrun_rx_datagram_dropped_after_own_close;
+  a free slot that is not CLOSED is reused first, so the record lasts,
+  test_srvrun_wt_free_slot_keeps_closed_record). Not the cause of s4.
+- Open: after the datagram fix, 1 of 9 s28 runs still showed "Connection
+  lost" on the alone end (the single host); 4 runs with Chrome net-log did
+  not reproduce it. The tombstone stops that page from resurrecting the
+  room, so the run fails only on the missing final screen. Left: catch it
+  with net-log and read what reached stream 0.
+- No resurrection: an ended room's id cannot be created again for
+  CHATROOM_GONE_MS (60 s from the end; refused room-ended, checked after
+  the creator rules); only rooms that reached live leave a tombstone, in a
+  ring of 2 x MAX_ROOMS that evicts the oldest (T-47..T-50). Residual: a
+  NIP-05-verified creator can churn the ring, bounded by one live room per
+  key and per domain. Chosen over the frontend check: only the hub knows
+  --room-lifetime and the alone / empty / host ends.
 
 Total estimate: about 11-14 working days (P2 is the largest block).
