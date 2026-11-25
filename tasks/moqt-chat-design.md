@@ -55,7 +55,7 @@ Standing constraints (decided earlier, they override the review text):
 ## Left sidebar
 - [x] D-14 Always visible: participant list + own volume. Video / Background / (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       Video file / Tile width / Output move to a settings drawer
-- [~] D-15 Participant rows: avatar + name + mic / screen / hand icons, (e09dffec4; remaining: remote mute is not transmitted, peers show a speaking icon)
+- [~] D-15 Participant rows: avatar + name + mic / screen / hand icons, (e09dffec4; remote mute: 24a01413b, presence tag; left: an e2e of the tag (wire) ["muted","1"] republished on toggle; tests: nostrRoom "adds muted only when the mic is muted, and reads it back (D-15)", nostrRoomSession "a mute toggle republishes presence with the muted tag (D-15)", "toggleMute flips the store and republishes presence", "a burst of republishes goes out in order: the last one is current", peerBadges.test.tsx "PeerBadges remote mute (D-15 / D-21)" incl. "speech we hear beats a peer's declared mute")
       "You" marker, connection dot
 - [x] D-16 File picker: custom "Choose video file" button (no browser-locale (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       text), truncated name with full-name tooltip
@@ -68,13 +68,13 @@ Standing constraints (decided earlier, they override the review text):
 - [x] D-19 Message separators: none or 1px rgba(255,255,255,.06); gap on φ scale (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
 - [x] D-20 Composer: 1px border, purple on focus, filled purple Send, (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       attach icon always visible
-- [~] D-21 Video tile overlay: name bar bottom-left, mic / screen icons, (e09dffec4; remaining: remote mute not transmitted, speaking icon instead)
+- [~] D-21 Video tile overlay: name bar bottom-left, mic / screen icons, (e09dffec4; remote mute: 24a01413b + 6513c94ff, same PeerBadges; left: e2e (wire) as D-15, heard speech beats a declared mute; tests: peerBadges.test.tsx "PeerBadges remote mute (D-15 / D-21)")
       "You" on own tile
 - [x] D-22 Camera off → avatar + name placeholder; "Sharing screen" label; (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       play icon while a video file plays
 - [x] D-23 Raise hand: purple button while raised, hand icon in participant (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
       list and tile, toast "<name> raised their hand" to everyone
-- [~] D-24 Send states: pending (gray + spinner), failed (red + Retry); (e09dffec4; failed + Retry + Disconnected done; remaining: pending state, needs a pre-sign dedup key)
+- [x] D-24 Send states: pending (gray + spinner), failed (red + Retry); (e09dffec4; failed + Retry + Disconnected done; pending: 6513c94ff, local entry before signing, signed id mapped before publish; tests: useMoqtChat.test.ts "D-24: pending before signing, sent after publish", "D-24: pending -> failed, and Retry sends anew", "D-24: its echo confirms the pending entry, no duplicate", "D-24: an echo of a send whose publish rejected clears failed"; roomUi.test.ts retryMessage order + "isNostrPost: %s"; sendState.test.tsx "SendState (D-24)")
       disconnected → composer disabled with "Reconnecting…"
 - [x] D-25 "Share screen" → "Start sharing"; while sharing "Stop sharing" (e09dffec4/ef5f637f8; roomUi/roomTabs/roomStatus/toast tests, e2e s22/s24/s25/s26/s8)
 

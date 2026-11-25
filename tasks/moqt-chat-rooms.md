@@ -207,6 +207,8 @@ name before any check (low value: room ids are random).
   3 simultaneous joins (3 x 27 fills), RDV_PER_SESSION likewise fixed, cache
   arena shared across rooms (one room can evict another's history —
   documented or partitioned). MAX_SUBS (31), peers, conntable (64) unchanged.
+  Deviation (P8): conntable 16, not 64 (the real build was 4; 64 would be
+  ~1 GiB BSS).
   Measure BSS and RSS at the end of P3.
 
 ### Frontend
@@ -314,27 +316,49 @@ BIP-340 spent only after nip98_precheck, `open` clamped to now+60 s, --nip05 127
       tasks/test-design/ before the P6 tests are written -- done (0086cdae7..a2b77e6d8; [x] after the P8 room-mode e2e) (tasks/test-design/MoqtChatRooms.md)
 
 ### P7 frontend — est. 1 day
-- [~] Create room UI (NIP-07 + nip05 + mode), share link (2afd44193; client side + unit tests done, server side and e2e pending P6/P8)
-- [~] NIP-98 signing for create and auth joins; re-sign on reconnect (2afd44193; client side + unit tests done, server side and e2e pending P6/P8)
-- [~] Close-info handling in both paths; final screens per reason token (2afd44193; client side + unit tests done, server side and e2e pending P6/P8)
-- [~] Countdown from 30313 `ends` (2afd44193; client side + unit tests done, server side and e2e pending P6/P8)
+- [~] Create room UI (NIP-07 + nip05 + mode), share link (2afd44193) -- e2e (P8, uncommitted): open and auth create -> live in s24-s29; reload: 2f3008081 + 24a01413b, {created, mode} per room id in sessionStorage (same-tab reload only; another device needs a hub-sent field); tests: roomLink "P7: a create is kept per room id for a reload of this tab", "P7: works when storage is unavailable", "P7: ignores a stored value with %s", nostrRoomSession "the live meeting ends ROOM_LIFETIME_S after the room was created" (reload step)
+- [~] NIP-98 signing for create and auth joins; re-sign on reconnect (2afd44193) -- e2e (P8, uncommitted): every logged-in connect signs (s24/s25/s27); left: no e2e of a reconnect re-sign
+- [~] Close-info handling in both paths; final screens per reason token (2afd44193) -- e2e (P8, uncommitted): room-full, unauthorized, no-room-slots (s27), room-ended (s25/s28), no-such-room (s28), nip05-unverified (s29); id-taken now retries the next free id (useIdTakenRetry), new token `replaced`; left: malformed-auth / expired-auth / server-busy only in unit tests (the page refuses an event whose created_at differs, so no e2e for expired-auth); after an id-taken retry s4's voice does not decode again -- open
+- [~] Countdown from 30313 `ends` (2afd44193; unit tests) -- not in the e2e; the lifetime end itself is (s28)
 
 ### P8 e2e and docs — est. 1 day
-- [ ] e2e NIP-07 stub + local nostr.json fixture (resolver allowed to reach
-      it only in the e2e build)
-- [ ] e2e: create, join, room full, id taken, 4th room refused, auth room
+- [~] e2e NIP-07 stub + local nostr.json fixture (resolver allowed to reach
+      it only in the e2e build) -- done, uncommitted: e2e/lib/roomsE2e.mjs (HTTPS fixture, fake profile relay), nip05d -allow-host (TestAllowHost)
+- [~] e2e: create, join, room full, id taken, 4th room refused, auth room
       refuses unauthenticated join, host mismatch, host end, alone timeout,
-      empty grace, lifetime (short flags), cross-room isolation
-- [ ] Remove the legacy mode: `--public-url` required (else wired_die),
+      empty grace, lifetime (short flags), cross-room isolation -- done, uncommitted (P8 round 2, 2026-11-25; the SETUP-close crash fixed by deferring the hub SETUP until admission): s25 host end, s26 isolation, s27-room-admission (id-taken -> retried as user3, room-full, host mismatch, auth room, no-room-slots), s28-room-timers, s29-room-nip05 x5 all PASS. Evidence tasks/voice-stability/<id>/
+- [~] Remove the legacy mode: `--public-url` required (else wired_die),
       delete chat_authorize_room_ns, migrate s24/s25/s26 and the other
-      scenarios to create rooms (no-compat; P6 review deviation 1)
-- [ ] P6 review minors: T-35 inputs NUL / non-ASCII / '%'; rename
+      scenarios to create rooms (no-compat; P6 review deviation 1) -- done, uncommitted: default room created by the first client (s1-s23, e2e-load, run-voice, e2e-screen), compose + nip05d service, examples.yml; room profile conntable 4 -> 16 (a 5th joiner was refused at QUIC before room-full); left: s5b/s12/s21 restart semantics (rooms end) not rerun
+- [~] P6 review minors: T-35 inputs NUL / non-ASCII / '%'; rename
       g_rooms / g_nip05 / g_room_hub with a module prefix; fold
-      nip98_tag_is into nostrev_tag_value if they overlap
-- [ ] e2e: nip05d running -> create goes live; nip05d stopped ->
-      nip05-unverified after 3 s while other sessions keep running
-- [ ] wire.md (codes/reasons, NIP-98 and NIP-53 deviations), server.md,
+      nip98_tag_is into nostrev_tag_value if they overlap -- done, uncommitted (chat_rooms_tab/_nip05/_hub; nip98_tag_is = nostrev_tag_count + nostrev_tag_value)
+- [~] e2e: nip05d running -> create goes live; nip05d stopped ->
+      nip05-unverified after 3 s while other sessions keep running -- done, uncommitted: s29-room-nip05
+- [~] wire.md (codes/reasons, NIP-98 and NIP-53 deviations), server.md,
       frontend.md, e2e.md; limitations (restart ends rooms, shared hub
-      capacity and cache, squatting with many domains, NIP-05 dependency)
+      capacity and cache, squatting with many domains, NIP-05 dependency) -- done, uncommitted (wire.md 2.3, server.md 5, frontend.md 2.1, e2e.md 2.5/3, nip05d README)
+
+#### P8 paused (2026-11-25): s4 state
+- Paused for other frontend work; tree builds, all gates green at the pause.
+- Symptom: s4-voice-outage-reconnect FAIL "rejoined user3 never decoded
+  audio". The crashed user3's stale session holds user3 until the 30 s idle
+  timeout, so the rejoin is closed id-taken; useIdTakenRetry then rejoins as
+  user4. The second WebTransport opens and is ready, the hub admits it
+  (admitted=5, id-taken=1), 7 incoming uni streams arrive, yet
+  __decodedFrameCount stays 0 (tasks/voice-stability/s4-voice-outage-reconnect/report.json).
+- Hypothesis: the retry path is exit() (leave + teardown, useEndOnRoomClosed)
+  followed by connect(); the voice pipeline is not restarted for the new
+  session (startVoice skipped or gated: AudioContext / audioContextGate after
+  a teardown without a fresh user gesture, or a teardown that lands after the
+  new connect).
+- Tried: (1) immediate rejoin -> no decode; (2) rejoin delayed 2 s
+  (RETRY_AFTER_MS, roomStatus.tsx) so afterRoomEnd's 1.5 s teardown finishes
+  first -> still no decode. An auth room (same-key takeover) does not fit s4:
+  each client signs its own proxy flow's URL against one --public-url.
+- Left: log in the page whether startVoice / the receive pipeline runs after
+  the retry; consider retrying without the full exit() teardown (keep the
+  audio context, swap only the session); then rerun s4, s27 and s10/s11/s13
+  (perf FAILs, suspected host load).
 
 Total estimate: about 11-14 working days (P2 is the largest block).
