@@ -87,11 +87,13 @@ void              srvrun_wt_stamp(wired_srvrun_env* env, wired_wt_session* s);
 int*              srvrun_wt_active_slot(srvrun_conn* c, int i);
 const wired_wt_session* srvrun_wt_slot_c(const srvrun_conn* c, int i);
 int                     srvrun_wt_is_active(const srvrun_conn* c, int i);
-int  srvrun_wt_slot_by_connect_id(const srvrun_conn* c, u64 stream_id);
+int srvrun_wt_slot_by_connect_id(const srvrun_conn* c, u64 stream_id);
+/* 1 iff stream_id is the CONNECT stream of a session this connection closed
+ * (slot freed, not reused): a DATAGRAM for it is dropped (srvrun_dg.c). */
+int  srvrun_wt_closed_connect_id(const srvrun_conn* c, u64 stream_id);
 int  srvrun_wt_free_slot(const srvrun_conn* c);
 usz  srvrun_wt_active_total(const wired_srvrun_env* env);
 int  srvrun_wt_no_room(const srvrun_cfg* cfg, const srvrun_conn* c);
-int  srvrun_wt_slot_for_new_stream(const srvrun_conn* c);
 int  srvrun_wt_slot_for_signal(srvrun_conn* c, const u8* sig, u8 have);
 int  srvrun_wt_stream_owner(const srvrun_conn* c, int offered, int owner);
 void srvrun_wt_bidi_slot_free(

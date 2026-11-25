@@ -137,8 +137,17 @@ static int srvrun_dg_id_exceeds_limit(
  * all. */
 static void srvrun_abort_unknown_dg_request(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 connect_id) {
-  u64 err = srvrun_dg_id_exceeds_limit(cfg, c, connect_id) ? H3_ID_ERROR
-                                                           : H3_DATAGRAM_ERROR;
+  u64 err;
+  /* Not RFC 9297 2's "no known semantics" case: the stream carried a
+   * WebTransport session, which this server terminated itself (its send
+   * side is closed by the WT_CLOSE_SESSION + FIN, draft-ietf-webtrans-http3
+   * 6). The client keeps sending until it reads the capsule; drop those.
+   * An abort here would reset the CONNECT stream over its queued capsule. */
+  if (srvrun_wt_closed_connect_id(c, connect_id)) {
+    return;
+  }
+  err = srvrun_dg_id_exceeds_limit(cfg, c, connect_id) ? H3_ID_ERROR
+                                                       : H3_DATAGRAM_ERROR;
   srvrun_send_wt_busy_reset(cfg, c, connect_id, err);
 }
 

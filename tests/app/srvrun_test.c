@@ -11635,6 +11635,83 @@ static void test_srvrun_rx_datagram_dropped_after_receive_side_closed(void) {
   CHECK(c.wt.datagrams[0].in_use == 0); /* not buffered either */
 }
 
+/* A new session takes a never-used free slot before the slot of a session
+ * this connection closed: that slot's CLOSED record is what drops a late
+ * DATAGRAM for the old CONNECT stream (srvrun_wt_closed_connect_id). */
+static void test_srvrun_wt_free_slot_keeps_closed_record(void) {
+  srvrun_conn c = {0};
+  wired_wt_session_init(srvrun_wt_slot(&c, 0), 4);
+  wired_wt_session_establish(srvrun_wt_slot(&c, 0));
+  CHECK(wired_wt_session_close(srvrun_wt_slot(&c, 0)) == 1);
+  c.l.peer_wt_initial[0] = 1; /* flow control on: several sessions allowed */
+  CHECK(srvrun_wt_free_slot(&c) == 1);
+}
+
+/* The same rule on the real close path (moqt_chat s28): a session this
+ * server closed itself (wired_server_wt_close_session -> the WT_CLOSE_SESSION
+ * capsule, then srvrun_close_wt_session_slot frees the slot) keeps getting
+ * the client's DATAGRAMs until the client reads the capsule. Those must be
+ * dropped too: aborting the CONNECT stream as an unknown request (RESET_STREAM
+ * + STOP_SENDING, H3_DATAGRAM_ERROR) overtakes the queued capsule, and the
+ * browser then reports the session lost instead of closed with its reason. */
+static void test_srvrun_rx_datagram_dropped_after_own_close(void) {
+  srvrun_conn c = {0};
+  wired_wt_session_init(&c.wt, 4);
+  wired_wt_session_establish(&c.wt);
+  c.wt_active = 1;
+  {
+    srvrun_cfg cfg = {
+        -1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        sr_dg_handler,
+        0,
+        0,
+        0,
+        0,
+        &g_srvrun_env,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0};
+    srvrun_close_wt_session_slot(&cfg, &c, 0, WTERR_SESSION_GONE);
+    CHECK(c.wt_active == 0); /* the slot is free: qsid 1 maps to nothing */
+    c.l.rx_datagrams[0].buf[0] = 0x01; /* qsid=1 (4/4), the closed session */
+    c.l.rx_datagrams[0].buf[1] = 0x7A;
+    c.l.rx_datagrams[0].len    = 2;
+    c.l.rx_datagram_n          = 1;
+    g_srdg_calls               = 0;
+    CHECK(!wired_srvloop_closed_has(&c.l.send_done, 4));
+    srvrun_drain_rx_datagrams(&cfg, &c);
+    /* no abort of stream 4: an abort marks its send side ended (and drops
+     * the CONNECT stream's queued capsule with it) */
+    CHECK(!wired_srvloop_closed_has(&c.l.send_done, 4));
+    CHECK(c.l.rx_datagram_n == 0);
+  }
+  CHECK(g_srdg_calls == 0);
+}
+
 /* RFC 9000 10.2.3: srvrun_seal_transport_close builds a correctly-encoded
  * transport-level (is_app=0, type 0x1c) CONNECTION_CLOSE -- the sibling of
  * test_srvrun_seal_app_close_is_application_level's is_app=1 check, proving
@@ -13055,6 +13132,13 @@ static void test_srvrun_wt_reused_slot_has_no_stale_data(void) {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_close_wt_on_stream_close(&cfg, &c);
+  }
+  /* every other slot closed too: a free slot that is not CLOSED would be
+   * taken first (srvrun_wt_free_slot_any), and this test reuses one */
+  for (int i = 1; i < SRVRUN_MAX_WT_SESSIONS; i++) {
+    wired_wt_session_init(srvrun_wt_slot(&c, i), 8 + 4 * (u64)i);
+    wired_wt_session_establish(srvrun_wt_slot(&c, i));
+    wired_wt_session_close(srvrun_wt_slot(&c, i));
   }
   CHECK(srvrun_wt_free_slot(&c) == 0); /* slot 0 is free again */
   /* a new session reuses slot 0 with a different CONNECT stream id */
@@ -26513,23 +26597,26 @@ static void test_srvrun_wt_session_creation_rate_limited(void) {
   g_sr_wt_handler_calls = 0;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  /* the slot is whichever is free (a CLOSED one last): find it by id */
   for (u32 i = 0; i < SRVRUN_MAX_WT_SESSIONS_PER_WINDOW; i++, sid += 4) {
+    int sidx;
     sr_set_req(&conns[0], 1, 1, sid);
     srvrun_start_resp(&ctx, 0);
-    CHECK(conns[0].wt_active == 1);
-    srvrun_close_wt_session_slot(&cfg, &conns[0], 0, WTERR_SESSION_GONE);
+    sidx = srvrun_wt_slot_by_connect_id(&conns[0], sid);
+    CHECK(sidx >= 0);
+    srvrun_close_wt_session_slot(&cfg, &conns[0], sidx, WTERR_SESSION_GONE);
     conns[0].resp[0].in_use = 0;
   }
   sr_set_req(&conns[0], 1, 1, sid);
   srvrun_start_resp(&ctx, 0);
-  CHECK(conns[0].wt_active == 0); /* refused: 429 */
+  CHECK(srvrun_wt_slot_by_connect_id(&conns[0], sid) < 0); /* refused: 429 */
   conns[0].resp[0].in_use = 0;
   sid += 4;
   ctx.now_ms = SRVRUN_RESET_WINDOW_MS;
   srvrun_roll_reset_window(&conns[0], ctx.now_ms);
   sr_set_req(&conns[0], 1, 1, sid);
   srvrun_start_resp(&ctx, 0);
-  CHECK(conns[0].wt_active == 1); /* a fresh window admits again */
+  CHECK(srvrun_wt_slot_by_connect_id(&conns[0], sid) >= 0); /* admits again */
 }
 
 /* draft-ietf-webtrans-http3-15 SS8 (V-0512): WebTransport feature usage is
@@ -32283,6 +32370,8 @@ void test_srvrun(void) {
   test_srvrun_rx_datagram_oversized_qsid_closes_conn();
   test_srvrun_rx_datagram_buffers_before_establish();
   test_srvrun_rx_datagram_dropped_after_receive_side_closed();
+  test_srvrun_rx_datagram_dropped_after_own_close();
+  test_srvrun_wt_free_slot_keeps_closed_record();
   test_srvrun_seal_transport_close_is_transport_level();
   test_srvrun_oversized_datagram_latches_violation_on_step();
   test_srvrun_stream_past_limit_closes_on_step();

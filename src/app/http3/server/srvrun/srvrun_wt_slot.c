@@ -52,6 +52,24 @@ static int wt_slot_is_connect_id(const srvrun_conn* c, int i, u64 stream_id) {
          srvrun_wt_slot_c(c, i)->connect_stream_id == stream_id;
 }
 
+/* Slot i last held the session of CONNECT stream stream_id and closed it
+ * (wired_wt_session_close; srvrun_close_wt_session_slot frees the slot but
+ * leaves its session CLOSED until the slot is reused). */
+static int wt_slot_closed_for(const srvrun_conn* c, int i, u64 stream_id) {
+  const wired_wt_session* s = srvrun_wt_slot_c(c, i);
+  return !srvrun_wt_is_active(c, i) && s->state == WIRED_WT_CLOSED &&
+         s->connect_stream_id == stream_id;
+}
+
+int srvrun_wt_closed_connect_id(const srvrun_conn* c, u64 stream_id) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
+    if (wt_slot_closed_for(c, i, stream_id)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 int srvrun_wt_slot_by_connect_id(const srvrun_conn* c, u64 stream_id) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
     if (wt_slot_is_connect_id(c, i, stream_id)) {
@@ -76,15 +94,29 @@ static int srvrun_wt_conn_flow_control(const srvrun_conn* c) {
   return (v[0] | v[1] | v[2]) != 0;
 }
 
-/* The first currently-inactive session slot among all SRVRUN_MAX_WT_SESSIONS,
- * or -1 if every one holds an open session. */
-static int srvrun_wt_free_slot_any(const srvrun_conn* c) {
+/* The first inactive slot whose session is (closed == 1) or is not
+ * (closed == 0) CLOSED, or -1. */
+static int srvrun_wt_free_as(const srvrun_conn* c, int i, int closed) {
+  return !srvrun_wt_is_active(c, i) &&
+         (srvrun_wt_slot_c(c, i)->state == WIRED_WT_CLOSED) == closed;
+}
+
+static int srvrun_wt_free_slot_of(const srvrun_conn* c, int closed) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
-    if (!srvrun_wt_is_active(c, i)) {
+    if (srvrun_wt_free_as(c, i, closed)) {
       return i;
     }
   }
   return -1;
+}
+
+/* An inactive session slot, or -1 if every one holds an open session. A
+ * slot whose session this connection closed comes last: its CLOSED record
+ * makes a late DATAGRAM for the old CONNECT stream a silent drop
+ * (srvrun_wt_closed_connect_id) until the slot is reused. */
+static int srvrun_wt_free_slot_any(const srvrun_conn* c) {
+  int i = srvrun_wt_free_slot_of(c, 0);
+  return i >= 0 ? i : srvrun_wt_free_slot_of(c, 1);
 }
 
 /* draft-ietf-webtrans-http3-16 SS5.1: 1 iff flow control is disabled on this
@@ -135,7 +167,7 @@ int srvrun_wt_no_room(const srvrun_cfg* cfg, const srvrun_conn* c) {
 
 /* The first active session slot, -1 if none: the target of a stream that
  * carries no signal (raw QUIC's implicit session). */
-int srvrun_wt_slot_for_new_stream(const srvrun_conn* c) {
+static int srvrun_wt_slot_for_new_stream(const srvrun_conn* c) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
     if (srvrun_wt_is_active(c, i)) {
       return i;
