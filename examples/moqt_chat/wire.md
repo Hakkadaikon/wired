@@ -56,7 +56,7 @@ Nostr でログインしたクライアントは、接続のたびに NIP-98 の
 | 大きさ | 1 KiB(1024 バイト)まで。超えるならクライアントは署名を頼まずに接続をやめる。固定の部分(作成のタグを含む)が 435 バイト、`?room=&host=` が 98 バイトなので、"Server URL" と `nip05` で 491 バイトまで使える。`nip05` は 100 文字までしか受け付けないので、"Server URL" が 391 バイトまでなら必ず収まる |
 | content | 空 |
 
-トークンは 1 回しか使えないので、クライアントは作成、参加、自動の再参加のどれでも署名し直す。
+トークンは 1 回しか使えないので、クライアントは作成、参加、自動の再参加のどれでも署名し直す。ハブはセッションの入室を認めてから、自分の SETUP を送る。
 
 イベントの `nip05` を NIP-05 として確かめるのはハブの側(nip05d)である。`/.well-known/nostr.json` を取りに行く先の制限(SSRF の対策: 443 番の https だけ、私的なアドレスを拒むなど)は nip05d が受け持つ(tasks/moqt-chat-rooms.md の P4)。
 
@@ -95,7 +95,7 @@ Nostr でログインしたクライアントは、接続のたびに NIP-98 の
 | PUBLISH | 名前空間がちょうど `wired/moqt_chat/<room>`(3 フィールド)で、Track の名前が `<id>` か `<id>/<種類>`。`<id>` は PUBLISH_NAMESPACE と同じ |
 | SUBSCRIBE、FETCH、TRACK_STATUS | 名前空間が `wired/moqt_chat/<room>/` の下 |
 
-参加者 ID は、そのセッションが最初に PUBLISH か PUBLISH_NAMESPACE で使ったときに決まる。1 つのセッションが使える ID は 1 つで、閉じると空く。ほかのセッションがルームで使っている ID を名乗ると、ハブはそのセッションを `id-taken` で閉じる。ただし Login required のルームでは、ID を持つセッションと NIP-98 の公開鍵が同じなら、新しいセッションが ID を引き継ぎ、古いセッションを `replaced` で閉じる。強制終了したブラウザーの古いセッションは、アイドルタイムアウト(30 秒)まで ID を持ち続けるためである。Open のルームでは引き継がない。だれでも入れるので、他人を追い出せてしまう。クライアントは `id-taken` を受けると、空いている次の ID で自動で参加し直す([フロントエンド](frontend.md) 2.1 節)。
+参加者 ID は、そのセッションが最初に PUBLISH か PUBLISH_NAMESPACE で使ったときに決まる。1 つのセッションが使える ID は 1 つで、閉じると空く。ほかのセッションがルームで使っている ID を名乗ると、ハブはそのセッションを `id-taken` で閉じる。ただし Login required のルームでは、ID を持つセッションと NIP-98 の公開鍵が同じなら、新しいセッションが ID を引き継ぎ、古いセッションを `replaced` で閉じる。ルームが満員のときは、ID を名乗る前の入室の時点で入れ替える。強制終了したブラウザーの古いセッションは、アイドルタイムアウト(30 秒)まで ID を持ち続けるためである。Open のルームでは引き継がない。だれでも入れるので、他人を追い出せてしまう。クライアントは `id-taken` を受けると、空いている次の ID で自動で参加し直す([フロントエンド](frontend.md) 2.1 節)。
 
 ホストが送る 30313(`nostr-30313` の Track)はハブも読む。署名がホストのもので、`a` がそのルームの space、`status` が `ended` で、ルームを作ったあとの最新の 30313 なら、ハブはルームを終える(`room-ended`)。読むのは Subgroup のストリームの Object だけで、データグラムは読まない。
 
@@ -135,7 +135,7 @@ FILL_PARAMETERS(0x23、9.19.15)は、Length を持たない Parameter の数と 
 
 ### 4.1 fill の枠が足りないとき
 
-ハブの fill の表は 16 スロット(`WIRED_MOQTRUN_MAX_FETCHES`)と待ちの 16 スロットである(SDK の既定は 8 と 8。moqt_chat のサーバーは `-DWIRED_PROFILE_MOQT_ROOM` でビルドする)。4 人のルームに途中参加すると、ほかの 3 人 × 9 Track で最大 27 の fill を同時に頼む。両方が埋まると、ハブは履歴付きの SUBSCRIBE 全体を REQUEST_ERROR INTERNAL_ERROR で拒否する。受け付けた fill には fill のストリームを開く必要があるので(3.4.1)、ハブは返答の前に判断する。
+ハブの fill の表は 41 スロット(`WIRED_MOQTRUN_MAX_FETCHES`)と待ちの 41 スロットである(SDK の既定は 8 と 8。moqt_chat のサーバーは `-DWIRED_PROFILE_MOQT_ROOM` でビルドする)。4 人のルームに途中参加すると、ほかの 3 人 × 9 Track で最大 27 の fill を同時に頼む。両方が埋まると、ハブは履歴付きの SUBSCRIBE 全体を REQUEST_ERROR INTERNAL_ERROR で拒否する。受け付けた fill には fill のストリームを開く必要があるので(3.4.1)、ハブは返答の前に判断する。
 
 クライアントはその SUBSCRIBE を FILL_PARAMETERS なしで 1 回だけ再送する。ピアのメッセージは履歴なしで届く。draft-23 が定めていない REQUEST_ERROR のコードは、INTERNAL_ERROR として扱う(13)。
 
@@ -203,7 +203,7 @@ Track Alias はカメラの範囲(18〜21)の上に、Track ごとに参加者 4
 |---|---|---|---|
 | 30312 space | ホスト。参加したとき | `d`、`room`、`status`(open。Login required のルームを作ったページなら private)、`service`(ページの URL)、`["p", ホスト, "", "Host"]` | pubkey と `d` が座標と一致し、`room`、`service`、Host の `p` があり、`status` が open、private、closed のどれか |
 | 30313 meeting | ホスト。参加したとき(セッションごとに新しい `d`、status live)、参加者が変わったとき(2 秒まとめて `current_participants` を更新)、退出したとき(status ended、`ends` は退出した時刻) | `d`、`a`(space の座標)、`title`、`starts`、`status`、`current_participants`、`ends`(live ではルームが終わる時刻 = 作った時刻 + 5 時間) | ホストの pubkey、`a` が自分の space、`d`、`title`、数字の `starts`、`status` が planned、live、ended のどれか |
-| 10312 presence | ログインした全員。参加したとき、60 秒ごと、挙手を切り替えたとき | `["a", space, "", "root"]`、挙手中は `["hand", "1"]`、`["wired-participant", <参加者 ID>]` | `a` が自分の space で、3 分以内のもの |
+| 10312 presence | ログインした全員。参加したとき、60 秒ごと、挙手かマイクの消音を切り替えたとき | `["a", space, "", "root"]`、挙手中は `["hand", "1"]`、消音中は `["muted", "1"]`、`["wired-participant", <参加者 ID>]` | `a` が自分の space で、3 分以内のもの |
 | 7 リアクション(NIP-25) | ログインした人。同じ投稿に同じ内容は 1 回だけ送る | `e`(対象の id)、`p`(対象の作者)、`k` 1311。content は `+`、`-`、絵文字 | 最後の `e` と最後の `p` が対象の投稿と作者に一致する。content は 1〜32 文字。(pubkey、content)ごとに 1 回だけ数え、1 人あたり 4 種類まで、1 つの数は 999 まで |
 | 5 削除(NIP-09) | 投稿の作者 | `e`(対象の id)、`k` 1311 | 削除の pubkey が対象の作者と同じときだけ従う。対象の投稿は「<名前> deleted this message」(削除した本人の画面では「You deleted this message」)の行になる |
 
