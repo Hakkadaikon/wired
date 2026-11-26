@@ -25,10 +25,10 @@
 
 ```mermaid
 graph LR
-    a["browser (user1)"] -- "WebTransport / moqt-23" --> hub["wired_server<br/>(moqtrun hub)"]
-    b["browser (user2)"] -- "WebTransport / moqt-23" --> hub
-    hub -- "Objects of user1's tracks" --> b
-    hub -- "Objects of user2's tracks" --> a
+    a["ブラウザー (user1)"] -- "WebTransport / moqt-23" --> hub["wired_server<br/>(moqtrun のハブ)"]
+    b["ブラウザー (user2)"] -- "WebTransport / moqt-23" --> hub
+    hub -- "user1 の Track の Object" --> b
+    hub -- "user2 の Track の Object" --> a
 ```
 
 | 項目 | 値 |
@@ -47,26 +47,26 @@ graph LR
 
 ```mermaid
 sequenceDiagram
-    participant X as NIP-07 extension
-    participant B as browser (host)
-    participant H as hub
+    participant X as NIP-07 の拡張機能
+    participant B as ブラウザー (ホスト)
+    participant H as ハブ
     participant N as nip05d
-    participant D as NIP-05 domain
-    B->>X: get public key (log in)
-    X-->>B: public key
-    B->>B: new room ID, add ?room=&host= to the URL
-    B->>X: sign NIP-98 event (kind 27235, nip05 + wired-room tags)
-    X-->>B: signed event
+    participant D as NIP-05 のドメイン
+    B->>X: 公開鍵を求める (ログイン)
+    X-->>B: 公開鍵
+    B->>B: ルーム ID を作り、URL に ?room=&host= を付ける
+    B->>X: NIP-98 のイベントの署名を頼む (kind 27235、nip05 と wired-room のタグ)
+    X-->>B: 署名したイベント
     B->>H: WebTransport CONNECT ?room=&host=
-    B->>H: SETUP (AUTHORIZATION TOKEN = the event)
-    H->>H: check signature, u, method, reuse, host
-    H->>H: create the room (verifying, creator only)
-    H->>B: SETUP (session admitted)
-    H->>N: check the creator's nip05
+    B->>H: SETUP (AUTHORIZATION TOKEN はこのイベント)
+    H->>H: 署名、u、method、再利用、host を確かめる
+    H->>H: ルームを作る (確認中、作った人だけが入れる)
+    H->>B: SETUP (セッションを受け入れる)
+    H->>N: 作った人の nip05 の確認を頼む
     N->>D: GET /.well-known/nostr.json
     D-->>N: names
-    N-->>H: ok
-    H->>H: room is live
+    N-->>H: 確認の成功
+    H->>H: ルームを使える状態にする
 ```
 
 nip05d の確認の結果が 3 秒以内に来なければ、ハブはルームを終える。トークンの形は [MoQT の使い方 2.1](wire.md#21-setup-の-authorization-token) にある。作成の条件は [サーバー 5.1](server.md#51-作成と参加) にある。
@@ -77,24 +77,24 @@ nip05d の確認の結果が 3 秒以内に来なければ、ハブはルーム�
 
 ```mermaid
 sequenceDiagram
-    participant G as browser (participant)
-    participant H as hub
-    participant O as browser (old session, same key)
+    participant G as ブラウザー (参加者)
+    participant H as ハブ
+    participant O as ブラウザー (前のセッション、同じ鍵)
     G->>H: WebTransport CONNECT ?room=&host=
-    G->>H: SETUP (NIP-98 token when logged in)
-    alt refused
-        H-->>G: close (reason)
-    else admitted
+    G->>H: SETUP (ログイン中は NIP-98 のトークン付き)
+    alt 参加を断る
+        H-->>G: 閉じる (理由)
+    else 参加を受け入れる
         H->>G: SETUP
-        G->>H: PUBLISH / PUBLISH_NAMESPACE with a participant ID
-        alt ID free
-            H->>G: PUBLISH accepted
-        else ID used by another session
-            H-->>G: close (id-taken)
-            G->>H: join again with the next free ID
-        else ID held by the same key (Login required)
-            H-->>O: close (replaced)
-            H->>H: the new session takes the ID
+        G->>H: 参加者 ID で PUBLISH / PUBLISH_NAMESPACE
+        alt ID が空いている
+            H->>G: PUBLISH を受け入れる
+        else ほかのセッションが ID を使っている
+            H-->>G: 閉じる (id-taken)
+            G->>H: 次の空いた ID で参加し直す
+        else 同じ鍵が ID を持っている (Login required)
+            H-->>O: 閉じる (replaced)
+            H->>H: 新しいセッションが ID を引き継ぐ
         end
     end
 ```
@@ -107,17 +107,17 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant A as browser (user1, logged in)
-    participant H as hub
-    participant B as browser (user2)
-    A->>H: PUBLISH user1, user1/nostr-* tracks
+    participant A as ブラウザー (user1、ログイン中)
+    participant H as ハブ
+    participant B as ブラウザー (user2)
+    A->>H: PUBLISH user1 と user1/nostr-* の Track
     A->>H: PUBLISH_NAMESPACE wired/moqt_chat/{room}/user1
     B->>H: SUBSCRIBE_NAMESPACE wired/moqt_chat/{room}
     H->>B: NAMESPACE user1
-    B->>H: SUBSCRIBE user1, user1/nostr-* tracks
-    A->>H: Object (kind 1311, signed)
-    H->>B: Object (relayed as is)
-    B->>B: verify id and BIP-340 signature
+    B->>H: SUBSCRIBE user1 と user1/nostr-* の Track
+    A->>H: Object (kind 1311、署名付き)
+    H->>B: Object (そのまま中継する)
+    B->>B: id と BIP-340 の署名を確かめる
 ```
 
 ハブは中継のときにイベントを確かめない。公開のリレーには kind 0 の REQ だけを送り、EVENT も AUTH も送らない([フロントエンド](frontend.md#プロフィールのリレー))。
@@ -128,15 +128,15 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant A as browser (user1)
-    participant H as hub
-    participant B as browser (user2)
-    A->>H: OBJECT_DATAGRAM user1/audio (one Opus frame)
+    participant A as ブラウザー (user1)
+    participant H as ハブ
+    participant B as ブラウザー (user2)
+    A->>H: OBJECT_DATAGRAM user1/audio (Opus のフレーム 1 つ)
     H->>B: Object user1/audio
     A->>H: PUBLISH_NAMESPACE wired/moqt_chat/{room}/user1/screen
     H->>B: NAMESPACE user1/screen
     B->>H: SUBSCRIBE user1/screen
-    A->>H: Object user1/screen (VP8, new Group at each keyframe)
+    A->>H: Object user1/screen (VP8、キーフレームごとに新しい Group)
     H->>B: Object user1/screen
 ```
 
@@ -148,19 +148,19 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant O as browser (host)
-    participant H as hub
-    participant G as browser (participant)
-    participant L as browser (late participant)
-    O->>H: Object on nostr-30313 (status=ended, Leave)
-    H->>H: end the room (also on lifetime / alone timeout)
-    H-->>G: close (room-ended)
-    G->>G: "Room closed" screen, no rejoin
-    H->>H: keep the ended room ID for 60 s
-    L->>H: join within 60 s
-    H-->>L: close (room-ended)
-    O->>H: create again within 60 s
-    H-->>O: close (room-ended)
+    participant O as ブラウザー (ホスト)
+    participant H as ハブ
+    participant G as ブラウザー (参加者)
+    participant L as ブラウザー (あとから来た参加者)
+    O->>H: nostr-30313 の Object (status=ended、退出)
+    H->>H: ルームを終える (寿命と 1 人だけの状態の継続でも終える)
+    H-->>G: 閉じる (room-ended)
+    G->>G: 終わりの画面を出し、参加し直さない
+    H->>H: 終えたルームの ID を 60 秒残す
+    L->>H: 60 秒以内に参加する
+    H-->>L: 閉じる (room-ended)
+    O->>H: 60 秒以内に作り直す
+    H-->>O: 閉じる (room-ended)
 ```
 
 ハブは GOAWAY を送らず、セッションを直接閉じる。GOAWAY を受けたページは再接続するからである。確認中のまま終えたルームは記録しないので、すぐに作り直せる。
