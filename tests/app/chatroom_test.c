@@ -582,7 +582,7 @@ static void test_chatroom_id_claims(void) {
 
 static int chr_pub(wired_wt_session* s, const char* room, const char* name);
 
-/* M2a: in an auth room a new session of the holder's key takes its id
+/* In an auth room a new session of the holder's key takes its id
  * over (the stale one is closed "replaced", code 0); another key, or an
  * open room, gets id-taken. */
 static void test_chatroom_id_takeover(void) {

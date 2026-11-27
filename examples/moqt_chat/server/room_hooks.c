@@ -53,7 +53,7 @@ static int chatroom_keyed(const chatroom_member* a, const chatroom_member* b) {
   return a->has_pk && b->has_pk;
 }
 
-/* M2a: only an auth room ties an id to a key; in an open room a stranger
+/* Only an auth room ties an id to a key; in an open room a stranger
  * must not kick a member out. */
 static int chatroom_same_key(
     const chatroom* r, const chatroom_member* a, const chatroom_member* b) {
