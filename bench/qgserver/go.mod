@@ -1,8 +1,8 @@
 module qgserver
 
-go 1.25.0
+go 1.26.0
 
-require github.com/quic-go/quic-go v0.61.0
+require github.com/quic-go/quic-go v0.66.0
 
 require (
 	github.com/quic-go/qpack v0.6.0 // indirect

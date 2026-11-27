@@ -3,7 +3,7 @@ module wired-guide
 go 1.26.0
 
 require (
-	github.com/quic-go/quic-go v0.62.0
+	github.com/quic-go/quic-go v0.66.0
 	github.com/quic-go/webtransport-go v0.13.0
 )
 
