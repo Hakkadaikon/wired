@@ -142,7 +142,7 @@ jobs:
       # interop runner's own CI installs (its interop-test.yml).
       - uses: docker/setup-docker-action@3f1ab1ab0e29231562e4db4ca600c1a49653bac6 # v5.7.0
         with:
-          version: version=v28.3.0
+          version: v29.10.1
       - name: Enable IPv6 for the network simulator
         run: sudo modprobe ip6table_filter
       - name: Install toolchain
