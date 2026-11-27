@@ -141,7 +141,7 @@ static int chatroom_creator_ok(const chatroom_table* t, const chatroom_who* w) {
   return chatroom_tags_ok(w) && chatroom_allowed(t, w);
 }
 
-/* r is held by w's key or w's NIP-05 domain (P5 G04). */
+/* r is held by w's key or w's NIP-05 domain. */
 static int chatroom_same_creator(const chatroom* r, const chatroom_who* w) {
   return bytes_span_eq(chatroom_host_of(r), w->pubkey) ||
          ascii_dns_eq(chatroom_domain(r), chatroom_who_domain(w));

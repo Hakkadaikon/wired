@@ -180,7 +180,7 @@ static void chatroom_kick_last(
       t->close_ctx, s, chatroom_reason_code(why), chatroom_reason_token(why));
 }
 
-/* P5 G25-G27/G32: ending refuses joins and authorizes nothing; each
+/* Ending refuses joins and authorizes nothing; each
  * member is closed and detached in the same step; the slot is freed once,
  * from ending, when no member is left. */
 static chatroom_reason chatroom_end_reason(chatroom_end_why why) {

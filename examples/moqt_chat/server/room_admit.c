@@ -1,8 +1,7 @@
 /* moqt_chat rooms: the NIP-98 token at SETUP (room.h). A token is checked
  * first (cheap checks, then BIP-340 within the per-tick cap), the room
- * rules decide, and only an admitted token is recorded in the replay cache (P5
- * S-048/Q6): a refused one spends nothing. The token itself is never logged or
- * kept. */
+ * rules decide, and only an admitted token is recorded in the replay cache: a
+ * refused one spends nothing. The token itself is never logged or kept. */
 
 #include "room.h"
 

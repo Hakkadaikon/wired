@@ -5,7 +5,7 @@
  * SUBSCRIBE name tracks "<id>" / "<id>/<kind>" in wired/moqt_chat/<room>,
  * PUBLISH_NAMESPACE announces wired/moqt_chat/<room>/<id>[/<suffix>]. Every
  * hook first takes the room from the session's current membership of a
- * verifying or live room (P5 G28/G31): a detached session grants nothing. */
+ * verifying or live room: a detached session grants nothing. */
 
 #include "room.h"
 
@@ -81,7 +81,7 @@ static int chatroom_free_for(
   return 1;
 }
 
-/* P5 G18: one id per session; a second session asking a held id is
+/* One id per session; a second session asking a held id is
  * closed id-taken (and detached). */
 static int chatroom_take_id(
     chatroom_table* t, chatroom* r, chatroom_member* m, u8 k) {
