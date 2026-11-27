@@ -9,7 +9,7 @@ static int chatroom_verify_due(const chatroom* r, u64 now) {
          now - r->created_ms >= CHATROOM_VERIFY_MS;
 }
 
-/* P5 G20: the alone / empty timers run from the last count change while
+/* The alone / empty timers run from the last count change while
  * the count is 1 / 0, so any other count stops them. */
 static int chatroom_alone_due(
     const chatroom_table* t, const chatroom* r, u64 held) {
@@ -48,7 +48,7 @@ static chatroom_end_why chatroom_due(
                                      : chatroom_timer_due(t, r, now);
 }
 
-/* P5 TimeWaitsForDueEnds: every room due at now ends before time moves
+/* Every room due at now ends before time moves
  * on to now (and before any join or verdict handled after this tick). */
 void chatroom_tick(chatroom_table* t, u64 now_ms, u64 now_s) {
   t->clock_ms = now_ms;
@@ -65,7 +65,7 @@ void chatroom_tick(chatroom_table* t, u64 now_ms, u64 now_s) {
   t->verifies = 0;
 }
 
-/* P5 G21/G22: a verdict counts only for the room instance it was asked
+/* A verdict counts only for the room instance it was asked
  * for, still verifying; late ones (after timeout, end, slot reuse, the
  * same id re-created) are dropped. */
 static int chatroom_awaits(const chatroom_table* t, usz slot, u64 nonce) {
@@ -86,24 +86,34 @@ void chatroom_verdict(chatroom_table* t, usz slot, u64 nonce, int ok) {
   chatroom_end(t, &t->room[slot], CHATROOM_END_NIP05);
 }
 
-/* P5 Q5: created after the room, compared in seconds; the newest event
- * wins and an equal created_at goes to "ended". */
-int chatroom_host_news(const chatroom* r, int ended, u64 created_at) {
-  if (created_at < r->created_s) {
+/* Dated within the room's life: not before it was created, and not more
+ * than CHATROOM_HOST_SKEW_S ahead of now, or a future-dated "ended" could
+ * be replayed to end a later room re-created with the same id. */
+static int chatroom_host_dated(
+    const chatroom_table* t, const chatroom* r, u64 created_at) {
+  return created_at >= r->created_s &&
+         created_at <= t->now_s + CHATROOM_HOST_SKEW_S;
+}
+
+/* Compared in seconds: the newest event wins and an equal created_at goes
+ * to "ended". */
+int chatroom_host_news(
+    const chatroom_table* t, const chatroom* r, int ended, u64 created_at) {
+  if (!chatroom_host_dated(t, r, created_at)) {
     return 0;
   }
   return ended ? created_at >= r->open_at : created_at > r->open_at;
 }
 
 void chatroom_host(chatroom_table* t, chatroom* r, int ended, u64 created_at) {
-  if (!chatroom_host_news(r, ended, created_at)) {
+  if (!chatroom_host_news(t, r, ended, created_at)) {
     return;
   }
   if (ended) {
     chatroom_end(t, r, CHATROOM_END_HOST);
     return;
   }
-  r->open_at = u64_min(created_at, t->now_s + CHATROOM_OPEN_SKEW_S);
+  r->open_at = created_at;
 }
 
 /* ----- recently ended ids (no resurrection) ----- */

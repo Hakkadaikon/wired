@@ -1,7 +1,6 @@
-/* moqt_chat's server rooms (examples/moqt_chat/server/room*.c), one test
- * per scenario of tasks/loopeng/MoqtChatRooms.feature; the T-IDs are in
- * tasks/test-design/MoqtChatRooms.md. The example's sources are compiled
- * into this TU (they are not SDK sources, so run.c does not list them). */
+/* moqt_chat's server rooms (examples/moqt_chat/server/room*.c; behaviour in
+ * examples/moqt_chat/server.md). The example's sources are compiled into
+ * this TU (they are not SDK sources, so run.c does not list them). */
 // clang-format off
 #include "../../examples/moqt_chat/server/room.c"
 #include "../../examples/moqt_chat/server/room_rules.c"
@@ -108,7 +107,6 @@ static int chr_same(const void* a, const void* b, usz n) {
       wired_span_of((const u8*)a, n), wired_span_of((const u8*)b, n));
 }
 
-/* T-01 */
 static void test_chatroom_create_goes_live(void) {
   chr_init();
   CHECK(
@@ -123,7 +121,6 @@ static void test_chatroom_create_goes_live(void) {
   CHECK(chr_state(0) == CHATROOM_LIVE && chr_closes == 0);
 }
 
-/* T-02 */
 static void test_chatroom_two_rooms(void) {
   chr_live_a();
   CHECK(
@@ -146,7 +143,6 @@ static void chr_fill(void) {
   }
 }
 
-/* T-03 */
 static void test_chatroom_no_free_slot(void) {
   chatroom     before[WIRED_MOQT_CHAT_MAX_ROOMS];
   chatroom_who w = chr_create("DDDDDDDDDDDDDDDDDDDDDA", CHR_K4, "d@d4.x", 0);
@@ -156,7 +152,6 @@ static void test_chatroom_no_free_slot(void) {
   CHECK(chr_same(before, chr_t.room, sizeof before));
 }
 
-/* T-04 */
 static void test_chatroom_no_such_room(void) {
   chr_live_a();
   CHECK(
@@ -167,12 +162,11 @@ static void test_chatroom_no_such_room(void) {
       CHATROOM_R_NO_SUCH_ROOM);
   chatroom_end(&chr_t, &chr_t.room[0], CHATROOM_END_HOST);
   CHECK(chr_state(0) == CHATROOM_FREE);
-  /* a live room that just ended answers room-ended (T-49) */
+  /* a live room that just ended answers room-ended */
   CHECK(
       chr_enter(CHR_S(1), chr_join(CHR_RA, chrfx_pk1, 0)) == CHATROOM_R_ENDED);
 }
 
-/* T-05 */
 static void test_chatroom_room_full(void) {
   chr_live_a();
   for (usz i = 2; i <= CHATROOM_PEOPLE; i++) {
@@ -185,7 +179,6 @@ static void test_chatroom_room_full(void) {
   CHECK(chr_t.room[0].n == CHATROOM_PEOPLE);
 }
 
-/* T-06 */
 static void test_chatroom_auth_room_needs_token(void) {
   chr_init();
   chr_enter(CHR_S(1), chr_create(CHR_RB, chrfx_pk2, "bob@d2.example", 1));
@@ -198,7 +191,6 @@ static void test_chatroom_auth_room_needs_token(void) {
       CHATROOM_R_NONE);
 }
 
-/* T-07 */
 static void test_chatroom_verifying_only_creator(void) {
   chr_init();
   chr_enter(CHR_S(1), chr_create(CHR_RB, chrfx_pk2, "bob@d2.example", 1));
@@ -210,7 +202,6 @@ static void test_chatroom_verifying_only_creator(void) {
       CHATROOM_R_NO_SUCH_ROOM);
 }
 
-/* T-08 */
 static void test_chatroom_creator_rejoins_verifying(void) {
   usz          slot = 9;
   chatroom_who w    = chr_create(CHR_RA, chrfx_pk1, "alice@d1.example", 0);
@@ -223,7 +214,6 @@ static void test_chatroom_creator_rejoins_verifying(void) {
   CHECK(chr_state(0) == CHATROOM_VERIFYING);
 }
 
-/* T-09 */
 static void test_chatroom_nip05_fail_or_timeout(void) {
   chr_init();
   chr_enter(CHR_S(1), chr_create(CHR_RA, chrfx_pk1, "alice@d1.example", 0));
@@ -241,7 +231,6 @@ static void test_chatroom_nip05_fail_or_timeout(void) {
   CHECK(wired_cstr_eq(chr_close_why, "nip05-unverified"));
 }
 
-/* T-10 */
 static void test_chatroom_late_verdict_ignored(void) {
   u64 old;
   chr_init();
@@ -260,37 +249,39 @@ static void test_chatroom_late_verdict_ignored(void) {
   CHECK(chr_state(0) == CHATROOM_FREE);
 }
 
-/* T-11 */
 static void test_chatroom_host_end(void) {
   chr_live_a();
   chatroom_host(&chr_t, &chr_t.room[0], 0, CHR_T + 20);
   CHECK(chr_state(0) == CHATROOM_LIVE && chr_t.room[0].open_at == CHR_T + 20);
-  CHECK(chatroom_host_news(&chr_t.room[0], 1, CHR_T + 20));
+  CHECK(chatroom_host_news(&chr_t, &chr_t.room[0], 1, CHR_T + 20));
+  CHECK(chatroom_host_news(
+      &chr_t, &chr_t.room[0], 1, CHR_T + CHATROOM_HOST_SKEW_S));
+  CHECK(!chatroom_host_news(
+      &chr_t, &chr_t.room[0], 1, CHR_T + CHATROOM_HOST_SKEW_S + 1));
   chatroom_host(&chr_t, &chr_t.room[0], 1, CHR_T + 20);
   CHECK(chr_state(0) == CHATROOM_FREE);
   CHECK(chr_close_code == CHATROOM_NO_ERROR);
   CHECK(wired_cstr_eq(chr_close_why, "room-ended"));
 }
 
-/* T-12, the P5 survivor: the newest "open" is recorded, so an older
- * "ended" changes nothing; neither does one from before the room. */
+/* The newest "open" is recorded, so an older "ended" changes nothing;
+ * neither does one from before the room. */
 static void test_chatroom_host_end_ignores_ended_older_than_open(void) {
   chr_live_a();
   chatroom_host(&chr_t, &chr_t.room[0], 0, CHR_T + 20);
   chatroom_host(&chr_t, &chr_t.room[0], 0, CHR_T + 10);
   CHECK(chr_t.room[0].open_at == CHR_T + 20);
-  CHECK(!chatroom_host_news(&chr_t.room[0], 1, CHR_T + 19));
+  CHECK(!chatroom_host_news(&chr_t, &chr_t.room[0], 1, CHR_T + 19));
   chatroom_host(&chr_t, &chr_t.room[0], 1, CHR_T + 19);
   CHECK(chr_state(0) == CHATROOM_LIVE);
   chr_live_a();
-  CHECK(!chatroom_host_news(&chr_t.room[0], 1, CHR_T - 1));
+  CHECK(!chatroom_host_news(&chr_t, &chr_t.room[0], 1, CHR_T - 1));
   chatroom_host(&chr_t, &chr_t.room[0], 1, CHR_T - 1);
   CHECK(chr_state(0) == CHATROOM_LIVE);
   chatroom_host(&chr_t, &chr_t.room[0], 1, CHR_T);
   CHECK(chr_state(0) == CHATROOM_FREE);
 }
 
-/* T-13 */
 static void test_chatroom_lifetime(void) {
   chr_live_a();
   chr_t.lifetime_ms = 10000;
@@ -302,7 +293,7 @@ static void test_chatroom_lifetime(void) {
   CHECK(wired_cstr_eq(chr_close_why, "room-ended"));
 }
 
-/* T-47: an id that just ended is not created again (a host page that lost
+/* An id that just ended is not created again (a host page that lost
  * the close and auto-rejoins with its create tags would resurrect it):
  * refused room-ended for CHATROOM_GONE_MS, then free again. */
 static void test_chatroom_no_resurrect(void) {
@@ -333,7 +324,7 @@ static chatroom_reason chr_recreate(const char* id) {
   return chr_enter(CHR_S(5), chr_create(id, chrfx_pk1, "alice@d1.example", 0));
 }
 
-/* T-48: the host-end path in the same ms as the next create (even and odd
+/* The host-end path in the same ms as the next create (even and odd
  * now), and the 60 s boundary: 59.999 s refused, 60.000 s allowed, stamped
  * with the time of the end (also for a tick-time end). */
 static void test_chatroom_tombstone_timing(void) {
@@ -352,7 +343,7 @@ static void test_chatroom_tombstone_timing(void) {
   CHECK(chr_recreate(CHR_RA) == CHATROOM_R_ENDED);
 }
 
-/* T-49: only a room that reached live leaves a tombstone (a verifying
+/* Only a room that reached live leaves a tombstone (a verifying
  * room's self-signed end must not evict others); while it lasts every
  * join and create of the id gets room-ended, a wrong signer and a guest
  * without create tags included (the room did end; its id is known only to
@@ -373,7 +364,7 @@ static void test_chatroom_tombstone_all(void) {
       chr_enter(CHR_S(7), chr_join(CHR_RA, chrfx_pk1, 0)) == CHATROOM_R_ENDED);
 }
 
-/* T-50: 2 x MAX_ROOMS tombstones, the oldest evicted first. */
+/* 2 x MAX_ROOMS tombstones, the oldest evicted first. */
 static void test_chatroom_tombstone_ring(void) {
   static const char* const ids[] = {
       "DDDDDDDDDDDDDDDDDDDDDA", "EEEEEEEEEEEEEEEEEEEEEA",
@@ -390,7 +381,6 @@ static void test_chatroom_tombstone_ring(void) {
   CHECK(chr_recreate(ids[0]) == CHATROOM_R_NONE); /* evicted */
 }
 
-/* T-14 */
 static void test_chatroom_alone_restarts(void) {
   chr_live_a();
   chr_t.alone_ms = 1000;
@@ -405,7 +395,6 @@ static void test_chatroom_alone_restarts(void) {
   CHECK(chr_state(0) == CHATROOM_FREE && chr_close_s == CHR_S(1));
 }
 
-/* T-15 */
 static void test_chatroom_empty_grace(void) {
   chr_live_a();
   chr_t.empty_ms = 2000;
@@ -417,7 +406,6 @@ static void test_chatroom_empty_grace(void) {
   CHECK(chr_state(0) == CHATROOM_FREE && chr_closes == 0);
 }
 
-/* T-16 */
 static void test_chatroom_end_closes_members(void) {
   chr_live_a();
   chr_enter(CHR_S(2), chr_join(CHR_RA, chrfx_pk1, 0));
@@ -431,7 +419,6 @@ static void test_chatroom_end_closes_members(void) {
   CHECK(chr_t.room[0].n == 0 && chr_t.room[0].m[0].claim == 0);
 }
 
-/* T-17 */
 static void test_chatroom_slot_freed_once(void) {
   chr_live_a();
   chatroom_end(&chr_t, &chr_t.room[0], CHATROOM_END_HOST);
@@ -463,7 +450,6 @@ static void chr_close_rejoin(
   chr_during_grant = chatroom_authorize_pub(&chr_t, CHR_S(2), &f, 0);
 }
 
-/* T-18 */
 static void test_chatroom_no_join_while_ending(void) {
   chr_live_a();
   chr_enter(CHR_S(2), chr_join(CHR_RA, chrfx_pk1, 0));
@@ -499,7 +485,6 @@ static usz chr_replay_n(void) {
   return n;
 }
 
-/* T-19 */
 static void test_chatroom_invalid_token_spends_nothing(void) {
   static char bad[sizeof chrfx_c1a];
   usz         sig = sizeof chrfx_c1a - 5; /* a hex digit of "sig" */
@@ -518,7 +503,6 @@ static void test_chatroom_invalid_token_spends_nothing(void) {
   CHECK(wired_cstr_eq(chr_ask_nip05, "alice@d1.example")); /* lowercased */
 }
 
-/* T-20 */
 static void test_chatroom_refused_token_not_spent(void) {
   chr_init();
   CHECK(chr_admit(CHR_S(1), chrfx_path_a1, chrfx_c1a) == 0);
@@ -548,7 +532,6 @@ static void test_chatroom_admit_ended_closes(void) {
   CHECK(wired_cstr_eq(chr_close_why, "room-ended"));
 }
 
-/* T-21 */
 static void test_chatroom_token_once(void) {
   chr_init();
   CHECK(chr_admit(CHR_S(1), chrfx_path_a1, chrfx_c1a) == 0);
@@ -557,7 +540,6 @@ static void test_chatroom_token_once(void) {
   CHECK(chr_t.room[0].n == 1);
 }
 
-/* T-22 */
 static void test_chatroom_replay_full_busy(void) {
   u8 id[32] = {0};
   chr_init();
@@ -571,7 +553,6 @@ static void test_chatroom_replay_full_busy(void) {
   CHECK(chr_state(0) == CHATROOM_FREE && chr_replay_n() == NIP98_REPLAY_CAP);
 }
 
-/* T-23 */
 static void test_chatroom_host_mismatch(void) {
   chr_live_a();
   CHECK(
@@ -582,7 +563,6 @@ static void test_chatroom_host_mismatch(void) {
   CHECK(chr_state(0) == CHATROOM_FREE && chr_replay_n() == 0);
 }
 
-/* T-24 */
 static void test_chatroom_id_claims(void) {
   chr_live_a();
   chr_enter(CHR_S(2), chr_join(CHR_RA, chrfx_pk1, 0));
@@ -636,7 +616,7 @@ static void test_chatroom_id_takeover(void) {
 #define CHR_K5 \
   "5555555555555555555555555555555555555555555555555555555555555555"
 
-/* T-46: a full Login-required room admits a rejoin of a member's key (its
+/* A full Login-required room admits a rejoin of a member's key (its
  * crashed session holds the seat until the idle timeout): the stale member
  * is replaced at admission, so the room never holds more than 4; another
  * key is still room-full, and an open room never takes over. */
@@ -701,7 +681,6 @@ static int chr_sub(wired_wt_session* s, const char* room, const char* name) {
   return chatroom_authorize_sub(&chr_t, s, &f, 0);
 }
 
-/* T-25 */
 static void test_chatroom_ns_confinement(void) {
   moqctl_ns two = chr_ns(CHR_RA, 0, 0);
   two.n         = 2;
@@ -742,7 +721,6 @@ static void chr_close_create(
   chr_during_create = chatroom_decide(&chr_t, &w, &slot);
 }
 
-/* T-26 */
 static void test_chatroom_squat_key_domain(void) {
   chr_init();
   chr_enter(CHR_S(1), chr_create(CHR_RA, chrfx_pk1, "alice@d1.example", 0));
@@ -774,7 +752,6 @@ static void test_chatroom_squat_key_domain(void) {
       CHATROOM_R_NONE);
 }
 
-/* T-27 */
 static void test_chatroom_closed_session_stays_out(void) {
   chr_init();
   CHECK(chr_admit(CHR_S(1), chrfx_path_a1, chrfx_j3a) == CHATROOM_UNAUTHORIZED);
@@ -786,7 +763,6 @@ static void test_chatroom_closed_session_stays_out(void) {
   CHECK(!chatroom_claim(&chr_t, CHR_S(1), wired_span_cstr("user1")));
 }
 
-/* T-28 */
 static void test_chatroom_clocks_from_creation(void) {
   chr_live_a();
   chr_t.lifetime_ms = 10000;
@@ -800,7 +776,6 @@ static void test_chatroom_clocks_from_creation(void) {
   CHECK(chr_state(0) == CHATROOM_FREE && chr_state(1) == CHATROOM_LIVE);
 }
 
-/* T-29 */
 static void test_chatroom_setup_timeout(void) {
   chr_init();
   chatroom_opened(&chr_t, CHR_S(1), wired_span_cstr("/"));
@@ -819,7 +794,6 @@ static void test_chatroom_setup_timeout(void) {
   CHECK(chr_closes == 2);
 }
 
-/* T-30 */
 static void test_chatroom_verify_cap(void) {
   chr_init();
   chr_t.verifies = CHATROOM_VERIFY_CAP;
@@ -832,7 +806,6 @@ static void test_chatroom_verify_cap(void) {
   CHECK(chr_admit(CHR_S(1), chrfx_path_a1, chrfx_c1a) == 0);
 }
 
-/* T-31 */
 static void test_chatroom_token_codes(void) {
   static char big[CHATROOM_TOKEN_MAX + 2];
   bytes_memset(big, 'a', sizeof big - 1);
@@ -859,7 +832,6 @@ static int chr_tap_badsig(void) {
   return 1;
 }
 
-/* T-32 */
 static void test_chatroom_tap_host_end(void) {
   wired_span ns = wired_span_cstr("x"); /* the hook reads the publisher */
   chr_live_a();
@@ -888,7 +860,6 @@ static void test_chatroom_tap_host_end(void) {
   CHECK(wired_cstr_eq(chr_close_why, "room-ended"));
 }
 
-/* T-33 */
 static void test_chatroom_nip05_lines(void) {
   static chatroom_nip05 c;
   static const char     two[] = "ok\nfail mism";
@@ -908,7 +879,6 @@ static void test_chatroom_nip05_lines(void) {
   CHECK(chr_state(0) == CHATROOM_LIVE);
 }
 
-/* T-34 */
 static void test_chatroom_goaway_uri(void) {
   char out[256];
   chr_live_a();
@@ -924,7 +894,7 @@ static void test_chatroom_goaway_uri(void) {
   CHECK(wired_cstr_eq(out, "https://h2/"));
 }
 
-/* T-35 (M1): a NIP-05 that could split the nip05d line is refused, and
+/* A NIP-05 that could split the nip05d line is refused, and
  * nothing is written for it; a good one writes exactly one line. */
 static void test_chatroom_nip05_chars(void) {
   static chatroom_nip05    c;
@@ -953,7 +923,7 @@ static void test_chatroom_nip05_chars(void) {
   CHECK(bytes_find(wired_span_of(c.out, c.out_n), 0, '\n') == c.out_n - 1);
 }
 
-/* T-36: a wired-room mode other than open / auth is refused. */
+/* A wired-room mode other than open / auth is refused. */
 static void test_chatroom_bad_mode(void) {
   chatroom_who w = chr_create(CHR_RA, chrfx_pk1, "a@d1.example", 0);
   usz          slot;
@@ -978,7 +948,7 @@ static const char* chr_open_path(
   return chr_close_why;
 }
 
-/* T-37: query bounds (22-char id, 64 lowercase hex, 256-byte path) and a
+/* Query bounds (22-char id, 64 lowercase hex, 256-byte path) and a
  * full pending table. */
 static void test_chatroom_path_bounds(void) {
   static char up[CHATROOM_HOST_LEN + 1];
@@ -1010,7 +980,7 @@ static void test_chatroom_path_bounds(void) {
       "server-busy"));
 }
 
-/* T-38 (M2): the tap has its own budget, one per room and tick: spent by
+/* The tap has its own budget, one per room and tick: spent by
  * a forged host event, it blocks that room's taps only; a valid token is
  * still admitted. */
 static void test_chatroom_tap_budget_apart(void) {
@@ -1025,17 +995,38 @@ static void test_chatroom_tap_budget_apart(void) {
   CHECK(chr_t.room[0].n == 2);
 }
 
-/* T-39: a future-dated "open" is recorded at most now + 60 s, so a later
- * "ended" still wins. */
-static void test_chatroom_open_clamped(void) {
+/* A host 30313 more than now + 60 s ahead is ignored, "open" or "ended";
+ * one at the bound still counts. */
+static void test_chatroom_host_future_ignored(void) {
   chr_live_a();
   chatroom_host(&chr_t, &chr_t.room[0], 0, CHR_T + 1000);
-  CHECK(chr_t.room[0].open_at == CHR_T + CHATROOM_OPEN_SKEW_S);
-  chatroom_host(&chr_t, &chr_t.room[0], 1, CHR_T + CHATROOM_OPEN_SKEW_S + 1);
+  CHECK(chr_t.room[0].open_at == 0);
+  chatroom_host(&chr_t, &chr_t.room[0], 0, CHR_T + CHATROOM_HOST_SKEW_S);
+  CHECK(chr_t.room[0].open_at == CHR_T + CHATROOM_HOST_SKEW_S);
+  chatroom_host(&chr_t, &chr_t.room[0], 1, CHR_T + CHATROOM_HOST_SKEW_S + 1);
+  CHECK(chr_state(0) == CHATROOM_LIVE);
+  chatroom_host(&chr_t, &chr_t.room[0], 1, CHR_T + CHATROOM_HOST_SKEW_S);
   CHECK(chr_state(0) == CHATROOM_FREE);
 }
 
-/* T-40: which syscall results keep the nip05d connection. */
+/* An "ended" this hub accepted, dated as far ahead as allowed, is replayed
+ * by a member: it does not end the room re-created with the same id at the
+ * earliest moment the tombstone allows (CHATROOM_HOST_SKEW_S is shorter than
+ * CHATROOM_GONE_MS). An ended dated beyond now + skew that was ignored can
+ * still end such a room once the clock reaches it (server.md 5.2 residual). */
+static void test_chatroom_future_ended_replay(void) {
+  chr_live_a();
+  chatroom_host(&chr_t, &chr_t.room[0], 1, CHR_T + CHATROOM_HOST_SKEW_S);
+  CHECK(chr_state(0) == CHATROOM_FREE);
+  chatroom_tick(
+      &chr_t, 1000 + CHATROOM_GONE_MS, CHR_T + CHATROOM_GONE_MS / 1000);
+  chr_live_id(CHR_RA);
+  CHECK(chr_state(0) == CHATROOM_LIVE);
+  chatroom_host(&chr_t, &chr_t.room[0], 1, CHR_T + CHATROOM_HOST_SKEW_S);
+  CHECK(chr_state(0) == CHATROOM_LIVE);
+}
+
+/* Which syscall results keep the nip05d connection. */
 static void test_chatroom_nip05_fail_table(void) {
   static chatroom_nip05 c;
   static const i64      keep[] = {-CHATROOM_EAGAIN, -CHATROOM_EINPROGRESS, 0};
@@ -1054,7 +1045,7 @@ static void test_chatroom_nip05_fail_table(void) {
   CHECK(chatroom_nip05_err(0) == -1 && chatroom_nip05_err(5) == 5);
 }
 
-/* T-41: a full request queue drops the ask (that room times out). */
+/* A full request queue drops the ask (that room times out). */
 static void test_chatroom_nip05_queue_full(void) {
   static chatroom_nip05 c;
   usz                   out;
@@ -1084,7 +1075,7 @@ static void test_chatroom_public_url(void) {
   CHECK(!chatroom_public_url(u5) && !chatroom_public_url(u6));
 }
 
-/* T-42: --nip05 parsing: a port 1..65535, loopback (127/8) only. */
+/* --nip05 parsing: a port 1..65535, loopback (127/8) only. */
 static void test_chatroom_port_parse(void) {
   CHECK(chat_port_of("4480") == 4480 && chat_port_of("65535") == 65535);
   CHECK(chat_port_of("65536") == 0 && chat_port_of("") == 0);
@@ -1099,7 +1090,7 @@ static void test_chatroom_port_parse(void) {
   CHECK(!chat_nip05_addr("127.000.000.0001:1"));
 }
 
-/* T-43: an auth room by token: p2 creates B, pX joins with a token, a
+/* An auth room by token: p2 creates B, pX joins with a token, a
  * session without one is refused. */
 static void test_chatroom_auth_room_token_join(void) {
   chr_init();
@@ -1117,7 +1108,8 @@ void test_chatroom(void) {
   test_chatroom_bad_mode();
   test_chatroom_path_bounds();
   test_chatroom_tap_budget_apart();
-  test_chatroom_open_clamped();
+  test_chatroom_host_future_ignored();
+  test_chatroom_future_ended_replay();
   test_chatroom_nip05_fail_table();
   test_chatroom_nip05_queue_full();
   test_chatroom_port_parse();

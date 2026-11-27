@@ -44,7 +44,7 @@ static int chatroom_meeting_of(
 static int chatroom_meeting_due(
     chatroom_table* t, const chatroom* r, wired_span payload, int* ended) {
   return chatroom_meeting_of(t, r, payload, ended) &&
-         chatroom_host_news(r, *ended, t->ev.created_at);
+         chatroom_host_news(t, r, *ended, t->ev.created_at);
 }
 
 static int chatroom_tap_budget(chatroom* r) {

@@ -1,7 +1,6 @@
-/* moqt_chat rooms (tasks/moqt-chat-rooms.md, P6): the room table, who may
- * enter, participant id claims, namespace confinement, the async NIP-05
- * verdict and the room lifecycle. Every rule here is an acceptance path of
- * tasks/loopeng/MoqtChatRooms.feature (a TLA+-checked design).
+/* moqt_chat rooms: the room table, who may enter, participant id claims,
+ * namespace confinement, the async NIP-05 verdict and the room lifecycle.
+ * The rules are described in examples/moqt_chat/server.md.
  *
  * room.c       reason tokens and codes, init, shared helpers
  * room_rules.c who may enter: join and create rules (pure)
@@ -40,9 +39,12 @@
 #define CHATROOM_VERIFY_CAP 8
 /* BIP-340 verifications of tapped 30313s per room and tick, apart. */
 #define CHATROOM_TAP_VERIFY_CAP 1
-/* A host "open" may be dated at most this far ahead of the hub's clock, so
- * a future-dated one cannot outrank every later "ended". */
-#define CHATROOM_OPEN_SKEW_S 60
+/* A host 30313 dated more than this far ahead of the hub's clock is
+ * ignored: a future "open" would outrank every later "ended", and a future
+ * "ended" could be replayed to end a later room with the same id. Shorter
+ * than CHATROOM_GONE_MS, so no "ended" this hub accepted is dated at or
+ * after the creation of a room re-created once the tombstone expires. */
+#define CHATROOM_HOST_SKEW_S 30
 /* An ended room's id is not created again for this long: a host page that
  * lost the close auto-rejoins with its create tags and would resurrect it. */
 #define CHATROOM_GONE_MS 60000
@@ -229,7 +231,8 @@ void chatroom_tick(chatroom_table* t, u64 now_ms, u64 now_s);
 void chatroom_verdict(chatroom_table* t, usz slot, u64 nonce, int ok);
 /* A host-signed 30313 of r: ended or not, created_at. 1 when it would
  * change r (worth verifying), see chatroom_host. */
-int  chatroom_host_news(const chatroom* r, int ended, u64 created_at);
+int chatroom_host_news(
+    const chatroom_table* t, const chatroom* r, int ended, u64 created_at);
 void chatroom_host(chatroom_table* t, chatroom* r, int ended, u64 created_at);
 
 /* --- room_hooks.c, room_tap.c (ctx = the table) --- */
